@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# pre-commit: gitleaks terhadap perubahan STAGED (QA-T17A-04, CLAUDE.md §3.6 Pipeline).
+# Aktivasi (sekali per clone):  git config core.hooksPath .githooks
+# Image di-pin tag + digest (Docker Hub zricethezav/gitleaks v8.30.1, MIT, diverifikasi 2026-09-23).
+# Fail-closed: bila docker/gitleaks tidak bisa dijalankan, commit DITOLAK.
+# Jangan melewati hook dengan --no-verify (CLAUDE.md §0.9). False positive → perbaiki isi, atau
+# tambahkan fingerprint ke .gitleaksignore (di-review) / komentar `gitleaks:allow` beralasan.
+set -euo pipefail
+
+GITLEAKS_IMAGE="zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+
+top="$(git rev-parse --show-toplevel)"
+gitdir="$(cd "$top" && realpath "$(git rev-parse --git-common-dir)")"
+
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+  echo "pre-commit: docker tidak tersedia — gitleaks tidak bisa dijalankan, commit DITOLAK." >&2
+  exit 1
+fi
+
+# Repo (dan git dir bila di luar worktree, mis. submodule) di-mount read-only pada path yang sama.
+mounts=(-v "$top:$top:ro")
+case "$gitdir/" in
+  "$top"/*) ;;
+  *) mounts+=(-v "$gitdir:$gitdir:ro") ;;
+esac
+
+set +e
+docker run --rm --network none -u 0 "${mounts[@]}" -w "$top" \
+  -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+  "$GITLEAKS_IMAGE" git --pre-commit --staged --redact --no-banner --verbose "$top"
+rc=$?
+set -e
+
+if [ "$rc" -ne 0 ]; then
+  echo "pre-commit: gitleaks menemukan kemungkinan secret (atau gagal, exit $rc) — commit DITOLAK." >&2
+  exit 1
+fi
