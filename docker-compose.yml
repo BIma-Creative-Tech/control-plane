@@ -1,0 +1,80 @@
+# Control plane (T12 scaffold). BELUM di-deploy ke Traefik — router dibuat di T16
+# (/opt/infra/traefik/dynamic/platform/cp.yml, lihat README §Deploy T16).
+# Tidak ada port di-publish ke host. Secret di .env (600, tidak di git).
+name: control-plane
+
+x-hardening: &hardening
+  image: control-plane:0.1.0-scaffold
+  restart: unless-stopped
+  env_file:
+    - .env
+  user: "1001:1001"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  web:
+    <<: *hardening
+    build:
+      context: .
+    container_name: control-plane
+    environment:
+      SERVICE_NAME: control-plane-web
+    tmpfs:
+      - /tmp:uid=1001,gid=1001,mode=0700
+      - /app/.next/cache:uid=1001,gid=1001,mode=0700
+    networks:
+      - db      # → postgres:5432 (internal)
+      - proxy   # egress ke Keycloak publik (issuer) + Traefik → control-plane:3000 (T16)
+    # HEALTHCHECK dari Dockerfile (GET /api/health)
+    mem_limit: 384m
+    cpus: 0.5
+
+  worker:
+    <<: *hardening
+    container_name: control-plane-worker
+    command: ["node", "dist/worker/index.mjs"]
+    environment:
+      SERVICE_NAME: control-plane-worker
+      WORKER_HEARTBEAT_FILE: /tmp/worker-heartbeat
+    tmpfs:
+      - /tmp:uid=1001,gid=1001,mode=0700
+    networks:
+      - db      # hanya DB; tidak butuh egress
+    healthcheck:
+      test: ["CMD", "node", "-e", "const t=+require('fs').readFileSync('/tmp/worker-heartbeat','utf8');process.exit(Date.now()-t<60000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 256m
+    cpus: 0.25
+
+  # One-shot: `docker compose run --rm migrate`
+  migrate:
+    <<: *hardening
+    restart: "no"
+    command: ["node", "dist/db/migrate.mjs"]
+    environment:
+      SERVICE_NAME: control-plane-migrate
+    networks:
+      - db
+    profiles: ["migrate"]
+    mem_limit: 256m
+    cpus: 0.25
+
+networks:
+  db:
+    external: true
+    name: db
+  proxy:
+    external: true
+    name: proxy

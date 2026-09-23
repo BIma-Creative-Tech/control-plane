@@ -1,0 +1,25 @@
+# deps / build
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# test
+coverage/
+playwright-report/
+test-results/
+
+# env & secret — JANGAN commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# os/editor
+.DS_Store
+*.log

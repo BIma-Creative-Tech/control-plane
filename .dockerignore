@@ -1,0 +1,16 @@
+node_modules
+.next
+dist
+.git
+.env
+.env.*
+!.env.example
+secrets
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+npm-debug.log
+Dockerfile
+docker-compose.yml
+README.md

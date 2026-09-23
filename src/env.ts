@@ -1,0 +1,89 @@
+import { z } from "zod";
+
+/**
+ * Validasi environment saat boot (instrumentation.ts untuk web, worker/index.ts untuk worker).
+ * Pesan error hanya berisi NAMA variabel + alasan — nilai (secret) tidak pernah dicetak.
+ * Tidak ada secret di NEXT_PUBLIC_* (lihat assertNoPublicSecrets).
+ */
+
+const postgresUrl = z
+  .string()
+  .regex(/^postgres(ql)?:\/\/[^\s]+$/, "harus berupa URL postgres:// atau postgresql://");
+
+const httpUrl = z.url({ protocol: /^https?$/, message: "harus URL http(s)" });
+
+const logLevel = z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info");
+
+export const workerEnvSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
+  DATABASE_URL: postgresUrl,
+  LOG_LEVEL: logLevel,
+});
+
+export const webEnvSchema = workerEnvSchema
+  .extend({
+    // Auth.js v5 membaca nama-nama ini langsung (node_modules/@auth/core/lib/utils/env.js).
+    AUTH_SECRET: z.string().min(32, "minimal 32 karakter (openssl rand -base64 48)"),
+    AUTH_URL: httpUrl,
+    AUTH_KEYCLOAK_ID: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/, "client id tidak valid"),
+    AUTH_KEYCLOAK_SECRET: z.string().min(16, "minimal 16 karakter"),
+    AUTH_KEYCLOAK_ISSUER: httpUrl,
+  })
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV === "production") {
+      for (const key of ["AUTH_URL", "AUTH_KEYCLOAK_ISSUER"] as const) {
+        if (!env[key].startsWith("https://")) {
+          ctx.addIssue({ code: "custom", path: [key], message: "wajib https di production" });
+        }
+      }
+    }
+    if (!/\/realms\/[^/]+$/.test(env.AUTH_KEYCLOAK_ISSUER.replace(/\/$/, ""))) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["AUTH_KEYCLOAK_ISSUER"],
+        message: "harus berbentuk https://<host>/realms/<realm>",
+      });
+    }
+  });
+
+export type WorkerEnv = z.infer<typeof workerEnvSchema>;
+export type WebEnv = z.infer<typeof webEnvSchema>;
+
+const SECRET_LIKE = /(SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE|DATABASE|_KEY$|^KEY)/i;
+
+/** Tolak variabel NEXT_PUBLIC_* yang namanya terlihat seperti secret (di-inline ke bundle client). */
+export function assertNoPublicSecrets(source: Record<string, string | undefined>): void {
+  const offenders = Object.keys(source).filter(
+    (k) => k.startsWith("NEXT_PUBLIC_") && SECRET_LIKE.test(k.slice("NEXT_PUBLIC_".length)),
+  );
+  if (offenders.length > 0) {
+    throw new Error(`Env tidak valid: variabel publik terlihat seperti secret: ${offenders.join(", ")}`);
+  }
+}
+
+function formatIssues(error: z.ZodError): string {
+  return error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+}
+
+export function parseEnv<S extends z.ZodType>(schema: S, source: Record<string, string | undefined>): z.infer<S> {
+  assertNoPublicSecrets(source);
+  const result = schema.safeParse(source);
+  if (!result.success) {
+    throw new Error(`Env tidak valid: ${formatIssues(result.error)}`);
+  }
+  return result.data;
+}
+
+let webEnvCache: WebEnv | undefined;
+let workerEnvCache: WorkerEnv | undefined;
+
+/** Env aplikasi web (lazy + memo, agar `next build` tidak butuh secret). */
+export function getWebEnv(): WebEnv {
+  webEnvCache ??= parseEnv(webEnvSchema, process.env);
+  return webEnvCache;
+}
+
+export function getWorkerEnv(): WorkerEnv {
+  workerEnvCache ??= parseEnv(workerEnvSchema, process.env);
+  return workerEnvCache;
+}

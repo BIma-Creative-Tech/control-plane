@@ -1,0 +1,358 @@
+/**
+ * Skema control plane (CLAUDE.md §3.4, .claude/agents/nextjs-developer.md §Control plane).
+ * API diverifikasi dari drizzle-orm 0.45.3 (node_modules/drizzle-orm/pg-core/*.d.ts):
+ * pgTable(name, columns, (t) => [index(..).on(..), check(..)]).
+ *
+ * Konvensi: PK uuid (gen_random_uuid, bawaan PG13+), timestamp with time zone, snake_case.
+ * Perubahan skema = `npm run db:generate` → migrasi SQL baru di ./drizzle (versi berurutan).
+ */
+import { sql } from "drizzle-orm";
+import {
+  bigserial,
+  boolean,
+  check,
+  char,
+  index,
+  inet,
+  integer,
+  jsonb,
+  numeric,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+// ---------------------------------------------------------------------------
+// Enum
+// ---------------------------------------------------------------------------
+export const userRole = pgEnum("user_role", ["superadmin", "ops", "client_admin", "client_user"]);
+
+export const subscriptionStatus = pgEnum("subscription_status", [
+  "pending",
+  "active",
+  "grace",
+  "suspended",
+  "terminated",
+]);
+
+export const invoiceStatus = pgEnum("invoice_status", ["unpaid", "awaiting_confirmation", "paid", "void"]);
+
+/** Metode bayar. Fase ini hanya transfer manual; gateway ditambah sebagai nilai enum baru. */
+export const paymentMethod = pgEnum("payment_method", ["manual_transfer"]);
+
+export const domainStatus = pgEnum("domain_status", ["pending_dns", "verified", "active", "failed"]);
+
+export const environmentKind = pgEnum("environment_kind", ["prod", "demo", "staging"]);
+
+export const jobType = pgEnum("job_type", [
+  "noop",
+  "provision",
+  "suspend",
+  "resume",
+  "terminate",
+  "backup_now",
+  "restore",
+]);
+
+export const jobStatus = pgEnum("job_status", ["queued", "running", "succeeded", "failed", "cancelled"]);
+
+export const mailboxStatus = pgEnum("mailbox_status", ["active", "suspended", "deleted"]);
+
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
+
+// ---------------------------------------------------------------------------
+// Client & user
+// ---------------------------------------------------------------------------
+export const clients = pgTable(
+  "clients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Slug = kunci nama DB/hostname/skrip; wajib cocok ^[a-z0-9-]{3,30}$ (whitelist orkestrasi). */
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    contactEmail: text("contact_email"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    /** Terminasi logis; data dihapus setelah grace 30 hari (job terminate). */
+    terminatedAt: timestamp("terminated_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("clients_slug_uq").on(t.slug),
+    check("clients_slug_format", sql`${t.slug} ~ '^[a-z0-9-]{3,30}$'`),
+  ],
+);
+
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Claim `sub` Keycloak (identitas stabil). */
+    keycloakSub: text("keycloak_sub").notNull(),
+    email: text("email"),
+    displayName: text("display_name"),
+    /** Cache role terakhir dari claim; otorisasi tetap memakai claim sesi. */
+    role: userRole("role").notNull().default("client_user"),
+    /** Wajib untuk client_admin/client_user; null untuk superadmin/ops. */
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "restrict" }),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("users_keycloak_sub_uq").on(t.keycloakSub), index("users_client_idx").on(t.clientId)],
+);
+
+// ---------------------------------------------------------------------------
+// Plan, subscription, invoice
+// ---------------------------------------------------------------------------
+export const plans = pgTable(
+  "plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    priceAmount: numeric("price_amount", { precision: 14, scale: 2 }).notNull(),
+    currency: char("currency", { length: 3 }).notNull().default("IDR"),
+    billingPeriodMonths: integer("billing_period_months").notNull().default(1),
+    maxUsers: integer("max_users"),
+    maxEnvironments: integer("max_environments"),
+    /** Batas mail (placeholder untuk plan mail, ADR 0005 #15). */
+    maxMailboxes: integer("max_mailboxes"),
+    features: jsonb("features").$type<Record<string, unknown>>().notNull().default({}),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("plans_code_uq").on(t.code),
+    check("plans_price_nonneg", sql`${t.priceAmount} >= 0`),
+    check("plans_period_pos", sql`${t.billingPeriodMonths} > 0`),
+  ],
+);
+
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "restrict" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "restrict" }),
+    status: subscriptionStatus("status").notNull().default("pending"),
+    currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    graceUntil: timestamp("grace_until", { withTimezone: true }),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    terminatedAt: timestamp("terminated_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("subscriptions_client_idx").on(t.clientId), index("subscriptions_status_idx").on(t.status)],
+);
+
+/**
+ * Invoice. Transfer manual: upload bukti (`proof_file` = kunci penyimpanan acak, bukan path dari user)
+ * → admin konfirmasi (`confirmed_by`/`confirmed_at`) → status `paid`.
+ * Siap gateway: `payment_method` (enum, tambah nilai baru), `payment_provider` + `payment_reference`
+ * (id transaksi eksternal, unik per provider) untuk rekonsiliasi webhook kelak.
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: text("number").notNull(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "restrict" }),
+    subscriptionId: uuid("subscription_id").references(() => subscriptions.id, { onDelete: "restrict" }),
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    currency: char("currency", { length: 3 }).notNull().default("IDR"),
+    status: invoiceStatus("status").notNull().default("unpaid"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    paymentMethod: paymentMethod("payment_method").notNull().default("manual_transfer"),
+    paymentProvider: text("payment_provider"),
+    paymentReference: text("payment_reference"),
+    proofFile: text("proof_file"),
+    proofUploadedAt: timestamp("proof_uploaded_at", { withTimezone: true }),
+    confirmedBy: uuid("confirmed_by").references(() => users.id, { onDelete: "restrict" }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    voidReason: text("void_reason"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("invoices_number_uq").on(t.number),
+    uniqueIndex("invoices_payment_ref_uq").on(t.paymentProvider, t.paymentReference),
+    index("invoices_client_idx").on(t.clientId),
+    index("invoices_status_idx").on(t.status),
+    check("invoices_amount_nonneg", sql`${t.amount} >= 0`),
+    check(
+      "invoices_paid_confirmed",
+      sql`${t.status} <> 'paid' OR (${t.confirmedAt} IS NOT NULL AND ${t.paidAt} IS NOT NULL)`,
+    ),
+    check("invoices_proof_file_format", sql`${t.proofFile} IS NULL OR ${t.proofFile} ~ '^[A-Za-z0-9_-]{16,128}(\\.(png|jpg|pdf))?$'`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Environment & domain
+// ---------------------------------------------------------------------------
+export const environments = pgTable(
+  "environments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "restrict" }),
+    kind: environmentKind("kind").notNull(),
+    /** Instance Odoo, mis. `pool-a` atau `dedicated-<slug>`. */
+    odooInstance: text("odoo_instance").notNull(),
+    /** Nama DB eksak (header X-Sh-Odoo-Db, CLAUDE.md §3.2): ^[a-z0-9_]{1,63}$, mis. acme_prod. */
+    dbName: text("db_name").notNull(),
+    url: text("url").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("environments_client_kind_uq").on(t.clientId, t.kind),
+    uniqueIndex("environments_db_name_uq").on(t.dbName),
+    check("environments_db_name_format", sql`${t.dbName} ~ '^[a-z0-9_]{1,63}$'`),
+    check("environments_odoo_instance_format", sql`${t.odooInstance} ~ '^[a-z0-9-]{3,40}$'`),
+  ],
+);
+
+export const domains = pgTable(
+  "domains",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "restrict" }),
+    environmentId: uuid("environment_id").references(() => environments.id, { onDelete: "set null" }),
+    /** FQDN huruf kecil, tanpa titik akhir. */
+    fqdn: text("fqdn").notNull(),
+    status: domainStatus("status").notNull().default("pending_dns"),
+    /** Nilai TXT `_platform-verify.<fqdn>`; acak, dibuat server. */
+    verificationToken: text("verification_token").notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    certificateStatus: text("certificate_status"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("domains_fqdn_uq").on(t.fqdn),
+    index("domains_client_idx").on(t.clientId),
+    check("domains_fqdn_lower", sql`${t.fqdn} = lower(${t.fqdn}) AND length(${t.fqdn}) <= 253`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Job orkestrasi & audit
+// ---------------------------------------------------------------------------
+/**
+ * Antrean + audit orkestrasi. Request HTTP hanya INSERT baris ini + enqueue pg-boss;
+ * worker terpisah yang mengeksekusi (belum memanggil skrip host di scaffold ini).
+ */
+export const provisionJobs = pgTable(
+  "provision_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    type: jobType("type").notNull(),
+    status: jobStatus("status").notNull().default("queued"),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    /** Argumen tervalidasi (whitelist Zod) — bukan input mentah user. */
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    log: text("log").notNull().default(""),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** `user:<sub>` atau `system:<komponen>`. */
+    actor: text("actor").notNull(),
+    bossJobId: text("boss_job_id"),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    createdAt: createdAt(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("provision_jobs_status_idx").on(t.status),
+    index("provision_jobs_client_idx").on(t.clientId),
+    index("provision_jobs_created_idx").on(t.createdAt),
+  ],
+);
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actor: text("actor").notNull(),
+    action: text("action").notNull(),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    result: text("result").notNull().default("success"),
+    ip: inet("ip"),
+    requestId: text("request_id"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (t) => [
+    index("audit_logs_occurred_idx").on(t.occurredAt),
+    index("audit_logs_client_idx").on(t.clientId),
+    index("audit_logs_action_idx").on(t.action),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Mail — PLACEHOLDER (ADR 0005 #16). Hanya tabel; fitur/aksi dirancang di plan mail berikutnya.
+// ---------------------------------------------------------------------------
+/** Domain mail client: status verifikasi DNS MX/SPF/DKIM/DMARC. Belum dipakai kode aplikasi. */
+export const mailDomains = pgTable(
+  "mail_domains",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "restrict" }),
+    domainId: uuid("domain_id").references(() => domains.id, { onDelete: "set null" }),
+    fqdn: text("fqdn").notNull(),
+    status: domainStatus("status").notNull().default("pending_dns"),
+    dkimSelector: text("dkim_selector"),
+    /** Hasil cek DNS terakhir per record (mx/spf/dkim/dmarc) — bentuk final ditentukan plan mail. */
+    dnsChecks: jsonb("dns_checks").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("mail_domains_fqdn_uq").on(t.fqdn), index("mail_domains_client_idx").on(t.clientId)],
+);
+
+/** Mailbox: kuota, status, override rate-limit. Belum dipakai kode aplikasi. */
+export const mailboxes = pgTable(
+  "mailboxes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mailDomainId: uuid("mail_domain_id")
+      .notNull()
+      .references(() => mailDomains.id, { onDelete: "restrict" }),
+    localPart: text("local_part").notNull(),
+    quotaMb: integer("quota_mb").notNull().default(2048),
+    status: mailboxStatus("status").notNull().default("active"),
+    rateLimitPerHour: integer("rate_limit_per_hour"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("mailboxes_address_uq").on(t.mailDomainId, t.localPart),
+    check("mailboxes_local_part_format", sql`${t.localPart} ~ '^[a-z0-9._-]{1,64}$'`),
+    check("mailboxes_quota_pos", sql`${t.quotaMb} > 0`),
+  ],
+);

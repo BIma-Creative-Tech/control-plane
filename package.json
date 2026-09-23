@@ -1,0 +1,50 @@
+{
+  "name": "control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build && npm run build:worker",
+    "build:worker": "esbuild src/worker/index.ts src/db/migrate.ts --bundle --platform=node --target=node24 --format=esm --external:pg-native --outbase=src --outdir=dist --out-extension:.js=.mjs --banner:js=\"import{createRequire}from'node:module';const require=createRequire(import.meta.url);\"",
+    "start": "next start",
+    "lint": "eslint --max-warnings=0 .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node dist/db/migrate.mjs",
+    "worker": "node dist/worker/index.mjs"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.3",
+    "next": "16.3.6",
+    "next-auth": "5.0.0-beta.32",
+    "pg": "8.23.0",
+    "pg-boss": "12.33.6",
+    "pino": "10.3.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "24.13.6",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "drizzle-kit": "0.31.11",
+    "esbuild": "0.28.2",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.0",
+    "vitest": "5.0.1"
+  }
+}
