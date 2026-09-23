@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 # Control plane — Next.js 16 standalone + worker pg-boss (satu image, dua command).
-# Base: ADR 0001 pin `node:24.21.0-bookworm-slim` + digest (index multi-arch, dicek 2026-09-23
-# dengan `docker buildx imagetools inspect`).
-ARG NODE_IMAGE=node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+# Base: `node:24.21.0-alpine` (Alpine 3.24) + digest index multi-arch, diverifikasi 2026-09-23 via
+# Docker Hub API & `docker buildx imagetools inspect`. Revisi ADR 0001 (bookworm-slim → alpine,
+# disetujui user; alasan: Trivy HIGH/CRITICAL unfixed jauh lebih sedikit).
+ARG NODE_IMAGE=node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
 
 # ---- deps: dependency lengkap (dev dibutuhkan untuk build) ----
 FROM ${NODE_IMAGE} AS deps
@@ -28,8 +29,8 @@ ENV NODE_ENV=production \
     MIGRATIONS_DIR=/app/drizzle
 
 # User non-root khusus (uid/gid 1001), npm/corepack dihapus dari image runtime (tidak dipakai).
-RUN groupadd --system --gid 1001 nextjs \
- && useradd --system --uid 1001 --gid nextjs --no-create-home --shell /usr/sbin/nologin nextjs \
+RUN addgroup -S -g 1001 nextjs \
+ && adduser -S -D -H -u 1001 -G nextjs -s /sbin/nologin nextjs \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
            /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 

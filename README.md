@@ -5,7 +5,7 @@ Odoo, antrean provisioning). Scaffold T12 — `docs/plans/02-platform-bringup.md
 
 | Komponen | Versi (pin exact) | Catatan |
 |---|---|---|
-| Node.js | `node:24.21.0-bookworm-slim@sha256:0e0ff40c…` | ADR 0001 |
+| Node.js | `node:24.21.0-alpine@sha256:ebfe2f90…` (Alpine 3.24, semua stage) | revisi ADR 0001 (bookworm-slim → alpine) |
 | Next.js | `16.3.6` (App Router, Turbopack, `output: 'standalone'`) | `proxy.ts` (bukan `middleware.ts`) |
 | Auth.js | `next-auth@5.0.0-beta.32` (`@auth/core 0.41.3`) | peer `next ^16`; v5 masih beta (dist-tag `beta`) |
 | Drizzle | `drizzle-orm 0.45.3`, `drizzle-kit 0.31.11`, `pg 8.23.0` | |
@@ -33,7 +33,7 @@ tests/unit/              Vitest; e2e/ Playwright (smoke, skip bila PLAYWRIGHT_BA
 ## Perintah (tanpa Node di host — pakai container)
 
 ```bash
-alias nrun='docker run --rm -v "$PWD":/app -w /app -e NEXT_TELEMETRY_DISABLED=1 node:24.21.0-bookworm-slim'
+alias nrun='docker run --rm -v "$PWD":/app -w /app -e NEXT_TELEMETRY_DISABLED=1 node:24.21.0-alpine'
 nrun npm ci
 nrun npm run lint        # eslint flat config (next core-web-vitals + typescript), 0 warning
 nrun npm run typecheck   # next typegen && tsc --noEmit
@@ -76,29 +76,17 @@ Satu image, tiga command: `node server.js` (web, default), `node dist/worker/ind
 - Logout: hapus sesi lokal → redirect ke end-session Keycloak (`client_id` +
   `post_logout_redirect_uri=<AUTH_URL>/login`, Keycloak menampilkan konfirmasi).
 
-### Client Keycloak `control-plane` (langkah manual — belum dibuat)
+### Client Keycloak `control-plane`
 
-Via admin console (tunnel SSH, `docs/03-operations/keycloak.md` repo infra), realm `platform`:
+**Sudah dibuat** di realm `platform` (confidential, standard flow saja, PKCE S256, redirect/post-logout/
+web origins eksak ke `https://cp.bimacreative.tech`, `fullScopeAllowed=false`, client role
+`superadmin|ops|client_admin|client_user`, mapper User Client Role → ID/access/userinfo token).
+Detail & prosedur: `docs/03-operations/keycloak.md` di repo infra. Secret hanya di `.env` (600).
 
-1. Clients → Create client: OpenID Connect, Client ID `control-plane`.
-2. Capability config: **Client authentication ON**, Authorization OFF; centang **Standard flow saja**
-   (matikan Direct access grants, Implicit, Service accounts, Device grant, CIBA, Token exchange).
-3. Login settings: Root/Home URL `https://cp.bimacreative.tech`; Valid redirect URIs
-   `https://cp.bimacreative.tech/api/auth/callback/keycloak` (eksak); Valid post logout redirect URIs
-   `https://cp.bimacreative.tech/login`; Web origins `https://cp.bimacreative.tech`. Save.
-4. Tab Advanced → "Proof Key for Code Exchange Code Challenge Method" = **S256** → Save.
-5. Tab Roles → Create role: `superadmin`, `ops`, `client_admin`, `client_user`.
-6. Tab Client scopes → `control-plane-dedicated` → Add mapper → By configuration → **User Client Role**:
-   Client ID `control-plane`, Token Claim Name `resource_access.${client_id}.roles`, Claim JSON type
-   `String`, Multivalued ON, Add to ID token ON, Add to access token ON, Add to userinfo ON.
-   Tab Scope (di `control-plane-dedicated`): **Full scope allowed OFF**.
-7. Tab Credentials → salin Client secret, lalu di VPS (tidak masuk shell history / layar):
-   ```bash
-   cd /opt/src/control-plane && read -rs S && printf 'AUTH_KEYCLOAK_SECRET=%s\n' "$S" >> .env && unset S && chmod 600 .env
-   ```
-8. Users → (user admin platform) → Role mapping → Assign role → filter clients → `control-plane superadmin`.
-9. Realm settings → Action → Partial export (tanpa secret) → perbarui `identity/keycloak/realm-export/platform.json` di repo infra.
-10. Ulangi untuk realm `platform-staging` dengan host staging (T16).
+Untuk staging (T16): buat client setara di realm `platform-staging` dengan host
+`cp.staging.bimacreative.tech` (redirect `…/api/auth/callback/keycloak`, post-logout `…/login`),
+lalu isi `AUTH_KEYCLOAK_ISSUER=https://auth.bimacreative.tech/realms/platform-staging` dan secret-nya
+di `.env` staging.
 
 ## Kebutuhan deploy T16
 
