@@ -1,0 +1,143 @@
+# Security + build CI — control-plane (Next.js 16 / TypeScript, image node:24.21.0-alpine).
+# Semua tool dijalankan sebagai container ter-pin tag+digest (diverifikasi 2026-09-24,
+# `docker buildx imagetools inspect`); action di-pin ke commit SHA tag rilis resmi.
+# Detail & cara menjalankan lokal: repo infra docs/04-development.md §CI.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 2 * * 1" # Senin 02:17 UTC (09:17 WIB)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  SEMGREP_IMAGE: semgrep/semgrep:1.177.0@sha256:acaac22ffc7b7cc5926de0751b223bce0b2491c33d18422fa72f632c78d81198
+  TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+  HADOLINT_IMAGE: hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
+  NODE_VERSION: "24.21.0" # sama dengan base image Dockerfile
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$ACTIONLINT_IMAGE" -color
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # seluruh history
+          persist-credentials: false
+      - name: gitleaks (full history)
+        run: |
+          cfg=()
+          if [ -f .gitleaks.toml ]; then cfg=(--config /repo/.gitleaks.toml); fi
+          docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo:ro" "$GITLEAKS_IMAGE" \
+            git /repo "${cfg[@]}" --no-banner --redact --verbose --exit-code 1
+
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: semgrep scan
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -w /src -v "$RUNNER_TEMP:/out" "$SEMGREP_IMAGE" \
+            semgrep scan --metrics=off --disable-version-check \
+              --config p/owasp-top-ten --config p/typescript --config p/javascript \
+              --config p/dockerfile --config p/secrets \
+              --json-output=/out/semgrep.json .
+      - name: gagal bila ada temuan ERROR/HIGH/CRITICAL
+        run: |
+          jq -r '.results[] | "\(.extra.severity)\t\(.check_id)\t\(.path):\(.start.line)"' "$RUNNER_TEMP/semgrep.json"
+          n=$(jq '[.results[] | select(.extra.severity == "ERROR" or .extra.severity == "HIGH" or .extra.severity == "CRITICAL")] | length' "$RUNNER_TEMP/semgrep.json")
+          echo "semgrep blocking findings: $n"
+          test "$n" -eq 0
+
+  trivy:
+    name: trivy-fs-config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: trivy fs (vuln package-lock.json + secret)
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -v "$RUNNER_TEMP/trivy-cache:/root/.cache" "$TRIVY_IMAGE" \
+            fs --quiet --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 /src
+      - name: trivy config (Dockerfile)
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -v "$RUNNER_TEMP/trivy-cache:/root/.cache" "$TRIVY_IMAGE" \
+            config --quiet --severity HIGH,CRITICAL --exit-code 1 /src
+
+  hadolint:
+    name: hadolint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: hadolint Dockerfile
+        run: docker run --rm -i "$HADOLINT_IMAGE" hadolint --failure-threshold warning - < Dockerfile
+
+  build-test:
+    name: build-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false # tanpa cache bersama (hindari cache poisoning); npm ci selalu bersih
+      - run: node --version && npm --version
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --audit-level=high
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  docker-image:
+    name: docker-image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: docker build
+        run: docker build -t "control-plane:ci-${GITHUB_SHA}" .
+      - name: trivy image (HIGH,CRITICAL, ignore-unfixed)
+        run: |
+          docker save -o "$RUNNER_TEMP/image.tar" "control-plane:ci-${GITHUB_SHA}"
+          docker run --rm -v "$RUNNER_TEMP:/work:ro" -v "$RUNNER_TEMP/trivy-cache:/root/.cache" "$TRIVY_IMAGE" \
+            image --quiet --input /work/image.tar --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
