@@ -1,0 +1,3 @@
+ALTER TYPE "public"."tenant_user_status" ADD VALUE 'inconsistent';--> statement-breakpoint
+ALTER TABLE "provision_jobs" DROP CONSTRAINT "provision_jobs_error_code_valid";--> statement-breakpoint
+ALTER TABLE "provision_jobs" ADD CONSTRAINT "provision_jobs_error_code_valid" CHECK ("provision_jobs"."error_code" IS NULL OR "provision_jobs"."error_code" IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result', 'spool_error', 'result_inconsistent'));

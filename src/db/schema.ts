@@ -70,7 +70,12 @@ export const jobStatus = pgEnum("job_status", ["queued", "dispatched", "running"
 export const envDbStatus = pgEnum("env_db_status", ["absent", "provisioned"]);
 export const envRouteStatus = pgEnum("env_route_status", ["absent", "active", "removed"]);
 export const envSsoStatus = pgEnum("env_sso_status", ["none", "active", "disabled"]);
-export const tenantUserStatus = pgEnum("tenant_user_status", ["pending", "active", "revoked", "failed"]);
+/**
+ * `inconsistent` (BUG-J5-01, migrasi 0003): RESULT job `odoo_sso_user` tidak cocok dengan aksi yang diminta
+ * (mis. resend_invite dilaporkan `action=grant`) — status nyata di Keycloak/Odoo tidak diketahui CP; perlu
+ * pemeriksaan ops (revoke/grant eksplisit). Tidak pernah diisi dari input form.
+ */
+export const tenantUserStatus = pgEnum("tenant_user_status", ["pending", "active", "revoked", "failed", "inconsistent"]);
 
 /** Kode error job (plan 05 §4.3) — sama dengan CHECK `provision_jobs_error_code_valid`. */
 export const JOB_ERROR_CODES = [
@@ -84,6 +89,8 @@ export const JOB_ERROR_CODES = [
   "no_result",
   // CP saja (Lead J2b): worker gagal menulis file job ke spool.
   "spool_error",
+  // CP saja (BUG-J5-01, migrasi 0003): RESULT tidak konsisten dengan aksi yang diminta.
+  "result_inconsistent",
 ] as const;
 
 export const mailboxStatus = pgEnum("mailbox_status", ["active", "suspended", "deleted"]);
@@ -349,7 +356,7 @@ export const provisionJobs = pgTable(
       .where(sql`${t.status} NOT IN ('succeeded', 'failed', 'cancelled')`),
     check(
       "provision_jobs_error_code_valid",
-      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result', 'spool_error')`,
+      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result', 'spool_error', 'result_inconsistent')`,
     ),
   ],
 );
