@@ -23,6 +23,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ---------------------------------------------------------------------------
@@ -55,9 +56,33 @@ export const jobType = pgEnum("job_type", [
   "terminate",
   "backup_now",
   "restore",
+  // Plan 05 §4.2 (ADR 0009) — dijalankan dispatcher root `infra-job` lewat spool.
+  "odoo_db_provision",
+  "odoo_route",
+  "odoo_sso_provision",
+  "odoo_sso_disable",
+  "odoo_sso_user",
 ]);
 
-export const jobStatus = pgEnum("job_status", ["queued", "running", "succeeded", "failed", "cancelled"]);
+/** `dispatched` = file job sudah ditulis ke spool, hasil belum ada (plan 05 §4.3). */
+export const jobStatus = pgEnum("job_status", ["queued", "dispatched", "running", "succeeded", "failed", "cancelled"]);
+
+export const envDbStatus = pgEnum("env_db_status", ["absent", "provisioned"]);
+export const envRouteStatus = pgEnum("env_route_status", ["absent", "active", "removed"]);
+export const envSsoStatus = pgEnum("env_sso_status", ["none", "active", "disabled"]);
+export const tenantUserStatus = pgEnum("tenant_user_status", ["pending", "active", "revoked", "failed"]);
+
+/** Kode error job (plan 05 §4.3) — sama dengan CHECK `provision_jobs_error_code_valid`. */
+export const JOB_ERROR_CODES = [
+  "rejected_validation",
+  "rejected_quota",
+  "disabled",
+  "blocked_dry_run",
+  "locked",
+  "timeout_state_unknown",
+  "script_exit",
+  "no_result",
+] as const;
 
 export const mailboxStatus = pgEnum("mailbox_status", ["active", "suspended", "deleted"]);
 
@@ -219,12 +244,28 @@ export const environments = pgTable(
     url: text("url").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // --- Plan 05 §7: diisi dari HASIL job (RESULT dispatcher), bukan dari input form. ---
+    /** FQDN route tenant (RESULT host dari odoo_route). */
+    host: text("host"),
+    dbStatus: envDbStatus("db_status").notNull().default("absent"),
+    routeStatus: envRouteStatus("route_status").notNull().default("absent"),
+    ssoStatus: envSsoStatus("sso_status").notNull().default("none"),
+    /** clientId Keycloak `odoo-<slug>-<env>` (RESULT client). */
+    ssoClientId: text("sso_client_id"),
+    /** id auth.oauth.provider di DB tenant (RESULT provider). */
+    ssoProviderId: integer("sso_provider_id"),
+    lastJobId: uuid("last_job_id").references((): AnyPgColumn => provisionJobs.id, { onDelete: "set null" }),
   },
   (t) => [
     uniqueIndex("environments_client_kind_uq").on(t.clientId, t.kind),
     uniqueIndex("environments_db_name_uq").on(t.dbName),
     check("environments_db_name_format", sql`${t.dbName} ~ '^[a-z0-9_]{1,63}$'`),
     check("environments_odoo_instance_format", sql`${t.odooInstance} ~ '^[a-z0-9-]{3,40}$'`),
+    check(
+      "environments_host_format",
+      sql`${t.host} IS NULL OR (length(${t.host}) <= 253 AND ${t.host} ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$')`,
+    ),
+    check("environments_sso_client_id_format", sql`${t.ssoClientId} IS NULL OR ${t.ssoClientId} ~ '^[A-Za-z0-9._-]{1,128}$'`),
   ],
 );
 
@@ -281,11 +322,72 @@ export const provisionJobs = pgTable(
     createdAt: createdAt(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // --- Plan 05 §7 (jembatan infra-job). Semua nullable/berdefault → image lama tetap jalan. ---
+    environmentId: uuid("environment_id").references(() => environments.id, { onDelete: "set null" }),
+    env: environmentKind("env"),
+    dryRun: boolean("dry_run").notNull().default(false),
+    exitCode: integer("exit_code"),
+    errorCode: text("error_code"),
+    /** RESULT ter-allowlist dari dispatcher (tanpa secret/secret_file). */
+    result: jsonb("result").$type<Record<string, string>>(),
+    parentJobId: uuid("parent_job_id").references((): AnyPgColumn => provisionJobs.id, { onDelete: "set null" }),
+    dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }),
   },
   (t) => [
     index("provision_jobs_status_idx").on(t.status),
     index("provision_jobs_client_idx").on(t.clientId),
     index("provision_jobs_created_idx").on(t.createdAt),
+    index("provision_jobs_environment_idx").on(t.environmentId),
+    // Satu job aktif per (environment, type) — guard tombol ganda (plan 05 §4.4, AC-J11).
+    // Predikat memakai nilai enum LAMA saja (NOT IN final) karena nilai `dispatched` baru ditambah
+    // di transaksi migrasi yang sama (PG: nilai enum baru belum boleh dipakai sebelum commit).
+    uniqueIndex("provision_jobs_one_active_uq")
+      .on(t.environmentId, t.type)
+      .where(sql`${t.status} NOT IN ('succeeded', 'failed', 'cancelled')`),
+    check(
+      "provision_jobs_error_code_valid",
+      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result')`,
+    ),
+  ],
+);
+
+/**
+ * Akses user SSO per tenant-env (plan 05 §7): desired state + cache hasil job `odoo_sso_user`.
+ * Sumber kebenaran akses tetap Keycloak (role odoo_access) + Odoo (oauth_uid).
+ */
+export const tenantUserAccess = pgTable(
+  "tenant_user_access",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => environments.id, { onDelete: "restrict" }),
+    /** Email huruf kecil (regex sama dengan scripts/odoo-sso-user.sh). PII — hanya di tabel ini + payload job. */
+    email: text("email").notNull(),
+    odooLogin: text("odoo_login"),
+    isTenantAdmin: boolean("is_tenant_admin").notNull().default(false),
+    status: tenantUserStatus("status").notNull().default("pending"),
+    /** RESULT kc_user (uuid Keycloak). */
+    kcUserId: uuid("kc_user_id"),
+    /** RESULT odoo_user (id res.users). */
+    odooUserId: integer("odoo_user_id"),
+    invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
+    lastJobId: uuid("last_job_id").references(() => provisionJobs.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("tenant_user_access_env_email_uq").on(t.environmentId, t.email),
+    index("tenant_user_access_email_idx").on(t.email),
+    check(
+      "tenant_user_access_email_format",
+      sql`length(${t.email}) <= 254 AND ${t.email} = lower(${t.email}) AND ${t.email} ~ '^[a-z0-9._%+-]+@([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'`,
+    ),
+    check(
+      "tenant_user_access_login_format",
+      sql`${t.odooLogin} IS NULL OR ${t.odooLogin} ~ '^[A-Za-z0-9._@+][A-Za-z0-9._@+-]{0,253}$'`,
+    ),
   ],
 );
 
