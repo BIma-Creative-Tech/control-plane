@@ -21,6 +21,7 @@ import {
   type JobArgs,
   type JobRequest,
 } from "../lib/job-contract";
+import { resendAllowedForStatus } from "../lib/job-forms";
 import { evaluateQuota, type QuotaViolation } from "../lib/quota";
 import { can, type Role } from "../lib/roles";
 
@@ -60,7 +61,12 @@ export type EnqueueFailure =
   | { reason: "duplicate" }
   | { reason: "error"; message: string };
 
-export type PreconditionIssue = "route_not_active" | "host_not_in_route" | "user_not_listed" | "job_not_retryable";
+export type PreconditionIssue =
+  | "route_not_active"
+  | "host_not_in_route"
+  | "user_not_listed"
+  | "user_not_active"
+  | "job_not_retryable";
 
 export type EnqueueOutcome = { ok: true; jobId: string } | ({ ok: false } & EnqueueFailure);
 
@@ -220,13 +226,18 @@ export async function enqueueBridgeJob(db: Db, send: SendFn, input: EnqueueInput
       let tuaRowId: string | null = null;
       if (req.type === "odoo_sso_user") {
         const a = req.args as JobArgs["odoo_sso_user"];
+        // FOR UPDATE: status dibaca dan dipakai di transaksi yang sama (tidak bisa berubah di antaranya).
         const existing = await tx
-          .select({ id: tenantUserAccess.id })
+          .select({ id: tenantUserAccess.id, status: tenantUserAccess.status })
           .from(tenantUserAccess)
           .where(and(eq(tenantUserAccess.environmentId, envRow.id), eq(tenantUserAccess.email, a.email)))
+          .for("update")
           .limit(1);
         tuaRowId = existing[0]?.id ?? null;
         if (a.action !== "grant" && !tuaRowId) throw new Abort({ reason: "precondition", detail: "user_not_listed" });
+        if (a.action === "resend_invite" && !resendAllowedForStatus(existing[0]?.status)) {
+          throw new Abort({ reason: "precondition", detail: "user_not_active" });
+        }
       }
 
       const inserted = await tx

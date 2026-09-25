@@ -5,6 +5,7 @@ const TONE: Record<string, string> = {
   active: "bg-green-100 text-green-800",
   provisioned: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
+  inconsistent: "bg-red-200 text-red-900",
   revoked: "bg-slate-200 text-slate-700",
   removed: "bg-slate-200 text-slate-700",
   disabled: "bg-slate-200 text-slate-700",

@@ -1,6 +1,7 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import { users } from "./schema";
+import { isValidSub } from "../lib/identity";
 import { primaryRole, type Role } from "../lib/roles";
 
 const EMAIL_MAX = 254;
@@ -26,7 +27,7 @@ export function loginUserValues(p: LoginProfile, now: Date) {
  * disentuh (binding user↔client dikelola superadmin). Role = cache; otorisasi tetap dari klaim sesi.
  */
 export async function upsertUserOnLogin(db: Db, p: LoginProfile, now = new Date()): Promise<string | null> {
-  if (!/^[A-Za-z0-9._:@-]{1,128}$/.test(p.sub)) return null;
+  if (!isValidSub(p.sub)) return null;
   const v = loginUserValues(p, now);
   const rows = await db
     .insert(users)
@@ -37,4 +38,22 @@ export async function upsertUserOnLogin(db: Db, p: LoginProfile, now = new Date(
     })
     .returning({ id: users.id });
   return rows[0]?.id ?? null;
+}
+
+/**
+ * users.id untuk `sub` Keycloak; baris dibuat minimal (tanpa email/nama) bila belum ada — mis. upsert saat
+ * login gagal karena DB sementara tidak tersedia. Baris yang sudah ada TIDAK diubah (email/role dari login).
+ */
+export async function ensureUserId(db: Db, sub: string, roles: readonly Role[]): Promise<string | null> {
+  if (!isValidSub(sub)) return null;
+  const found = await db.select({ id: users.id }).from(users).where(eq(users.keycloakSub, sub)).limit(1);
+  if (found[0]) return found[0].id;
+  const ins = await db
+    .insert(users)
+    .values({ keycloakSub: sub, role: primaryRole(roles) })
+    .onConflictDoNothing({ target: users.keycloakSub })
+    .returning({ id: users.id });
+  if (ins[0]) return ins[0].id;
+  const again = await db.select({ id: users.id }).from(users).where(eq(users.keycloakSub, sub)).limit(1);
+  return again[0]?.id ?? null;
 }

@@ -26,7 +26,7 @@ export async function createClientAction(formData: FormData): Promise<void> {
   const parsed = parseForm("createClient", formData.entries());
   if (!parsed.success) redirect("/clients?r=invalid");
   const actor = await actorFromSession(session);
-  if (!actor) redirect("/clients?r=forbidden");
+  if (!actor) redirect("/clients?r=reauth");
   const meta = await requestMeta();
   let code = "created";
   try {
@@ -73,7 +73,7 @@ export async function createEnvironmentAction(formData: FormData): Promise<void>
   const h = host ?? defaultHost(client.slug, kind);
   if (!h || !isValidHostForEnv(h, kind)) back("invalid");
   const actor = await actorFromSession(session);
-  if (!actor) back("forbidden");
+  if (!actor) back("reauth");
   const meta = await requestMeta();
 
   let code = "created";

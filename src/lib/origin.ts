@@ -22,3 +22,22 @@ export function isFetchSiteAllowed(secFetchSite: string | null | undefined): boo
   if (!secFetchSite) return true;
   return secFetchSite === "same-origin";
 }
+
+const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * OBS-J5-02: mutasi (Server Action = POST ke halaman) dengan header Origin yang ADA tetapi asing/tidak sama
+ * dengan AUTH_URL. Dicek di proxy.ts SEBELUM Next.js — tanpa ini Next.js membatalkan Server Action dengan
+ * HTTP 500 ("Invalid Server Actions request"). Origin tidak ada → false (ditangani assertSameOrigin di
+ * action → 303 `?r=origin`, perilaku lama dipertahankan).
+ */
+export function isForeignOriginMutation(
+  method: string,
+  originHeader: string | null | undefined,
+  appUrl: string | null,
+): boolean {
+  if (SAFE_METHODS.has(method.toUpperCase())) return false;
+  if (originHeader === null || originHeader === undefined || originHeader === "") return false;
+  // AUTH_URL tidak tersedia/valid → fail-closed.
+  return appUrl === null || !isSameOrigin(originHeader, appUrl);
+}

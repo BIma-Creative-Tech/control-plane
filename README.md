@@ -87,6 +87,20 @@ worker collector (tiap INFRA_JOBS_POLL_SECONDS) ─▶ provision_jobs final + en
   `superadmin` saja: hapus route, nonaktifkan SSO, rotasi secret (ketik slug), ulang `timeout_state_unknown`,
   tambah client/environment.
 - `users` di-upsert saat login (keycloak_sub, email, role cache, last_login_at).
+- Identitas aktor = klaim `sub` Keycloak (QA J5 BUG-J5-02): callback `jwt` menimpa `token.sub` (Auth.js
+  mengisi UUID acak per login) dengan `profile.sub` + penanda `kcSub`; `provision_jobs.actor` / `audit_logs.actor`
+  = `user:<sub Keycloak>`, `actor_user_id` = `users.id` (baris minimal dibuat bila upsert login gagal).
+  **Sesi lama** (dibuat sebelum perubahan ini, tanpa `kcSub`) tetap bisa melihat halaman, tetapi setiap aksi
+  mutasi dijawab `?r=reauth` ("logout lalu login ulang"); sesi kedaluwarsa sendiri ≤ 8 jam.
+- `odoo_sso_user resend_invite` (BUG-J5-01): hanya untuk baris `tenant_user_access` berstatus `active` — tombol
+  disembunyikan untuk status lain DAN server menolak (`?r=precondition`, audit `detail=user_not_active`), juga
+  dry-run/ulangi. Status baris diturunkan dari RESULT `action=` (grant → active, revoke → revoked,
+  resend_invite → tidak berubah). RESULT `action` ≠ aksi diminta (atau hilang pada apply sukses) → job
+  `failed`/`result_inconsistent`, baris `inconsistent`, audit `job.result_inconsistent` (actor `system:worker`,
+  tanpa email) + log error `alert=job_result_inconsistent`. Perbaikan: revoke atau grant eksplisit.
+- RESULT `invite=` (`sent`/`none`) ditampilkan di detail job sebagai fakta undangan; redaksi tail tidak dilonggarkan.
+- Mutasi (POST ke halaman/Server Action) dengan header `Origin` asing → `403` di `proxy.ts` sebelum Next.js
+  (bukan 500), tanpa baris job. Tanpa header Origin → tetap 303 `?r=origin` dari action.
 
 | Env | Proses | Keterangan |
 |---|---|---|

@@ -21,6 +21,7 @@ import {
   INSTANCE_ENVS,
   buildJobFile,
   dispatchDeadline,
+  emailHash,
   isBridgeJobType,
   mapFinalOutcome,
   parseResultFile,
@@ -72,6 +73,50 @@ export function createBridge(opts: BridgeOptions) {
     });
   }
 
+  /**
+   * BUG-J5-01: RESULT tidak cocok dengan aksi diminta → job `failed`/`result_inconsistent` (bukan sukses diam-diam)
+   * + audit `job.result_inconsistent` (alert; tanpa email mentah) + log error. Baris tenant_user_access sudah
+   * ditandai `inconsistent` oleh applyReconcile.
+   */
+  async function markInconsistent(
+    tx: Tx,
+    job: { id: string; type: string; clientId: string | null; environmentId: string | null; dryRun: boolean; payload: unknown },
+    info: { expected: string; reported: string | null },
+    reportedState: "succeeded" | "failed",
+  ) {
+    const reported = info.reported ?? "(tidak ada)";
+    await tx
+      .update(provisionJobs)
+      .set({
+        status: "failed",
+        errorCode: "result_inconsistent",
+        error: `RESULT action=${reported} tidak cocok dengan aksi diminta ${info.expected} (state dispatcher: ${reportedState}); periksa akses user di Keycloak/Odoo`,
+      })
+      .where(eq(provisionJobs.id, job.id));
+    const args = ((job.payload as { args?: Record<string, unknown> } | null)?.args ?? {}) as Record<string, unknown>;
+    await tx.insert(auditLogs).values({
+      actor: SYSTEM_ACTOR,
+      action: "job.result_inconsistent",
+      targetType: "environment",
+      targetId: job.environmentId,
+      clientId: job.clientId,
+      result: "failure",
+      metadata: {
+        job_id: job.id,
+        type: job.type,
+        dry_run: job.dryRun,
+        expected_action: info.expected,
+        result_action: info.reported,
+        dispatcher_state: reportedState,
+        ...(typeof args.email === "string" ? { email_hash: emailHash(args.email) } : {}),
+      },
+    });
+    logger.error(
+      { jobId: job.id, type: job.type, expected: info.expected, reported: info.reported, alert: "job_result_inconsistent" },
+      "RESULT job tidak konsisten dengan aksi yang diminta — status akses ditandai inconsistent",
+    );
+  }
+
   /** Finalisasi idempoten: hanya baris yang masih aktif (atau queued untuk watchdog) yang diubah. */
   async function finalize(
     jobId: string,
@@ -104,6 +149,7 @@ export function createBridge(opts: BridgeOptions) {
         });
       const job = updated[0];
       if (!job) return false;
+      let final = { status: outcome.status, errorCode: outcome.errorCode };
       if (job.environmentId && isBridgeJobType(job.type) && job.env) {
         const envRow = await tx
           .select({ dbName: environments.dbName })
@@ -125,9 +171,13 @@ export function createBridge(opts: BridgeOptions) {
           );
           for (const w of plan.warnings) logger.warn({ jobId: job.id, type: job.type }, w);
           await applyReconcile(tx, job.environmentId, job.id, plan);
+          if (plan.inconsistent) {
+            final = { status: "failed", errorCode: "result_inconsistent" };
+            await markInconsistent(tx, job, plan.inconsistent, outcome.status);
+          }
         }
       }
-      await auditFinish(tx, job, outcome.status, outcome.errorCode, parsed?.exitCode ?? null);
+      await auditFinish(tx, job, final.status, final.errorCode, parsed?.exitCode ?? null);
       return true;
     });
   }

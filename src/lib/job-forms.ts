@@ -85,3 +85,20 @@ export function parseForm<N extends FormName>(name: N, entries: Iterable<[string
   const r = formSchemas[name].safeParse(obj);
   return r.success ? { success: true as const, data: r.data as z.infer<(typeof formSchemas)[N]> } : { success: false as const };
 }
+
+/**
+ * BUG-J5-01: `resend_invite` hanya untuk baris `tenant_user_access` berstatus `active`. Baris `revoked`
+ * (akses dicabut), `pending`, `failed`, `inconsistent` ditolak di server (enqueueBridgeJob → precondition
+ * `user_not_active`), bukan hanya tombolnya disembunyikan — akses dipulihkan hanya lewat `grant` eksplisit.
+ */
+export function resendAllowedForStatus(status: string | null | undefined): boolean {
+  return status === "active";
+}
+
+/** Tombol per baris pengguna SSO: `revoke` kecuali sudah `revoked`; `resend_invite` hanya bila `active`. */
+export function ssoUserRowActions(status: string): ("revoke" | "resend_invite")[] {
+  const out: ("revoke" | "resend_invite")[] = [];
+  if (status !== "revoked") out.push("revoke");
+  if (resendAllowedForStatus(status)) out.push("resend_invite");
+  return out;
+}

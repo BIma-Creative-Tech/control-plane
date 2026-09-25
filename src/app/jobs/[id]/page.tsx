@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/authz";
-import { UUID_REGEX } from "@/lib/job-contract";
+import { INVITE_FACTS, UUID_REGEX, inviteFact } from "@/lib/job-contract";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
 import { getJob } from "@/server/queries";
@@ -23,6 +23,7 @@ export default async function JobPage(props: PageProps<"/jobs/[id]">) {
   if (!job) notFound();
   const r = parseActionResult((await props.searchParams).r);
   const args = (job.payload as { args?: unknown }).args ?? job.payload;
+  const invite = inviteFact(job.result);
   const retryable =
     (job.status === "failed" || job.status === "cancelled") &&
     job.environmentId !== null &&
@@ -85,6 +86,12 @@ export default async function JobPage(props: PageProps<"/jobs/[id]">) {
           <h2 className="font-semibold">Argumen</h2>
           <pre className="overflow-x-auto rounded border bg-white p-3 text-xs">{JSON.stringify(args, null, 2)}</pre>
         </section>
+
+        {invite ? (
+          <p role="status" className="rounded bg-slate-50 p-3 text-sm">
+            Undangan: {invite === "unknown" ? "status tidak dikenal (lihat RESULT invite)" : INVITE_FACTS[invite]}
+          </p>
+        ) : null}
 
         <section>
           <h2 className="font-semibold">RESULT</h2>

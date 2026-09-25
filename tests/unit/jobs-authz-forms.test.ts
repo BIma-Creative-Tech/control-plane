@@ -160,7 +160,7 @@ describe("rekonsiliasi hasil → environment / tenant_user_access", () => {
         ...base,
         type: "odoo_sso_user",
         args: { action: "grant", email: "a@b.co" },
-        result: { kc_user: "33333333-3333-4333-8333-333333333333", odoo_user: "12", changed: "2" },
+        result: { kc_user: "33333333-3333-4333-8333-333333333333", odoo_user: "12", action: "grant", changed: "2" },
       },
       env,
     );
@@ -168,7 +168,7 @@ describe("rekonsiliasi hasil → environment / tenant_user_access", () => {
       email: "a@b.co",
       set: { status: "active", kcUserId: "33333333-3333-4333-8333-333333333333", odooUserId: 12 },
     });
-    expect(planReconcile({ ...base, type: "odoo_sso_user", args: { action: "revoke", email: "a@b.co" }, result: { kc_user: "-" } }, env).tenantUser).toEqual({
+    expect(planReconcile({ ...base, type: "odoo_sso_user", args: { action: "revoke", email: "a@b.co" }, result: { kc_user: "-", action: "revoke" } }, env).tenantUser).toEqual({
       email: "a@b.co",
       set: { status: "revoked" },
     });

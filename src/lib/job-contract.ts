@@ -57,9 +57,10 @@ export const DISPATCHER_ERROR_CODES = [
 ] as const;
 /**
  * Semua error_code di provision_jobs: + `no_result` (watchdog CP) + `spool_error` (CP gagal menulis spool,
- * keputusan Lead J2b). Sama dengan CHECK `provision_jobs_error_code_valid`.
+ * keputusan Lead J2b) + `result_inconsistent` (RESULT tidak cocok dengan aksi yang diminta, BUG-J5-01).
+ * Sama dengan CHECK `provision_jobs_error_code_valid`.
  */
-export const ERROR_CODES = [...DISPATCHER_ERROR_CODES, "no_result", "spool_error"] as const;
+export const ERROR_CODES = [...DISPATCHER_ERROR_CODES, "no_result", "spool_error", "result_inconsistent"] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
 function isDispatcherErrorCode(v: unknown): v is (typeof DISPATCHER_ERROR_CODES)[number] {
@@ -412,6 +413,9 @@ export const RESULT_KEYS = [
   "host",
   "created",
   "pool",
+  // OBS-J5-01: fakta undangan ter-allowlist (mis. `invite=sent`) — pengganti baris tail yang teredaksi;
+  // redaksi tail TIDAK dilonggarkan.
+  "invite",
 ] as const;
 const RESULT_KEY_SET: ReadonlySet<string> = new Set(RESULT_KEYS);
 export const RESULT_VALUE_REGEX = /^[A-Za-z0-9._,:@/=-]{0,512}$/;
@@ -537,6 +541,19 @@ export function mapFinalOutcome(r: ParsedResult): FinalOutcome | null {
     return { status: "failed", errorCode: "script_exit" };
   }
   return { status: "failed", errorCode: r.errorCode ?? "script_exit" };
+}
+
+/**
+ * Fakta undangan dari RESULT `invite=` (OBS-J5-01). Hanya nilai yang dikenal ditampilkan sebagai teks; nilai
+ * lain → "unknown" (nilai mentah tetap terlihat di tabel RESULT, sudah lolos RESULT_VALUE_REGEX).
+ */
+export const INVITE_FACTS = { sent: "Undangan (execute-actions-email) terkirim", none: "Tidak ada undangan dikirim" } as const;
+export type InviteFact = keyof typeof INVITE_FACTS | "unknown";
+
+export function inviteFact(result: Record<string, string> | null | undefined): InviteFact | null {
+  const v = result?.invite;
+  if (v === undefined) return null;
+  return v === "sent" || v === "none" ? v : "unknown";
 }
 
 /** Hash email untuk audit_logs.metadata (PII tidak masuk audit, plan 05 §5.1). */

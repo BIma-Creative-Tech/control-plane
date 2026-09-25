@@ -15,6 +15,7 @@ import { getDb } from "@/db";
 import { safeErrorMessage } from "@/db/errors";
 import { upsertUserOnLogin } from "@/db/users";
 import { getWebEnv } from "@/env";
+import { applySignInIdentity, sessionUserId, subFromSignIn } from "@/lib/identity";
 import { logger } from "@/lib/logger";
 import { extractRoles, isRole, type Role } from "@/lib/roles";
 
@@ -47,10 +48,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
         if (account && profile) {
           const roles = extractRoles(profile, env.AUTH_KEYCLOAK_ID);
           token.roles = roles;
+          // BUG-J5-02: identitas = `sub` Keycloak (bukan UUID acak Auth.js per login) — lihat lib/identity.ts.
+          const sub = subFromSignIn(profile, account);
+          applySignInIdentity(token, sub);
+          if (!sub) logger.warn("klaim sub Keycloak tidak valid saat login; sesi tanpa identitas aktor");
           // Plan 05 §7: upsert `users` (keycloak_sub, email, role cache, last_login_at) — untuk audit
           // actor_user_id & iterasi 2. Gagal DB tidak memblokir login (otorisasi tetap dari klaim).
-          const sub = typeof profile.sub === "string" ? profile.sub : token.sub;
-          if (typeof sub === "string") {
+          if (sub) {
             try {
               await upsertUserOnLogin(getDb(), { sub, email: profile.email, name: profile.name, roles });
             } catch (err) {
@@ -64,8 +68,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
         // Hanya field aman yang dikirim ke browser (/api/auth/session). Tanpa token OIDC.
         const raw = token.roles;
         session.roles = Array.isArray(raw) ? raw.filter(isRole) : [];
-        if (session.user && typeof token.sub === "string") {
-          session.user.id = token.sub;
+        // Hanya `sub` Keycloak (kcSub); token lama tanpa kcSub → tanpa id → aksi mutasi minta login ulang.
+        const id = sessionUserId(token);
+        if (session.user) {
+          if (id) session.user.id = id;
+          else delete (session.user as { id?: string }).id;
         }
         return session;
       },

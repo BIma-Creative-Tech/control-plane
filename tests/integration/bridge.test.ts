@@ -12,10 +12,11 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { PgBoss, fromDrizzle } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "@/db/client";
-import { auditLogs, clients, environments, provisionJobs, tenantUserAccess } from "@/db/schema";
+import { auditLogs, clients, environments, provisionJobs, tenantUserAccess, users } from "@/db/schema";
+import { ensureUserId, upsertUserOnLogin } from "@/db/users";
 import { INFRA_JOB_QUEUE_OPTIONS, QUEUE_INFRA_JOB } from "@/jobs/queue";
 import { enqueueBridgeJob, retryBridgeJob, type Actor, type SendFn } from "@/jobs/service";
-import type { JobFile } from "@/lib/job-contract";
+import { ACTOR_REGEX, type JobFile } from "@/lib/job-contract";
 import { createBridge, type Bridge } from "@/worker/bridge";
 import { registerInfraJobWorker } from "@/worker/register";
 
@@ -311,6 +312,122 @@ describe.skipIf(!URL_)("bridge worker ⇄ dispatcher palsu (Postgres nyata)", ()
       meta: META,
     });
     expect(rv).toMatchObject({ ok: false, reason: "precondition", detail: "user_not_listed" });
+  });
+
+  it("BUG-J5-02: aktor = sub Keycloak → users stabil, actor_user_id terisi di job & audit, file job actor user:<sub>", async () => {
+    const kcSub = "bf06fc2d-1234-4abc-8def-0123456789ab";
+    // Login dua kali (sesi berbeda) → satu baris users, id sama.
+    const id1 = await upsertUserOnLogin(db, { sub: kcSub, email: "Ops@Example.com", roles: ["ops"] });
+    const id2 = await upsertUserOnLogin(db, { sub: kcSub, email: "ops@example.com", roles: ["ops"] });
+    expect(id1).toBeTruthy();
+    expect(id2).toBe(id1);
+    expect(await ensureUserId(db, kcSub, ["ops"])).toBe(id1);
+    // upsert saat login gagal → ensureUserId membuat baris minimal
+    const orphan = "0a0a0a0a-0000-4000-8000-00000000abcd";
+    const oid = await ensureUserId(db, orphan, ["ops"]);
+    expect(oid).toBeTruthy();
+    expect((await db.select().from(users).where(eq(users.keycloakSub, orphan)))[0]).toMatchObject({ id: oid, email: null, role: "ops" });
+
+    const actor: Actor = { sub: kcSub, userId: id1, roles: ["ops"] };
+    behave = () => ({ state: "succeeded", exit_code: 0, error_code: null, result: { host: "acme-co.erp.bimacreative.tech", changed: "no" }, tail: [] });
+    const r = await enqueueBridgeJob(db, send, { instance: "prod", environmentId: envProd, type: "odoo_route", dryRun: false, args: { remove: false }, actor, meta: META });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    await waitFor(async () => (await readdir(path.join(root, "spool", "new"))).includes(`${r.jobId}.json`));
+    const file = JSON.parse(await readFile(path.join(root, "spool", "new", `${r.jobId}.json`), "utf8")) as JobFile;
+    expect(file.actor).toBe(`user:${kcSub}`);
+    expect(ACTOR_REGEX.test(file.actor)).toBe(true);
+    const j = await settle(r.jobId);
+    expect(j).toMatchObject({ status: "succeeded", actor: `user:${kcSub}`, actorUserId: id1 });
+    const [enq] = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "job.enqueue.odoo_route"), sql`${auditLogs.metadata} ->> 'job_id' = ${r.jobId}`));
+    expect(enq).toMatchObject({ actorUserId: id1, actor: `user:${kcSub}` });
+  });
+
+  it("BUG-J5-01: resend_invite ditolak untuk revoked; RESULT action=grant → result_inconsistent + audit; resend_invite normal tidak ubah status", async () => {
+    const email = "resend@b.co";
+    const KC = "44444444-4444-4444-8444-444444444444";
+    let resendResult: Record<string, string> = { action: "grant", changed: "1" };
+    behave = (j) => {
+      const a = j.args.action;
+      if (a === "resend_invite")
+        return { state: "succeeded", exit_code: 0, error_code: null, result: { kc_user: KC, odoo_user: "5", ...resendResult }, tail: ['PLAN/UBAH: execute-actions-email ["UPDATE_PASSWORD"]'] };
+      return { state: "succeeded", exit_code: 0, error_code: null, result: { kc_user: KC, odoo_user: "5", action: String(a), changed: "1" }, tail: [] };
+    };
+    // Aktor terpisah: kuota 10 job/menit per aktor (OPS sudah dipakai tes lain).
+    const OPS2: Actor = { sub: "ops2-sub", userId: null, roles: ["ops"] };
+    const run = async (action: "grant" | "revoke" | "resend_invite") => {
+      const r = await enqueueBridgeJob(db, send, {
+        instance: "prod",
+        environmentId: envProd,
+        type: "odoo_sso_user",
+        dryRun: false,
+        args: { action, email, admin: false, create_kc: action === "grant" },
+        actor: OPS2,
+        meta: META,
+      });
+      if (!r.ok) return r;
+      await waitFor(async () => (await job(r.jobId)).status !== "queued");
+      return { ...r, row: await settle(r.jobId) };
+    };
+    const status = async () => (await db.select().from(tenantUserAccess).where(eq(tenantUserAccess.email, email)))[0]!.status;
+    const jobsBefore = async () => (await db.select({ n: sql<number>`count(*)::int` }).from(provisionJobs))[0]!.n;
+
+    expect(await run("grant")).toMatchObject({ ok: true });
+    expect(await status()).toBe("active");
+    expect(await run("revoke")).toMatchObject({ ok: true });
+    expect(await status()).toBe("revoked");
+
+    // Server-side: resend untuk baris revoked ditolak tanpa baris job (juga dry-run), audit rejected.
+    const n0 = await jobsBefore();
+    expect(await run("resend_invite")).toMatchObject({ ok: false, reason: "precondition", detail: "user_not_active" });
+    const dry = await enqueueBridgeJob(db, send, {
+      instance: "prod",
+      environmentId: envProd,
+      type: "odoo_sso_user",
+      dryRun: true,
+      args: { action: "resend_invite", email, admin: false, create_kc: false },
+      actor: OPS2,
+      meta: META,
+    });
+    expect(dry).toMatchObject({ ok: false, reason: "precondition", detail: "user_not_active" });
+    expect(await jobsBefore()).toBe(n0);
+    expect(await status()).toBe("revoked");
+    const rej = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.result, "rejected"), sql`${auditLogs.metadata} ->> 'detail' = 'user_not_active'`));
+    expect(rej.length).toBe(2);
+
+    // Grant eksplisit → active; resend dengan skrip LAMA (RESULT action=grant) → tidak dipercaya.
+    expect(await run("grant")).toMatchObject({ ok: true });
+    expect(await status()).toBe("active");
+    const bad = await run("resend_invite");
+    expect(bad).toMatchObject({ ok: true });
+    if (!bad.ok) return;
+    expect(bad.row).toMatchObject({ status: "failed", errorCode: "result_inconsistent" });
+    expect(bad.row.error).toContain("action=grant");
+    expect(await status()).toBe("inconsistent");
+    const alert = await db.select().from(auditLogs).where(eq(auditLogs.action, "job.result_inconsistent"));
+    expect(alert.length).toBe(1);
+    expect(alert[0]).toMatchObject({ actor: "system:worker", result: "failure", targetId: envProd });
+    expect(alert[0]!.metadata).toMatchObject({ job_id: bad.jobId, expected_action: "resend_invite", result_action: "grant" });
+    expect(JSON.stringify(alert[0]!.metadata)).not.toContain(email);
+    const fin = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "job.finish"), sql`${auditLogs.metadata} ->> 'job_id' = ${bad.jobId}`));
+    expect(fin[0]).toMatchObject({ result: "failure" });
+    expect(fin[0]!.metadata).toMatchObject({ state: "failed", error_code: "result_inconsistent" });
+    // Baris inconsistent: resend ditolak; revoke boleh (jalur perbaikan).
+    expect(await run("resend_invite")).toMatchObject({ ok: false, reason: "precondition", detail: "user_not_active" });
+
+    // Skrip BARU: grant → active, lalu resend action=resend_invite invite=sent → status tetap active.
+    expect(await run("grant")).toMatchObject({ ok: true });
+    resendResult = { action: "resend_invite", invite: "sent", changed: "0" };
+    const good = await run("resend_invite");
+    expect(good).toMatchObject({ ok: true });
+    if (!good.ok) return;
+    expect(good.row).toMatchObject({ status: "succeeded", errorCode: null });
+    expect(good.row.result).toMatchObject({ action: "resend_invite", invite: "sent" });
+    expect(good.row.log).toBe("[redacted]");
+    expect(await status()).toBe("active");
   });
 
   it("AC-J12/otorisasi: client_admin & ops (aksi admin) ditolak tanpa baris job; env lintas instance ditolak", async () => {

@@ -61,7 +61,7 @@ async function runEnqueue<N extends FormName>(
   if (req === "confirm") back(env.id, "confirm");
 
   const actor = await actorFromSession(session);
-  if (!actor) back(env.id, "forbidden");
+  if (!actor) back(env.id, "reauth");
 
   let outcome: EnqueueOutcome;
   try {
@@ -165,7 +165,7 @@ export async function retryJobAction(formData: FormData): Promise<void> {
   const parsed = parseForm("retry", formData.entries());
   if (!parsed.success) back(null, "invalid");
   const actor = await actorFromSession(session);
-  if (!actor) back(null, "forbidden");
+  if (!actor) back(null, "reauth");
   const outcome = await retryBridgeJob(getDb(), await getSendFn(), {
     instance,
     jobId: parsed.data.jobId,

@@ -40,6 +40,7 @@ export const ACTION_RESULT_CODES = [
   "not_found",
   "created",
   "exists",
+  "reauth",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -53,7 +54,8 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   queued: "Job masuk antrean.",
   forbidden: "Akses ditolak untuk aksi ini.",
   invalid: "Input ditolak validasi.",
-  precondition: "Prasyarat belum terpenuhi (mis. route belum aktif, user belum terdaftar, job tidak bisa diulang).",
+  precondition:
+    "Prasyarat belum terpenuhi (mis. route belum aktif, user belum terdaftar, kirim ulang undangan hanya untuk user berstatus active, job tidak bisa diulang).",
   quota: "Kuota job tercapai — coba lagi nanti.",
   duplicate: "Masih ada job aktif dengan tipe yang sama untuk environment ini.",
   error: "Gagal memproses permintaan. Lihat log server.",
@@ -63,4 +65,5 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   not_found: "Data tidak ditemukan.",
   created: "Tersimpan.",
   exists: "Sudah ada (slug/environment/DB duplikat).",
+  reauth: "Sesi dibuat sebelum pembaruan identitas — silakan logout lalu login ulang untuk menjalankan aksi.",
 };

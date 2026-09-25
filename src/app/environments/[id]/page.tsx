@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getWebEnv } from "@/env";
 import { requirePermission } from "@/lib/authz";
 import { UUID_REGEX, defaultHost, envAllowedForInstance } from "@/lib/job-contract";
+import { ssoUserRowActions } from "@/lib/job-forms";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
 import { countActiveJobs, getEnvironment, listAuditForEnvironment, listJobs, listTenantUsers } from "@/server/queries";
@@ -205,7 +206,7 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
                     <td className="p-2">
                       {canOdoo ? (
                         <div className="flex gap-1">
-                          {(["revoke", "resend_invite"] as const).map((a) => (
+                          {ssoUserRowActions(u.status).map((a) => (
                             <form key={a} action={ssoUserAction}>
                               <input type="hidden" name="environmentId" value={env.id} />
                               <input type="hidden" name="action" value={a} />
