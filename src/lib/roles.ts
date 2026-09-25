@@ -30,10 +30,22 @@ export const PERMISSIONS = {
   "clients:list": ["superadmin", "ops"],
   "clients:manage": ["superadmin"],
   "jobs:enqueue": ["superadmin", "ops"],
+  /** Plan 05 §5.1: lihat daftar/detail job + environment (iterasi 1: ops/superadmin saja). */
+  "jobs:view": ["superadmin", "ops"],
+  /** Enqueue job Odoo/SSO (odoo_db_provision, odoo_route render, odoo_sso_provision, odoo_sso_user). */
+  "jobs:odoo": ["superadmin", "ops"],
+  /** Aksi berisiko: odoo_route remove, odoo_sso_disable, rotate_secret, ulang timeout_state_unknown. */
+  "jobs:odoo_admin": ["superadmin"],
   "invoices:confirm": ["superadmin", "ops"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof PERMISSIONS;
+
+/** Role paling berkuasa (untuk cache `users.role`); tanpa role → client_user (paling rendah). */
+export function primaryRole(roles: readonly Role[] | undefined): Role {
+  for (const r of ROLES) if (roles?.includes(r)) return r;
+  return "client_user";
+}
 
 export function can(roles: readonly Role[] | undefined, permission: Permission): boolean {
   if (!roles || roles.length === 0) return false;

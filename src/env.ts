@@ -14,13 +14,57 @@ const httpUrl = z.url({ protocol: /^https?$/, message: "harus URL http(s)" });
 
 const logLevel = z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info");
 
-export const workerEnvSchema = z.object({
+const baseEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
   DATABASE_URL: postgresUrl,
   LOG_LEVEL: logLevel,
+  /**
+   * Instance jembatan infra-job (plan 05, ADR 0009): `prod` (env tenant prod|demo) atau `staging`
+   * (env tenant staging). Kosong = fitur job Odoo/SSO nonaktif (UI read-only, worker tidak menulis spool).
+   * Satu-satunya pemilih staging/prod — tidak ada deteksi dari hostname/DB.
+   */
+  INFRA_JOBS_INSTANCE: z.enum(["prod", "staging"]).optional(),
 });
 
-export const webEnvSchema = workerEnvSchema
+/** Path absolut sederhana (tanpa `..`, tanpa spasi). Bind mount dari compose, bukan input user. */
+const absDir = z
+  .string()
+  .regex(/^\/[A-Za-z0-9._/-]{1,200}$/, "harus path absolut")
+  .refine((p) => !p.split("/").includes(".."), "tidak boleh memuat ..");
+
+export const workerEnvSchema = baseEnvSchema
+  .extend({
+    /** Spool ditulis worker (bind mount rw /var/lib/infra-jobs/<inst>/spool): berisi tmp/ dan new/. */
+    INFRA_JOBS_SPOOL_DIR: absDir.optional(),
+    /** Hasil dispatcher (bind mount ro /var/lib/infra-jobs/<inst>/results). */
+    INFRA_JOBS_RESULTS_DIR: absDir.optional(),
+    /** Interval collector/watchdog (detik). */
+    INFRA_JOBS_POLL_SECONDS: z.coerce.number().int().min(1).max(60).default(5),
+    /** Toleransi antrean serial dispatcher sebelum `no_result` (detik, di atas timeout tipe job). */
+    INFRA_JOBS_QUEUE_GRACE_SECONDS: z.coerce.number().int().min(60).max(86_400).default(900),
+  })
+  .superRefine((env, ctx) => {
+    const set = [env.INFRA_JOBS_SPOOL_DIR, env.INFRA_JOBS_RESULTS_DIR, env.INFRA_JOBS_INSTANCE].filter(
+      (v) => v !== undefined,
+    ).length;
+    if (env.INFRA_JOBS_SPOOL_DIR !== undefined || env.INFRA_JOBS_RESULTS_DIR !== undefined) {
+      if (set !== 3) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["INFRA_JOBS_SPOOL_DIR"],
+          message: "INFRA_JOBS_SPOOL_DIR, INFRA_JOBS_RESULTS_DIR dan INFRA_JOBS_INSTANCE wajib diisi bersama",
+        });
+      }
+    }
+    if (
+      env.INFRA_JOBS_SPOOL_DIR !== undefined &&
+      env.INFRA_JOBS_SPOOL_DIR.replace(/\/$/, "") === env.INFRA_JOBS_RESULTS_DIR?.replace(/\/$/, "")
+    ) {
+      ctx.addIssue({ code: "custom", path: ["INFRA_JOBS_RESULTS_DIR"], message: "harus berbeda dari spool" });
+    }
+  });
+
+export const webEnvSchema = baseEnvSchema
   .extend({
     // Auth.js v5 membaca nama-nama ini langsung (node_modules/@auth/core/lib/utils/env.js).
     AUTH_SECRET: z.string().min(32, "minimal 32 karakter (openssl rand -base64 48)"),

@@ -11,7 +11,11 @@
  */
 import NextAuth from "next-auth";
 import Keycloak from "next-auth/providers/keycloak";
+import { getDb } from "@/db";
+import { safeErrorMessage } from "@/db/errors";
+import { upsertUserOnLogin } from "@/db/users";
 import { getWebEnv } from "@/env";
+import { logger } from "@/lib/logger";
 import { extractRoles, isRole, type Role } from "@/lib/roles";
 
 declare module "next-auth" {
@@ -38,10 +42,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
     useSecureCookies: env.AUTH_URL.startsWith("https://"),
     pages: { signIn: "/login", error: "/login" },
     callbacks: {
-      jwt({ token, account, profile }) {
+      async jwt({ token, account, profile }) {
         // Hanya saat sign-in: ambil role dari klaim ID token (sumber kebenaran = Keycloak).
         if (account && profile) {
-          token.roles = extractRoles(profile, env.AUTH_KEYCLOAK_ID);
+          const roles = extractRoles(profile, env.AUTH_KEYCLOAK_ID);
+          token.roles = roles;
+          // Plan 05 §7: upsert `users` (keycloak_sub, email, role cache, last_login_at) — untuk audit
+          // actor_user_id & iterasi 2. Gagal DB tidak memblokir login (otorisasi tetap dari klaim).
+          const sub = typeof profile.sub === "string" ? profile.sub : token.sub;
+          if (typeof sub === "string") {
+            try {
+              await upsertUserOnLogin(getDb(), { sub, email: profile.email, name: profile.name, roles });
+            } catch (err) {
+              logger.warn({ err: safeErrorMessage(err) }, "upsert users saat login gagal");
+            }
+          }
         }
         return token;
       },

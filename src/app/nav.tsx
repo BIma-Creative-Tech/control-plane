@@ -10,6 +10,7 @@ export function Nav({ session }: { session: Session }) {
         Control Plane
       </Link>
       {can(session.roles, "clients:list") ? <Link href="/clients">Clients</Link> : null}
+      {can(session.roles, "jobs:view") ? <Link href="/jobs">Jobs</Link> : null}
       <span className="ml-auto text-slate-500">{session.roles.join(", ") || "tanpa role"}</span>
       <form action={logoutAction}>
         <button type="submit" className="rounded border px-3 py-1 hover:bg-slate-100">
