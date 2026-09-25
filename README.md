@@ -26,7 +26,7 @@ src/
   db/schema.ts           skema Drizzle; db/migrate.ts = runner migrasi
   worker/                worker pg-boss (job `noop`, argumen di-whitelist Zod .strict())
   app/                   /, /login, /dashboard, /clients, /forbidden, /api/auth/*, /api/health
-drizzle/                 migrasi SQL berversi (0000_init.sql)
+drizzle/                 migrasi SQL berversi (0000_init.sql, 0001_infra_jobs.sql — additive)
 tests/unit/              Vitest; e2e/ Playwright (smoke, skip bila PLAYWRIGHT_BASE_URL kosong)
 ```
 
@@ -64,6 +64,49 @@ Satu image, tiga command: `node server.js` (web, default), `node dist/worker/ind
 `node dist/db/migrate.mjs`. Runner: uid 1001 non-root, npm dihapus, rootfs read-only
 (tmpfs `/tmp`, `/app/.next/cache`), `cap_drop: ALL`, `no-new-privileges`, HEALTHCHECK
 `/api/health` (web) / heartbeat file (worker).
+
+## Job Odoo/SSO lewat `infra-job` (plan 05, ADR 0009)
+
+Control plane **tidak** punya Docker API, SSH, sudo, `child_process`, atau akses secret. Alur:
+
+```
+Server Action (ops/superadmin) ─ Zod + otorisasi + kuota ─▶ 1 transaksi: INSERT provision_jobs (queued)
+   + tenant_user_access + audit_logs(job.enqueue.<type>) + pesan pg-boss `infra-job-dispatch` (retryLimit 0)
+worker ─ validasi ulang kontrak ─▶ status dispatched ─▶ spool/tmp/<id>.json → rename → spool/new/<id>.json
+dispatcher root (host) ─▶ results/<id>.json (running → succeeded|failed + error_code, RESULT allowlist, tail)
+worker collector (tiap INFRA_JOBS_POLL_SECONDS) ─▶ provision_jobs final + environments/tenant_user_access
+   dari RESULT + audit_logs(job.finish); watchdog: lewat deadline → failed `no_result`
+```
+
+- Kontrak (tipe, regex, format file job/hasil, error_code, timeout): `src/lib/job-contract.ts`; fixture bersama
+  dengan dispatcher: `tests/fixtures/infra-job/*.json`.
+- Satu job aktif per (environment, type): partial unique index `provision_jobs_one_active_uq`.
+- Kuota CP = kuota dispatcher (60/jam, `odoo_db_provision` 3/hari, `odoo_sso_user` 30/jam, `rotate_secret` 5/hari)
+  + 10 job/menit per aktor. Origin wajib = `AUTH_URL` untuk semua Server Action mutasi.
+- Halaman: `/clients/<slug>`, `/environments/<id>` (aksi + pengguna SSO + audit), `/jobs`, `/jobs/<id>`.
+  `superadmin` saja: hapus route, nonaktifkan SSO, rotasi secret (ketik slug), ulang `timeout_state_unknown`,
+  tambah client/environment.
+- `users` di-upsert saat login (keycloak_sub, email, role cache, last_login_at).
+
+| Env | Proses | Keterangan |
+|---|---|---|
+| `INFRA_JOBS_INSTANCE` | web + worker | `prod` (env tenant prod/demo) atau `staging`; kosong = fitur nonaktif |
+| `INFRA_JOBS_SPOOL_DIR` | worker | path di container untuk `/var/lib/infra-jobs/<inst>/spool` (rw), berisi `tmp/`, `new/` |
+| `INFRA_JOBS_RESULTS_DIR` | worker | path di container untuk `/var/lib/infra-jobs/<inst>/results` (ro) |
+| `INFRA_JOBS_POLL_SECONDS` | worker | default 5 |
+| `INFRA_JOBS_QUEUE_GRACE_SECONDS` | worker | default 900 (antrean serial dispatcher sebelum `no_result`) |
+
+Tanpa `INFRA_JOBS_SPOOL_DIR/RESULTS_DIR/INSTANCE` worker berjalan seperti sebelumnya (hanya `noop`).
+
+### Test integrasi (Postgres sekali pakai — skema di-DROP)
+
+```bash
+docker network create cp-int-test
+docker run -d --name cp-int-pg --network cp-int-test -e POSTGRES_PASSWORD=testonly -e POSTGRES_DB=cp_test postgres:16.15-bookworm
+docker run --rm --network cp-int-test -v "$PWD":/app -w /app \
+  -e TEST_DATABASE_URL=postgresql://postgres:testonly@cp-int-pg:5432/cp_test node:24.21.0-alpine npm run test:integration
+docker rm -f cp-int-pg && docker network rm cp-int-test
+```
 
 ## Auth & otorisasi
 
