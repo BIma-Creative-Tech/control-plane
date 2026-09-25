@@ -347,6 +347,23 @@ describe.skipIf(!URL_)("bridge worker ⇄ dispatcher palsu (Postgres nyata)", ()
     expect(q).toMatchObject({ ok: false, reason: "quota", violation: "db_provision_day" });
   });
 
+  it("spool tidak bisa ditulis → failed error_code spool_error (CHECK DB menerima kode baru)", async () => {
+    const broken = createBridge({
+      db,
+      instance: "prod",
+      spoolDir: path.join(root, "does-not-exist"),
+      resultsDir: path.join(root, "results"),
+      queueGraceSeconds: 900,
+      logger: quiet,
+    });
+    const [row] = await db
+      .insert(provisionJobs)
+      .values({ type: "odoo_sso_disable", status: "queued", environmentId: envProd, env: "prod", actor: "user:x", payload: { slug: "acme-co", args: { hosts: ["acme-co.erp.bimacreative.tech"] } } })
+      .returning();
+    expect(await broken.dispatch(row!.id)).toBe("spool_failed");
+    expect(await job(row!.id)).toMatchObject({ status: "failed", errorCode: "spool_error", error: "spool: ENOENT" });
+  });
+
   it("baris DB dimanipulasi (args ekstra) → worker menolak rejected_validation, tidak ada file spool", async () => {
     const [row] = await db
       .insert(provisionJobs)

@@ -15,6 +15,13 @@
       "when": 1790313955219,
       "tag": "0001_infra_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790315807592,
+      "tag": "0002_error_code_spool_error",
+      "breakpoints": true
     }
   ]
 }

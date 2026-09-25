@@ -11,7 +11,7 @@ import { isUniqueViolation, safeErrorMessage } from "../db/errors";
 import { auditLogs, clients, environments, provisionJobs, tenantUserAccess } from "../db/schema";
 import {
   BRIDGE_JOB_TYPES,
-  defaultHost,
+  checkSsoHosts,
   emailHash,
   envAllowedForInstance,
   validateJobRequest,
@@ -200,17 +200,13 @@ export async function enqueueBridgeJob(db: Db, send: SendFn, input: EnqueueInput
     return fail({ reason: "forbidden" }, req);
   }
 
-  // Prasyarat CP (dispatcher tetap memeriksa file route root-owned): host SSO ⊆ host route aktif.
+  // Prasyarat CP = check_hosts dispatcher, dengan environments.host (route aktif) sebagai cermin file route.
   if (req.type === "odoo_sso_provision" || req.type === "odoo_sso_disable") {
-    const a = req.args as JobArgs["odoo_sso_provision"] | JobArgs["odoo_sso_disable"];
-    const skipSmoke = req.type === "odoo_sso_provision" && (a as JobArgs["odoo_sso_provision"]).skip_smoke;
-    if (skipSmoke) {
-      if (a.hosts[0] !== defaultHost(envRow.slug, envRow.kind)) return fail({ reason: "invalid", issue: "skip_smoke_host" }, req);
-    } else {
-      if (envRow.routeStatus !== "active" || !envRow.host) {
-        return fail({ reason: "precondition", detail: "route_not_active" }, req);
-      }
-      if (!a.hosts.every((h) => h === envRow.host)) return fail({ reason: "precondition", detail: "host_not_in_route" }, req);
+    const routeHosts = envRow.routeStatus === "active" && envRow.host ? [envRow.host] : [];
+    const hc = checkSsoHosts(req, routeHosts);
+    if (!hc.ok) {
+      if (hc.issue === "skip_smoke_host") return fail({ reason: "invalid", issue: "skip_smoke_host" }, req);
+      return fail({ reason: "precondition", detail: routeHosts.length ? "host_not_in_route" : "route_not_active" }, req);
     }
   }
 

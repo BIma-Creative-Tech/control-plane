@@ -1,0 +1,8 @@
+dispatcher-fixtures.json — salinan APA ADANYA (jangan diedit di sini) dari:
+  repo     : infra (/opt/infra, worktree /opt/infra-wt/j1)
+  branch   : feat/infra-job-dispatcher
+  commit   : 1bcfe0a
+  path     : scripts/infra-job/contract/fixtures.json
+  sha256   : ee4e6db11947d06ce9f7f9caaa31d030b0870ef77c1606d1706ff43b9e4c6957
+Dipakai tests/unit/dispatcher-contract.test.ts (hash diverifikasi di test). Bila dispatcher mengubah
+kontrak: salin ulang file, perbarui commit + sha256 di sini, jalankan npm test.

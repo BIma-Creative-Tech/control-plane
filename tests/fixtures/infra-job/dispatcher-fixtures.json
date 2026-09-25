@@ -1,0 +1,2447 @@
+{
+ "_doc": "Fixture kontrak job infra-job (plan 05 \u00a74). Sumber kebenaran bersama: dispatcher (scripts/infra-job/tests) dan control plane (J2, src/lib/job-contract.ts). valid[].argv = argv skrip (relatif scripts/) yang dijalankan dispatcher (tanpa '--dry-run' pendahulu). invalid[].raw = isi file mentah (bukan objek JSON).",
+ "route_files": {
+  "acme-co-prod.yml": [
+   "acme-co.erp.bimacreative.tech"
+  ],
+  "acme-co-demo.yml": [
+   "acme-demo.erp.bimacreative.tech"
+  ],
+  "acme-co-staging.yml": [
+   "acme-co.staging.bimacreative.tech"
+  ]
+ },
+ "valid": [
+  {
+   "name": "db_provision_prod_default_host",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_db_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {}
+   },
+   "argv": [
+    "provision-odoo-db.sh",
+    "acme-co",
+    "prod"
+   ]
+  },
+  {
+   "name": "db_provision_demo_host",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_db_provision",
+    "slug": "acme-co",
+    "env": "demo",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "host": "acme-demo.erp.bimacreative.tech"
+    }
+   },
+   "argv": [
+    "provision-odoo-db.sh",
+    "acme-co",
+    "demo",
+    "--host",
+    "acme-demo.erp.bimacreative.tech"
+   ]
+  },
+  {
+   "name": "db_provision_staging",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_db_provision",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {}
+   },
+   "argv": [
+    "provision-odoo-db.sh",
+    "acme-co",
+    "staging"
+   ]
+  },
+  {
+   "name": "route_render_prod",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "acme-co.erp.bimacreative.tech"
+    }
+   },
+   "argv": [
+    "render-client-route.sh",
+    "acme-co",
+    "prod",
+    "--host",
+    "acme-co.erp.bimacreative.tech"
+   ]
+  },
+  {
+   "name": "route_render_default",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false
+    }
+   },
+   "argv": [
+    "render-client-route.sh",
+    "acme-co",
+    "staging"
+   ]
+  },
+  {
+   "name": "route_remove",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": true
+    }
+   },
+   "argv": [
+    "render-client-route.sh",
+    "acme-co",
+    "prod",
+    "--remove"
+   ]
+  },
+  {
+   "name": "sso_provision",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.erp.bimacreative.tech"
+     ],
+     "rotate_secret": false,
+     "skip_smoke": false
+    }
+   },
+   "argv": [
+    "provision-odoo-sso.sh",
+    "acme-co",
+    "prod",
+    "--host",
+    "acme-co.erp.bimacreative.tech"
+   ]
+  },
+  {
+   "name": "sso_provision_rotate",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.erp.bimacreative.tech"
+     ],
+     "rotate_secret": true,
+     "skip_smoke": false
+    }
+   },
+   "argv": [
+    "provision-odoo-sso.sh",
+    "acme-co",
+    "prod",
+    "--host",
+    "acme-co.erp.bimacreative.tech",
+    "--rotate-secret"
+   ]
+  },
+  {
+   "name": "sso_provision_skip_smoke_default_host_no_route",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "newco",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "newco.staging.bimacreative.tech"
+     ],
+     "rotate_secret": false,
+     "skip_smoke": true
+    }
+   },
+   "argv": [
+    "provision-odoo-sso.sh",
+    "newco",
+    "staging",
+    "--host",
+    "newco.staging.bimacreative.tech",
+    "--skip-smoke"
+   ]
+  },
+  {
+   "name": "sso_provision_dry_run",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": true,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.staging.bimacreative.tech"
+     ],
+     "rotate_secret": false,
+     "skip_smoke": false
+    }
+   },
+   "argv": [
+    "provision-odoo-sso.sh",
+    "acme-co",
+    "staging",
+    "--host",
+    "acme-co.staging.bimacreative.tech",
+    "--dry-run"
+   ]
+  },
+  {
+   "name": "sso_disable",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_disable",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.erp.bimacreative.tech"
+     ]
+    }
+   },
+   "argv": [
+    "provision-odoo-sso.sh",
+    "acme-co",
+    "prod",
+    "--host",
+    "acme-co.erp.bimacreative.tech",
+    "--disable"
+   ]
+  },
+  {
+   "name": "sso_user_grant",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "argv": [
+    "odoo-sso-user.sh",
+    "acme-co",
+    "prod",
+    "--email",
+    "budi@acme.co.id",
+    "--login",
+    "budi",
+    "--create-kc",
+    "--grant"
+   ]
+  },
+  {
+   "name": "sso_user_grant_admin_no_login",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "ops@acme.co.id",
+     "admin": true,
+     "create_kc": false
+    }
+   },
+   "argv": [
+    "odoo-sso-user.sh",
+    "acme-co",
+    "prod",
+    "--email",
+    "ops@acme.co.id",
+    "--admin",
+    "--grant"
+   ]
+  },
+  {
+   "name": "sso_user_revoke",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "revoke",
+     "email": "budi@acme.co.id",
+     "admin": false,
+     "create_kc": false
+    }
+   },
+   "argv": [
+    "odoo-sso-user.sh",
+    "acme-co",
+    "staging",
+    "--email",
+    "budi@acme.co.id",
+    "--revoke"
+   ]
+  },
+  {
+   "name": "sso_user_resend",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "resend_invite",
+     "email": "budi@acme.co.id",
+     "admin": false,
+     "create_kc": false
+    }
+   },
+   "argv": [
+    "odoo-sso-user.sh",
+    "acme-co",
+    "prod",
+    "--email",
+    "budi@acme.co.id",
+    "--resend-invite"
+   ]
+  }
+ ],
+ "invalid": [
+  {
+   "name": "extra_top_key_path",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    },
+    "path": "/etc/shadow"
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "extra_top_key_cmd",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    },
+    "cmd": "id"
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "missing_actor",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "missing_args",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z"
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "v_2",
+   "instance": "prod",
+   "job": {
+    "v": 2,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "v_true",
+   "instance": "prod",
+   "job": {
+    "v": true,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "v_string",
+   "instance": "prod",
+   "job": {
+    "v": "1",
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "job_id_mismatch",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "00000000-0000-4000-8000-000000000000",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "job_id_uppercase",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3F2C7A9E-1B4D-4E8A-9C3F-5A6B7C8D9E0F",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "args_array",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": []
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "type_unknown_shell",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "shell",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "type_uppercase",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "ODOO_SSO_USER",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "type_suspend_not_yet",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "suspend",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "type_null",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": null,
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_cmd_subst",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "$(id)",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_semicolon",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme;rm",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_leading_dash",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "-rf-x",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_space",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_traversal",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "../etc",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_uppercase",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "ACME",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_cyrillic_homoglyph",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "\u0430cme",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_trailing_newline",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme\n",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_too_long",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_too_short",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "ab",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_underscore",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme_co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_trailing_dash",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_fullwidth",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "\uff41cme",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_empty",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "slug_int",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": 123,
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "env_prod_in_staging_spool",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "env_demo_in_staging_spool",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "demo",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "env_staging_in_prod_spool",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "env_invalid",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "production",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "env_list",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": [
+     "prod"
+    ],
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "dry_run_string",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": "false",
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "dry_run_int",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": 0,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "actor_space",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:a b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "actor_newline",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:a\nFAKE LOG",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "actor_no_prefix",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "admin",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "requested_at_bad_month",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-13-45T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "requested_at_no_z",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00+07:00",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "requested_at_millis",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00.000Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "args_extra_env",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true,
+     "env": {
+      "INFRA_DIR": "/tmp"
+     }
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "args_extra_first_name",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true,
+     "first_name": "Budi"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_option_injection",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "--host=evil.example"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_foreign",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "evil.example.com"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_suffix_trick",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "a.erp.bimacreative.tech.evil.com"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_newline",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "acme-co.erp.bimacreative.tech\n"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_uppercase",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "ACME-CO.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_fullwidth_dot",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "acme-co\uff0eerp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_trailing_dot",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "acme-co.erp.bimacreative.tech."
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_staging_host_in_prod",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "acme-co.staging.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_nested_label",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "x.acme-co.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_label_leading_dash",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "-acme.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_space",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "acme co.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_host_ip",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "31.97.50.221"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "db_provision_demo_without_host",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_db_provision",
+    "slug": "acme-co",
+    "env": "demo",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {}
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "db_provision_dry_run",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_db_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": true,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {}
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "db_provision_host_int",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_db_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "host": 1
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_dry_run",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": true,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": false,
+     "host": "acme-co.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_remove_with_host",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": true,
+     "host": "acme-co.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_remove_missing",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "host": "acme-co.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "route_remove_string",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_route",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "remove": "true",
+     "host": "acme-co.erp.bimacreative.tech"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_hosts_empty",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [],
+     "rotate_secret": false,
+     "skip_smoke": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_hosts_6",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "h0.erp.bimacreative.tech",
+      "h1.erp.bimacreative.tech",
+      "h2.erp.bimacreative.tech",
+      "h3.erp.bimacreative.tech",
+      "h4.erp.bimacreative.tech",
+      "h5.erp.bimacreative.tech"
+     ],
+     "rotate_secret": false,
+     "skip_smoke": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_hosts_duplicate",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.erp.bimacreative.tech",
+      "acme-co.erp.bimacreative.tech"
+     ],
+     "rotate_secret": false,
+     "skip_smoke": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_hosts_string",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": "acme-co.erp.bimacreative.tech",
+     "rotate_secret": false,
+     "skip_smoke": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_host_not_in_route_file",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "other.erp.bimacreative.tech"
+     ],
+     "rotate_secret": false,
+     "skip_smoke": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_skip_smoke_non_default_host",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "other.erp.bimacreative.tech"
+     ],
+     "rotate_secret": false,
+     "skip_smoke": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_rotate_string",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.erp.bimacreative.tech"
+     ],
+     "rotate_secret": "yes",
+     "skip_smoke": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_missing_skip_smoke",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_provision",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.erp.bimacreative.tech"
+     ],
+     "rotate_secret": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_disable_extra_rotate",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_disable",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "hosts": [
+      "acme-co.erp.bimacreative.tech"
+     ],
+     "rotate_secret": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_option_injection",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "a@b.co --admin",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_uppercase",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "Budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_leading_dash",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "-x@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_newline",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id\n",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_no_tld",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@localhost",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_too_long",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_unicode",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "b\u00fcdi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_quote",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "bu'di@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_shell",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "$(id)@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "email_two_at",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "a@b@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_user_resend_create_kc",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "resend_invite",
+     "email": "budi@acme.co.id",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "login_option",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "--admin",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "login_space",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "bu di",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "login_quote",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "bu'di",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "login_sql",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "x';DROP TABLE res_users;--",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "login_empty",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_user_action_delete",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "delete",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_user_revoke_create_kc",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "revoke",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": false,
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_user_revoke_admin",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "revoke",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": true,
+     "create_kc": false
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "sso_user_admin_string",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "odoo_sso_user",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "action": "grant",
+     "email": "budi@acme.co.id",
+     "login": "budi",
+     "admin": "false",
+     "create_kc": true
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_malformed",
+   "instance": "prod",
+   "raw": "{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": t",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_bom",
+   "instance": "prod",
+   "raw": "\ufeff{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_non_ascii_utf8",
+   "instance": "prod",
+   "raw": "{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"b\u00fcdi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_nul",
+   "instance": "prod",
+   "raw": "{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"gr\u0000ant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_duplicate_key_type",
+   "instance": "prod",
+   "raw": "{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}, \"type\": \"odoo_route\"}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_duplicate_key_same_value",
+   "instance": "prod",
+   "raw": "{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}, \"dry_run\": false}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_nan",
+   "instance": "prod",
+   "raw": "{\"v\": NaN, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_float_v",
+   "instance": "prod",
+   "raw": "{\"v\": 1.0, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_exponent_v",
+   "instance": "prod",
+   "raw": "{\"v\": 1e0, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_top_array",
+   "instance": "prod",
+   "raw": "[{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}]",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_top_string",
+   "instance": "prod",
+   "raw": "\"x\"",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_deep_nesting",
+   "instance": "prod",
+   "raw": "{\"v\": 1, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}, \"x\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_empty",
+   "instance": "prod",
+   "raw": "",
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "raw_huge_int_v",
+   "instance": "prod",
+   "raw": "{\"v\": 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000, \"job_id\": \"3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f\", \"type\": \"odoo_sso_user\", \"slug\": \"acme-co\", \"env\": \"prod\", \"dry_run\": false, \"actor\": \"user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b\", \"requested_at\": \"2026-09-25T10:00:00Z\", \"args\": {\"action\": \"grant\", \"email\": \"budi@acme.co.id\", \"login\": \"budi\", \"admin\": false, \"create_kc\": true}}",
+   "error_code": "rejected_validation"
+  }
+ ]
+}

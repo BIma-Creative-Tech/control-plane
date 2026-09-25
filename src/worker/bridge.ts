@@ -195,7 +195,7 @@ export function createBridge(opts: BridgeOptions) {
       const code = err instanceof SpoolError ? err.code : "EIO";
       logger.error({ jobId: provisionJobId, code }, "gagal menulis spool");
       // Rename belum terjadi → dispatcher tidak akan pernah melihat job ini.
-      await finalize(provisionJobId, ["dispatched"], { status: "failed", errorCode: null, error: `spool: ${code}` }, null);
+      await finalize(provisionJobId, ["dispatched"], { status: "failed", errorCode: "spool_error", error: `spool: ${code}` }, null);
       return "spool_failed";
     }
     logger.info({ jobId: provisionJobId, type: claimed.file.type, env: claimed.file.env }, "job ditulis ke spool");

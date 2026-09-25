@@ -5,6 +5,7 @@ import {
   JOB_FILE_MAX_BYTES,
   TAIL_MAX_BYTES,
   buildJobFile,
+  checkSsoHosts,
   dbNameFor,
   defaultHost,
   dispatchDeadline,
@@ -52,7 +53,30 @@ describe("validateJobRequest — matriks negatif", () => {
     expect(invalidJobs.length).toBeGreaterThanOrEqual(40);
   });
   it.each(invalidJobs.map((c) => [c.case, c] as const))("ditolak: %s", (_name, c) => {
-    expect(validateJobRequest(c.instance, c.job).ok).toBe(false);
+    // Tanpa route aktif (routeHosts kosong) — aturan host SSO dicek checkSsoHosts (= check_hosts dispatcher).
+    const v = validateJobRequest(c.instance, c.job);
+    expect(v.ok && checkSsoHosts(v.value, []).ok).toBe(false);
+  });
+});
+
+describe("regex = dispatcher infra_job.py (1bcfe0a)", () => {
+  it("slug tidak diawali/diakhiri '-'", () => {
+    for (const ok of ["abc", "a-b", "acme-co", "a".repeat(30), "0ab"]) expect(validateJobRequest("prod", { type: "odoo_db_provision", slug: ok, env: "prod", dryRun: false, args: {} }).ok).toBe(true);
+    for (const bad of ["-ab", "ab-", "-a-", "a".repeat(31), "ab"]) expect(validateJobRequest("prod", { type: "odoo_db_provision", slug: bad, env: "prod", dryRun: false, args: {} }).ok).toBe(false);
+  });
+  it("email: local-part ≤ 64, tidak diawali '.'/'-', total ≤ 254", () => {
+    const req = (email: string) =>
+      validateJobRequest("prod", { type: "odoo_sso_user", slug: "acme-co", env: "prod", dryRun: false, args: { action: "grant", email, admin: false, create_kc: true } }).ok;
+    expect(req("a.b-c_d%e+f@x.co")).toBe(true);
+    expect(req("_a@x.co")).toBe(true);
+    expect(req(`${"a".repeat(64)}@x.co`)).toBe(true);
+    expect(req(`${"a".repeat(65)}@x.co`)).toBe(false);
+    expect(req(".a@x.co")).toBe(false);
+    expect(req("-a@x.co")).toBe(false);
+    expect(req("a@-x.co")).toBe(false);
+  });
+  it("revoke dengan admin=true ditolak (v_sso_user)", () => {
+    expect(validateJobRequest("prod", { type: "odoo_sso_user", slug: "acme-co", env: "prod", dryRun: false, args: { action: "revoke", email: "a@b.co", admin: true, create_kc: false } })).toEqual({ ok: false, issue: "admin_revoke" });
   });
 });
 

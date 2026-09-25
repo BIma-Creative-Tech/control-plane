@@ -211,7 +211,8 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
                               <input type="hidden" name="action" value={a} />
                               <input type="hidden" name="email" value={u.email} />
                               {u.odooLogin ? <input type="hidden" name="login" value={u.odooLogin} /> : null}
-                              {u.isTenantAdmin ? <input type="hidden" name="admin" value="on" /> : null}
+                              {/* dispatcher menolak revoke dengan admin/create_kc */}
+                              {a === "resend_invite" && u.isTenantAdmin ? <input type="hidden" name="admin" value="on" /> : null}
                               <button type="submit" className={a === "revoke" ? btnDanger : btn} disabled={busy("odoo_sso_user")}>
                                 {a === "revoke" ? "Cabut" : "Kirim ulang"}
                               </button>

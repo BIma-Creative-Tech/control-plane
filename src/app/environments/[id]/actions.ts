@@ -150,7 +150,8 @@ export async function ssoUserAction(formData: FormData): Promise<void> {
       action: d.action,
       email: d.email,
       ...(d.login ? { login: d.login } : {}),
-      admin: d.admin,
+      // = dispatcher v_sso_user: revoke tanpa admin/create_kc, resend_invite tanpa create_kc.
+      admin: d.action === "revoke" ? false : d.admin,
       create_kc: d.action === "grant" ? d.create_kc : false,
     },
   }));

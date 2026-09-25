@@ -45,7 +45,8 @@ export function envAllowedForInstance(instance: Instance, env: TenantEnv): boole
   return INSTANCE_ENVS[instance].includes(env);
 }
 
-export const ERROR_CODES = [
+/** error_code yang boleh DITULIS dispatcher ke results/ (plan 05 §4.3). */
+export const DISPATCHER_ERROR_CODES = [
   "rejected_validation",
   "rejected_quota",
   "disabled",
@@ -53,9 +54,17 @@ export const ERROR_CODES = [
   "locked",
   "timeout_state_unknown",
   "script_exit",
-  "no_result",
 ] as const;
+/**
+ * Semua error_code di provision_jobs: + `no_result` (watchdog CP) + `spool_error` (CP gagal menulis spool,
+ * keputusan Lead J2b). Sama dengan CHECK `provision_jobs_error_code_valid`.
+ */
+export const ERROR_CODES = [...DISPATCHER_ERROR_CODES, "no_result", "spool_error"] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
+
+function isDispatcherErrorCode(v: unknown): v is (typeof DISPATCHER_ERROR_CODES)[number] {
+  return typeof v === "string" && (DISPATCHER_ERROR_CODES as readonly string[]).includes(v);
+}
 
 export function isErrorCode(v: unknown): v is ErrorCode {
   return typeof v === "string" && (ERROR_CODES as readonly string[]).includes(v);
@@ -81,20 +90,33 @@ export const KILL_GRACE_SECONDS = 30;
 // Regex (sama/lebih ketat dari skrip)
 // ---------------------------------------------------------------------------
 export { SLUG_REGEX };
-/** scripts/odoo-sso-user.sh EMAIL_RE (huruf kecil) + panjang ≤ 254. */
-export const EMAIL_REGEX = /^[a-z0-9._%+-]+@([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-/**
- * scripts/odoo-sso-user.sh LOGIN_RE `^[A-Za-z0-9._@+-]{1,254}$` DIPERKETAT: karakter pertama bukan `-`
- * (nilai argv tidak boleh terlihat seperti opsi, plan 05 §6 T).
- */
+// Disalin persis dari dispatcher `scripts/infra-job/infra_job.py` (repo infra, branch feat/infra-job-dispatcher,
+// commit 1bcfe0a). Python `re.fullmatch(..., re.ASCII)` ≙ JS `^…$` tanpa flag m/u (JS `$` tidak cocok sebelum "\n").
+/** `_LABEL` dispatcher: label DNS huruf kecil, tidak diawali/diakhiri '-'. */
+const LABEL = "[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?";
+/** EMAIL_RE: local-part ≤ 64, tidak diawali '.'/'-', huruf kecil saja; total ≤ 254 dicek terpisah. */
+export const EMAIL_REGEX = new RegExp(`^[a-z0-9_%+][a-z0-9._%+-]{0,63}@(${LABEL}\\.)+[a-z]{2,63}$`);
+export const EMAIL_MAX = 254;
+/** LOGIN_RE: tidak diawali '-' (≤ 254). */
 export const LOGIN_REGEX = /^[A-Za-z0-9._@+][A-Za-z0-9._@+-]{0,253}$/;
-/** Iterasi 1 hanya subdomain platform (Q3). */
-export const HOST_REGEX_PROD = /^[a-z0-9-]{1,63}\.erp\.bimacreative\.tech$/;
-export const HOST_REGEX_STAGING = /^[a-z0-9-]{1,63}\.staging\.bimacreative\.tech$/;
-/** FQDN generik skrip (label tidak diawali/diakhiri '-'); host platform juga harus lolos ini. */
+export const LOGIN_MAX = 254;
+/** HOST_RE (iterasi 1, Q3: hanya subdomain platform). */
+export const HOST_REGEX_PROD = new RegExp(`^${LABEL}\\.erp\\.bimacreative\\.tech$`);
+export const HOST_REGEX_STAGING = new RegExp(`^${LABEL}\\.staging\\.bimacreative\\.tech$`);
+/** FQDN generik skrip (`scripts/lib/odoo-pools.sh` FQDN_RE). */
 export const FQDN_REGEX = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+/** ACTOR_RE (total ≤ 140). */
 export const ACTOR_REGEX = /^(user|system):[A-Za-z0-9._@:-]{1,128}$/;
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** REQUESTED_AT_RE + harus tanggal valid (dispatcher: datetime.fromisoformat). */
+export const REQUESTED_AT_REGEX = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
+
+export function isValidRequestedAt(v: string): boolean {
+  if (!REQUESTED_AT_REGEX.test(v)) return false;
+  const t = Date.parse(v);
+  // Tolak tanggal yang "digulung" JS (mis. 02-30 → 03-02) — Python fromisoformat menolaknya.
+  return !Number.isNaN(t) && isoSeconds(new Date(t)) === v;
+}
 
 export function hostRegexForEnv(env: TenantEnv): RegExp {
   return env === "staging" ? HOST_REGEX_STAGING : HOST_REGEX_PROD;
@@ -120,8 +142,8 @@ export function dbNameFor(slug: string, env: TenantEnv): string {
 // Skema args per tipe (additionalProperties=false → .strict())
 // ---------------------------------------------------------------------------
 const hostSchema = z.string().max(253).regex(FQDN_REGEX, "host tidak valid");
-const emailSchema = z.string().max(254).regex(EMAIL_REGEX, "email tidak valid");
-const loginSchema = z.string().regex(LOGIN_REGEX, "login tidak valid");
+const emailSchema = z.string().max(EMAIL_MAX).regex(EMAIL_REGEX, "email tidak valid");
+const loginSchema = z.string().max(LOGIN_MAX).regex(LOGIN_REGEX, "login tidak valid");
 
 export const argsSchemas = {
   odoo_db_provision: z.object({ host: hostSchema.optional() }).strict(),
@@ -166,7 +188,16 @@ export type ContractIssue =
   | "host_with_remove"
   | "skip_smoke_host"
   | "dry_run_unsupported"
-  | "create_kc_non_grant";
+  | "create_kc_non_grant"
+  | "admin_revoke"
+  | "host_not_in_route"
+  | "file_keys"
+  | "version"
+  | "job_id"
+  | "actor"
+  | "requested_at"
+  | "dry_run"
+  | "non_ascii";
 
 export type ContractResult<T> = { ok: true; value: T } | { ok: false; issue: ContractIssue };
 
@@ -223,19 +254,35 @@ export function validateJobRequest(instance: Instance, input: unknown): Contract
       const hosts = a.hosts as string[];
       if (new Set(hosts).size !== hosts.length) return { ok: false, issue: "host_duplicate" };
       if (!hosts.every(checkHost)) return { ok: false, issue: "host_env" };
-      if (type === "odoo_sso_provision" && a.skip_smoke === true) {
-        // skip_smoke hanya untuk host default (onboarding sebelum route, runbook A2).
-        const def = defaultHost(slug, env);
-        if (!def || hosts.length !== 1 || hosts[0] !== def) return { ok: false, issue: "skip_smoke_host" };
-      }
+      // Aturan host ⊆ route (+ host default bila skip_smoke) butuh data route → checkSsoHosts().
       break;
     }
     case "odoo_sso_user": {
+      // = v_sso_user dispatcher: revoke tanpa admin/create_kc; resend_invite tanpa create_kc.
       if (a.action !== "grant" && a.create_kc === true) return { ok: false, issue: "create_kc_non_grant" };
+      if (a.action === "revoke" && a.admin === true) return { ok: false, issue: "admin_revoke" };
       break;
     }
   }
   return { ok: true, value: { type, slug, env, dryRun, args: parsed.data } as JobRequest };
+}
+
+/**
+ * = check_hosts dispatcher: untuk odoo_sso_*, setiap host harus ada di route tenant; pengecualian
+ * skip_smoke=true (hanya odoo_sso_provision) untuk host default `<slug>.<erp|staging>.bimacreative.tech`.
+ * CP memakai `environments.host` (route aktif) sebagai cermin file route root-owned; dispatcher tetap
+ * memeriksa file aslinya.
+ */
+export function checkSsoHosts(req: JobRequest, routeHosts: readonly string[]): ContractResult<true> {
+  if (req.type !== "odoo_sso_provision" && req.type !== "odoo_sso_disable") return { ok: true, value: true };
+  const a = req.args as { hosts: string[]; skip_smoke?: boolean };
+  const dflt = defaultHost(req.slug, req.env);
+  for (const h of a.hosts) {
+    if (routeHosts.includes(h)) continue;
+    if (req.type === "odoo_sso_provision" && a.skip_smoke === true && h === dflt) continue;
+    return { ok: false, issue: a.skip_smoke === true ? "skip_smoke_host" : "host_not_in_route" };
+  }
+  return { ok: true, value: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -297,12 +344,45 @@ export function buildJobFile(
     requested_at: isoSeconds(row.createdAt),
     args: v.value.args as Record<string, unknown>,
   };
+  const final = validateJobFileObject(instance, file);
+  if (!final.ok) throw new ContractError(final.issue);
   if (Buffer.byteLength(serializeJobFile(file), "utf8") > JOB_FILE_MAX_BYTES) throw new ContractError("size");
   return file;
 }
 
+const JOB_FILE_KEYS = ["v", "job_id", "type", "slug", "env", "dry_run", "actor", "requested_at", "args"] as const;
+
+/**
+ * Validasi objek file job UTUH dengan aturan `validate_job` dispatcher (kunci top-level persis, v integer 1,
+ * job_id uuid, dry_run boolean, actor ≤ 140, requested_at tanggal valid, lalu args per tipe). Dipakai
+ * buildJobFile sebagai penjaga terakhir sebelum spool, dan oleh test fixture kontrak dispatcher.
+ */
+export function validateJobFileObject(instance: Instance, obj: unknown): ContractResult<JobFile> {
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return { ok: false, issue: "file_keys" };
+  const o = obj as Record<string, unknown>;
+  const keys = Object.keys(o);
+  if (keys.length !== JOB_FILE_KEYS.length || !JOB_FILE_KEYS.every((k) => Object.prototype.hasOwnProperty.call(o, k))) {
+    return { ok: false, issue: "file_keys" };
+  }
+  if (o.v !== 1) return { ok: false, issue: "version" };
+  if (typeof o.job_id !== "string" || !UUID_REGEX.test(o.job_id)) return { ok: false, issue: "job_id" };
+  if (typeof o.dry_run !== "boolean") return { ok: false, issue: "dry_run" };
+  if (typeof o.actor !== "string" || o.actor.length > 140 || !ACTOR_REGEX.test(o.actor)) return { ok: false, issue: "actor" };
+  if (typeof o.requested_at !== "string" || !isValidRequestedAt(o.requested_at)) return { ok: false, issue: "requested_at" };
+  if (typeof o.slug !== "string" || o.slug.length > 30) return { ok: false, issue: "slug" };
+  if (typeof o.type !== "string") return { ok: false, issue: "type" };
+  if (typeof o.env !== "string" || !["prod", "demo", "staging"].includes(o.env)) return { ok: false, issue: "env_instance" };
+  if (typeof o.args !== "object" || o.args === null || Array.isArray(o.args)) return { ok: false, issue: "args" };
+  const v = validateJobRequest(instance, { type: o.type, slug: o.slug, env: o.env, dryRun: o.dry_run, args: o.args });
+  if (!v.ok) return v;
+  return { ok: true, value: o as unknown as JobFile };
+}
+
+/** JSON satu baris; dispatcher menolak non-ASCII (raw_non_ascii_utf8) — semua nilai sudah ASCII lewat regex. */
 export function serializeJobFile(file: JobFile): string {
-  return `${JSON.stringify(file)}\n`;
+  const text = `${JSON.stringify(file)}\n`;
+  if (!/^[\x00-\x7f]*$/.test(text)) throw new ContractError("non_ascii");
+  return text;
 }
 
 export class ContractError extends Error {
@@ -424,7 +504,8 @@ export function parseResultFile(text: string, expectedJobId: string): ParsedResu
   if (!p.success || p.data.job_id !== expectedJobId) return null;
   const d = p.data;
   const rawCode = d.error_code ?? null;
-  const known = isErrorCode(rawCode);
+  // Hanya kode dispatcher yang dipercaya dari file hasil (no_result/spool_error = milik CP).
+  const known = isDispatcherErrorCode(rawCode);
   return {
     jobId: d.job_id,
     state: d.state === "rejected" ? "failed" : d.state,

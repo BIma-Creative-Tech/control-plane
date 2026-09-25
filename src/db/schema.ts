@@ -82,6 +82,8 @@ export const JOB_ERROR_CODES = [
   "timeout_state_unknown",
   "script_exit",
   "no_result",
+  // CP saja (Lead J2b): worker gagal menulis file job ke spool.
+  "spool_error",
 ] as const;
 
 export const mailboxStatus = pgEnum("mailbox_status", ["active", "suspended", "deleted"]);
@@ -347,7 +349,7 @@ export const provisionJobs = pgTable(
       .where(sql`${t.status} NOT IN ('succeeded', 'failed', 'cancelled')`),
     check(
       "provision_jobs_error_code_valid",
-      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result')`,
+      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result', 'spool_error')`,
     ),
   ],
 );
