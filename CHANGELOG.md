@@ -7,6 +7,29 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), dan p
 Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`) — **TEMPORARY** sampai GHCR/CI deploy
 (infra `docs/03-operations/control-plane.md`).
 
+## [0.4.0] - 2026-09-30
+
+### Added
+- **Quotation Tracker** `/dashboard/quotation` (infra plan 15): funnel Penawaran → SPK → Produksi → Absensi kru →
+  Ditagih → Lunas dari `mart_spk.tracker_stage` (klik langkah = filter), ringkasan nilai (penawaran terbuka, SPK,
+  ditagih, dibayar, piutang, lewat jatuh tempo — hanya untuk hak nilai), tabel per penawaran/SPK dengan tahap,
+  produksi, absensi kru, penagihan (jumlah invoice, jatuh tempo terdekat) dan pembayaran. Landing pascalogin Odoo
+  bagi grup "Dashboard Quotation Tracker" (`cl_expomedia_web`).
+- Detail SPK: bagian **Penagihan** (`mart.mart_spk_invoice`; nominal hanya untuk hak nilai) dan **Pembayaran**
+  (`mart.mart_spk_payment`, hanya untuk hak nilai).
+- Env opsional `DASHBOARD_ODOO_URLS` (`slug=https://host,…`) untuk tombol "Buka Odoo".
+
+## [0.3.0] - 2026-09-29
+
+### Added
+- **Dashboard SPK per client dari data mart** (infra ADR 0016): `/dashboard` menampilkan client yang boleh dilihat
+  user (RLS `app.sub` di `mart.mart_user_access`), `/dashboard/spk` (KPI, tahap per SPK, status terakhir, filter/urut,
+  halaman) dan `/dashboard/spk/[soId]` (lokasi per task, kegiatan lapangan & kru). Hak lihat **nilai** (nilai SPK,
+  tertagih, dibayar, piutang) dari grup Odoo (`sales_team.group_sale_salesman`) — kolom nilai tidak di-SELECT untuk
+  user tanpa hak; AE murni hanya melihat SPK miliknya. Pool terpisah `datamart_reader` (max 3), setiap query dalam
+  transaksi READ ONLY + `set_config(…, true)`. Bar tanpa style inline (SVG/`<meter>`, CSP tetap ketat).
+- Env opsional `DATAMART_URL` + `DATAMART_ENV` (`prod`|`staging`, berpasangan). Kosong = dashboard seperti sebelumnya.
+
 ## [Unreleased]
 
 ## [0.2.0] - 2026-09-25

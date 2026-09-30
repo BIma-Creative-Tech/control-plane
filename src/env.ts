@@ -72,8 +72,25 @@ export const webEnvSchema = baseEnvSchema
     AUTH_KEYCLOAK_ID: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/, "client id tidak valid"),
     AUTH_KEYCLOAK_SECRET: z.string().min(16, "minimal 16 karakter"),
     AUTH_KEYCLOAK_ISSUER: httpUrl,
+    /**
+     * ADR 0016 — data mart (role datamart_reader, RLS). Opsional: kosong = dashboard SPK nonaktif.
+     * DATAMART_ENV memilih baris env tenant yang dibaca (staging untuk cp.staging, prod untuk cp). Keduanya atau tidak sama sekali.
+     */
+    DATAMART_URL: postgresUrl.optional(),
+    DATAMART_ENV: z.enum(["prod", "staging"]).optional(),
+    /**
+     * Plan infra 15 — link "Buka Odoo" di dashboard: `slug=https://host` dipisah koma
+     * (mis. `expomedia=https://erp.expomedia.id`). Opsional; client tanpa entri = tanpa link.
+     */
+    DASHBOARD_ODOO_URLS: z
+      .string()
+      .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")
+      .optional(),
   })
   .superRefine((env, ctx) => {
+    if ((env.DATAMART_URL === undefined) !== (env.DATAMART_ENV === undefined)) {
+      ctx.addIssue({ code: "custom", path: ["DATAMART_URL"], message: "DATAMART_URL dan DATAMART_ENV wajib diisi bersama" });
+    }
     if (env.NODE_ENV === "production") {
       for (const key of ["AUTH_URL", "AUTH_KEYCLOAK_ISSUER"] as const) {
         if (!env[key].startsWith("https://")) {
