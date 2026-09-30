@@ -15,8 +15,8 @@ const FILTER = `
   AND ($2::text = '' OR spk_no ILIKE '%' || $2 || '%' OR quotation_name ILIKE '%' || $2 || '%'
        OR legacy_ref ILIKE '%' || $2 || '%' OR customer ILIKE '%' || $2 || '%' OR brand ILIKE '%' || $2 || '%'
        OR ae ILIKE '%' || $2 || '%')
-  AND ($4::text = '' OR ae_login = $4)`;
-const TRACK_FILTER = `AND (($3::text = '' AND tracker_stage <> 'batal') OR tracker_stage = $3)`;
+  AND ($3::text = '' OR ae_login = $3)`;
+const TRACK_FILTER = `AND (($4::text = '' AND tracker_stage <> 'batal') OR tracker_stage = $4)`;
 
 const ORDER_BY: Record<TrackerParams["sort"], string> = {
   date_desc: "date_order DESC NULLS LAST, so_id DESC",
@@ -104,16 +104,19 @@ export async function getQuotationTracker(sub: string, access: ClientAccess, p: 
   const withValue = access.canSeeValue;
   const aeLogin = aeOnly(access) ? access.login : "";
   return withMart({ sub, client: access.client }, async (c, env) => {
-    const args = [env, p.q, p.track, aeLogin];
+    // $1-$3 = FILTER (dipakai semua query), $4 = tahap (hanya query yang memakainya — Postgres menolak parameter
+    // yang tidak dirujuk karena tipenya tak bisa ditentukan).
+    const args = [env, p.q, aeLogin];
+    const withTrack = [...args, p.track];
     const sort = !withValue && p.sort === "value_desc" ? "date_desc" : p.sort;
     const list = await c.query(
       `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""} FROM mart.mart_spk
         WHERE ${FILTER} ${TRACK_FILTER} ORDER BY ${ORDER_BY[sort]} LIMIT $5 OFFSET $6`,
-      [...args, p.pageSize, (p.page - 1) * p.pageSize],
+      [...withTrack, p.pageSize, (p.page - 1) * p.pageSize],
     );
     // Funnel tidak ikut filter tahap (agar semua langkah tetap terlihat), hanya pencarian & lingkup AE.
     const agg = await c.query(
-      `SELECT count(*) FILTER (WHERE ($3::text = '' AND tracker_stage <> 'batal') OR tracker_stage = $3)::int AS total,
+      `SELECT count(*) FILTER (WHERE ($4::text = '' AND tracker_stage <> 'batal') OR tracker_stage = $4)::int AS total,
               count(*) FILTER (WHERE tracker_stage <> 'batal')::int AS quotations,
               count(*) FILTER (WHERE tracker_stage IN ('spk','produksi','ditagih','lunas'))::int AS spk,
               count(*) FILTER (WHERE tracker_stage IN ('produksi','ditagih','lunas'))::int AS produksi,
@@ -128,7 +131,7 @@ export async function getQuotationTracker(sub: string, access: ClientAccess, p: 
               coalesce(sum(crew_hours) FILTER (WHERE tracker_stage <> 'batal'), 0) AS crew_hours,
               max(refreshed_at) AS refreshed_at
          FROM mart.mart_spk WHERE ${FILTER}`,
-      args,
+      withTrack,
     );
     const a = agg.rows[0];
     const funnel: FunnelStep[] = [
