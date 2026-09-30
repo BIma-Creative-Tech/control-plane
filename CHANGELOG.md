@@ -7,6 +7,17 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), dan p
 Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`) — **TEMPORARY** sampai GHCR/CI deploy
 (infra `docs/03-operations/control-plane.md`).
 
+## [0.5.0] - 2026-09-30
+
+### Added
+- Quotation Tracker (plan infra 16): langkah **Lead CRM** (`mart.mart_lead`, daftar lead terbaru tanpa penawaran +
+  tautan Odoo), **Pengadaan (PO)** dan **Terkirim (surat jalan)** di funnel; kartu nilai pipeline lead, biaya material,
+  hutang vendor; kolom "Pengadaan & kirim" (PO, MO, surat jalan).
+- Detail SPK: seksi "Pengadaan, produksi & pengiriman" dari `mart.mart_spk_scm` (nominal hanya untuk `canSeeValue`).
+
+### Changed
+- Teks kesegaran data: refresh data mart berbasis perubahan (±2 menit), bukan tiap 30 menit.
+
 ## [0.4.0] - 2026-09-30
 
 ### Added
