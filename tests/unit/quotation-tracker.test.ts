@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 import { parseEnv, webEnvSchema } from "@/env";
-import { PAYMENT_STATE_LABEL, TRACK_LABEL, trackTone } from "@/lib/format";
+import { PAYMENT_STATE_LABEL, SCM_KIND_LABEL, SCM_STATE_LABEL, TRACK_LABEL, scmTone, trackTone } from "@/lib/format";
 import { parseOdooUrls } from "@/lib/odoo-links";
 import { TRACK_STAGES, parseTrackerParams, trackerQuery } from "@/lib/spk-params";
 
@@ -55,5 +55,21 @@ describe("DASHBOARD_ODOO_URLS", () => {
     for (const bad of ["expomedia=http://erp.expomedia.id", "expomedia=https://erp.expomedia.id/odoo", "Expo=https://x.id", "expomedia=javascript:alert(1)"]) {
       expect(() => parseEnv(webEnvSchema, { ...valid, DASHBOARD_ODOO_URLS: bad })).toThrow(/DASHBOARD_ODOO_URLS/);
     }
+  });
+});
+
+describe("label supply chain (plan infra 16)", () => {
+  it("setiap jenis dokumen SCM & state utama punya label Indonesia", () => {
+    for (const k of ["po", "receipt", "mo", "delivery", "bill"]) expect(SCM_KIND_LABEL[k]).toBeTruthy();
+    for (const st of ["draft", "purchase", "done", "cancel", "assigned", "confirmed", "progress", "posted"]) {
+      expect(SCM_STATE_LABEL[st]).toBeTruthy();
+    }
+  });
+  it("warna status: selesai hijau, batal merah, lainnya biru/abu", () => {
+    expect(scmTone("done")).toContain("emerald");
+    expect(scmTone("posted")).toContain("emerald");
+    expect(scmTone("cancel")).toContain("rose");
+    expect(scmTone("draft")).toContain("slate");
+    expect(scmTone("assigned")).toContain("blue");
   });
 });

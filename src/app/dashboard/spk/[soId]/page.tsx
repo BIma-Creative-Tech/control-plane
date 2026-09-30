@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { datamartEnabled } from "@/db/datamart";
 import { requirePermission } from "@/lib/authz";
-import { ACTIVITY_LABEL, PAYMENT_STATE_LABEL, TRACK_LABEL, rupiah, stageTone, tanggal, tanggalJam } from "@/lib/format";
+import {
+  ACTIVITY_LABEL, PAYMENT_STATE_LABEL, SCM_KIND_LABEL, SCM_STATE_LABEL, TRACK_LABEL, rupiah, scmTone, stageTone, tanggal,
+  tanggalJam,
+} from "@/lib/format";
 import { parseSpkListParams } from "@/lib/spk-params";
 import { accessFor, getSpkDetail } from "@/server/spk-dashboard";
 import { Nav } from "../../../nav";
@@ -129,6 +132,45 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
             </table>
           </section>
         ) : null}
+
+        <section className="overflow-x-auto rounded border bg-white">
+          <h2 className="border-b p-3 font-medium">Pengadaan, produksi &amp; pengiriman ({d.scm.length})</h2>
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="p-2">Dokumen</th><th className="p-2">No</th><th className="p-2">Tanggal</th>
+                <th className="p-2">Vendor / keterangan</th><th className="p-2">Status</th>
+                {access.canSeeValue ? <th className="p-2 text-right">Nilai / dibayar</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {d.scm.map((x) => (
+                <tr key={`${x.kind}-${x.docId}`} className="border-t align-top">
+                  <td className="p-2">{SCM_KIND_LABEL[x.kind] ?? x.kind}</td>
+                  <td className="p-2">{x.docNo}</td>
+                  <td className="whitespace-nowrap p-2">{tanggal(x.date)}</td>
+                  <td className="p-2">
+                    {x.party ?? "-"}
+                    {x.detail && x.kind !== "po" && x.kind !== "bill" ? <div className="text-xs text-slate-500">{x.detail}</div> : null}
+                  </td>
+                  <td className="p-2">
+                    <span className={`rounded px-1.5 text-xs ${scmTone(x.state)}`}>{SCM_STATE_LABEL[x.state] ?? x.state}</span>
+                    {x.kind === "bill" && x.detail ? <div className="text-xs text-slate-500">{PAYMENT_STATE_LABEL[x.detail] ?? x.detail}</div> : null}
+                  </td>
+                  {access.canSeeValue ? (
+                    <td className="whitespace-nowrap p-2 text-right">
+                      {x.amount === null || x.amount === undefined ? "-" : rupiah(x.amount)}
+                      {x.amountPaid !== null && x.amountPaid !== undefined ? <div className="text-xs text-slate-500">dibayar {rupiah(x.amountPaid)}</div> : null}
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+              {d.scm.length === 0 ? (
+                <tr><td colSpan={6} className="p-4 text-center text-slate-500">Belum ada PO / produksi / surat jalan</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </section>
 
         <section className="overflow-x-auto rounded border bg-white">
           <h2 className="border-b p-3 font-medium">Lokasi ({d.locations.length})</h2>

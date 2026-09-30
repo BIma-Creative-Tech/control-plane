@@ -45,3 +45,20 @@ export const PAYMENT_STATE_LABEL: Record<string, string> = {
   not_paid: "Belum dibayar", in_payment: "Dalam proses", paid: "Lunas", partial: "Sebagian",
   reversed: "Dibatalkan (refund)", blocked: "Ditahan", invoicing_legacy: "Legacy",
 };
+
+/** Dokumen supply chain per SPK (plan infra 16, `mart_spk_scm.kind`). */
+export const SCM_KIND_LABEL: Record<string, string> = {
+  po: "Purchase Order", receipt: "Penerimaan material", mo: "Perintah produksi", delivery: "Surat jalan",
+  bill: "Tagihan vendor",
+};
+/** State Odoo 19 purchase.order / stock.picking / mrp.production / account.move → label Indonesia. */
+export const SCM_STATE_LABEL: Record<string, string> = {
+  draft: "Draft", sent: "RFQ terkirim", "to approve": "Menunggu persetujuan", purchase: "Dipesan", done: "Selesai",
+  cancel: "Batal", waiting: "Menunggu", confirmed: "Dikonfirmasi", assigned: "Siap", progress: "Berjalan",
+  to_close: "Siap ditutup", posted: "Diposting",
+};
+export const scmTone = (state: string) =>
+  state === "done" || state === "posted" ? "bg-emerald-100 text-emerald-800"
+  : state === "cancel" ? "bg-rose-100 text-rose-800"
+  : state === "draft" || state === "sent" ? "bg-slate-200 text-slate-800"
+  : "bg-blue-100 text-blue-800";
