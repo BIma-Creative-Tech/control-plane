@@ -54,3 +54,40 @@ export function spkQuery(p: Partial<SpkListParams>, override: Partial<SpkListPar
   const s = sp.toString();
   return s ? `?${s}` : "";
 }
+
+/**
+ * Quotation Tracker (plan infra 15): tahap terjauh alur Penawaran → SPK → Produksi → Ditagih → Lunas
+ * (`mart_spk.tracker_stage`). "" = semua kecuali batal.
+ */
+export const TRACK_STAGES = ["penawaran", "spk", "produksi", "ditagih", "lunas", "batal"] as const;
+export type TrackStage = (typeof TRACK_STAGES)[number];
+
+const trackerSchema = schema.pick({ client: true, q: true, sort: true, page: true, pageSize: true }).extend({
+  track: z.enum([...TRACK_STAGES, ""]).default("").catch(""),
+});
+
+export type TrackerParams = z.infer<typeof trackerSchema>;
+
+export function parseTrackerParams(raw: Record<string, string | string[] | undefined>): TrackerParams {
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  return trackerSchema.parse({
+    client: first(raw.client) || undefined,
+    q: first(raw.q),
+    track: first(raw.track),
+    sort: first(raw.sort),
+    page: first(raw.page),
+    pageSize: 50,
+  });
+}
+
+export function trackerQuery(p: Partial<TrackerParams>, override: Partial<TrackerParams> = {}): string {
+  const merged = { ...p, ...override };
+  const sp = new URLSearchParams();
+  if (merged.client) sp.set("client", merged.client);
+  if (merged.q) sp.set("q", merged.q);
+  if (merged.track) sp.set("track", merged.track);
+  if (merged.sort && merged.sort !== "date_desc") sp.set("sort", merged.sort);
+  if (merged.page && merged.page > 1) sp.set("page", String(merged.page));
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}

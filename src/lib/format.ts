@@ -25,3 +25,23 @@ export const ACTIVITY_LABEL: Record<string, string> = {
   loading: "Loading (pasang)", unloading: "Unloading (bongkar)", installment: "Instalasi", maintenance: "Maintenance",
   cleaning: "General Cleaning", takeout: "Takeout", production: "Produksi workshop", other: "Lainnya",
 };
+
+/** Quotation Tracker (plan infra 15): label & warna tahap `mart_spk.tracker_stage`. */
+export const TRACK_LABEL: Record<string, string> = {
+  penawaran: "Penawaran", spk: "SPK", produksi: "Produksi", ditagih: "Ditagih", lunas: "Lunas", batal: "Batal",
+};
+const TRACK_TONE: Record<string, string> = {
+  penawaran: "bg-slate-200 text-slate-800",
+  spk: "bg-indigo-100 text-indigo-800",
+  produksi: "bg-blue-100 text-blue-800",
+  ditagih: "bg-amber-100 text-amber-800",
+  lunas: "bg-emerald-100 text-emerald-800",
+  batal: "bg-rose-100 text-rose-800",
+};
+export const trackTone = (track: string) => TRACK_TONE[track] ?? "bg-slate-100 text-slate-700";
+
+/** account.move.payment_state (Odoo 19). */
+export const PAYMENT_STATE_LABEL: Record<string, string> = {
+  not_paid: "Belum dibayar", in_payment: "Dalam proses", paid: "Lunas", partial: "Sebagian",
+  reversed: "Dibatalkan (refund)", blocked: "Ditahan", invoicing_legacy: "Legacy",
+};

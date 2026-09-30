@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { datamartEnabled } from "@/db/datamart";
 import { requirePermission } from "@/lib/authz";
-import { ACTIVITY_LABEL, rupiah, stageTone, tanggal, tanggalJam } from "@/lib/format";
+import { ACTIVITY_LABEL, PAYMENT_STATE_LABEL, TRACK_LABEL, rupiah, stageTone, tanggal, tanggalJam } from "@/lib/format";
 import { parseSpkListParams } from "@/lib/spk-params";
 import { accessFor, getSpkDetail } from "@/server/spk-dashboard";
 import { Nav } from "../../../nav";
@@ -28,7 +28,10 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
     <>
       <Nav session={session} />
       <main className="space-y-4 p-4 sm:p-6">
-        <Link href={`/dashboard/spk?client=${access.client}`} className="text-sm text-blue-700 underline">← Dashboard SPK</Link>
+        <div className="flex gap-4 text-sm">
+          <Link href={`/dashboard/quotation?client=${access.client}`} className="text-blue-700 underline">← Quotation Tracker</Link>
+          <Link href={`/dashboard/spk?client=${access.client}`} className="text-blue-700 underline">Dashboard SPK</Link>
+        </div>
         <section className="rounded border bg-white p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -41,6 +44,7 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
               </div>
             </div>
             <div className="text-right">
+              <span className="mr-1 rounded bg-slate-900 px-2 py-0.5 text-sm text-white">{TRACK_LABEL[d.track] ?? d.track}</span>
               <span className={`rounded px-2 py-0.5 text-sm ${stageTone(s.stage)}`}>{s.stage}</span>
               <Progress value={s.progress} />
             </div>
@@ -59,6 +63,72 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
             </dl>
           ) : null}
         </section>
+
+        <section className="overflow-x-auto rounded border bg-white">
+          <h2 className="border-b p-3 font-medium">Penagihan ({d.invoices.length})</h2>
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="p-2">No invoice</th><th className="p-2">Tanggal</th><th className="p-2">Jatuh tempo</th>
+                <th className="p-2">Status bayar</th>
+                {access.canSeeValue ? <><th className="p-2 text-right">Total</th><th className="p-2 text-right">Sisa</th></> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {d.invoices.map((i) => (
+                <tr key={i.invoiceId} className="border-t align-top">
+                  <td className="p-2">
+                    {i.invoiceNo}
+                    {i.isRefund ? <span className="ml-1 rounded bg-rose-100 px-1 text-xs text-rose-800">refund</span> : null}
+                    {i.state === "draft" ? <span className="ml-1 rounded bg-slate-200 px-1 text-xs">draft</span> : null}
+                  </td>
+                  <td className="p-2">{tanggal(i.invoiceDate)}</td>
+                  <td className={`p-2 ${i.isOverdue ? "font-medium text-rose-700" : ""}`}>
+                    {tanggal(i.dueDate)}{i.isOverdue ? " · lewat" : ""}
+                  </td>
+                  <td className="p-2">{i.paymentState ? PAYMENT_STATE_LABEL[i.paymentState] ?? i.paymentState : "-"}</td>
+                  {access.canSeeValue ? (
+                    <>
+                      <td className="p-2 text-right">{rupiah(i.amountTotal)}</td>
+                      <td className="p-2 text-right">{rupiah(i.residual)}</td>
+                    </>
+                  ) : null}
+                </tr>
+              ))}
+              {d.invoices.length === 0 ? (
+                <tr><td colSpan={6} className="p-4 text-center text-slate-500">Belum ada invoice</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </section>
+
+        {d.payments ? (
+          <section className="overflow-x-auto rounded border bg-white">
+            <h2 className="border-b p-3 font-medium">Pembayaran ({d.payments.length})</h2>
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="p-2">Tanggal</th><th className="p-2">No pembayaran</th><th className="p-2">Untuk invoice</th>
+                  <th className="p-2">Jurnal / memo</th><th className="p-2 text-right">Jumlah</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.payments.map((x) => (
+                  <tr key={`${x.paymentId}-${x.invoiceNo}`} className="border-t align-top">
+                    <td className="whitespace-nowrap p-2">{tanggal(x.date)}</td>
+                    <td className="p-2">{x.paymentNo ?? "-"}</td>
+                    <td className="p-2">{x.invoiceNo}</td>
+                    <td className="p-2">{x.journal ?? "-"}<div className="text-xs text-slate-500">{x.memo}</div></td>
+                    <td className="p-2 text-right">{rupiah(x.amount)}</td>
+                  </tr>
+                ))}
+                {d.payments.length === 0 ? (
+                  <tr><td colSpan={5} className="p-4 text-center text-slate-500">Belum ada pembayaran</td></tr>
+                ) : null}
+              </tbody>
+            </table>
+          </section>
+        ) : null}
 
         <section className="overflow-x-auto rounded border bg-white">
           <h2 className="border-b p-3 font-medium">Lokasi ({d.locations.length})</h2>

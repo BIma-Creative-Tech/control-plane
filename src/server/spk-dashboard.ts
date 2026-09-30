@@ -207,6 +207,8 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
 
 export type SpkDetail = {
   spk: SpkRow & { quotationName: string | null };
+  /** Tahap Quotation Tracker (mart_spk.tracker_stage). */
+  track: string;
   locations: {
     taskId: number;
     location: string;
@@ -228,6 +230,29 @@ export type SpkDetail = {
     hours: number;
     people: number;
   }[];
+  /** Penagihan (plan infra 15): nomor, jatuh tempo & status bayar untuk semua; nominal hanya bila canSeeValue. */
+  invoices: {
+    invoiceId: number;
+    invoiceNo: string;
+    isRefund: boolean;
+    state: string;
+    invoiceDate: Date | null;
+    dueDate: Date | null;
+    paymentState: string | null;
+    isOverdue: boolean;
+    amountTotal?: number;
+    residual?: number;
+  }[];
+  /** Pembayaran per invoice — hanya untuk yang berhak melihat nilai. */
+  payments?: {
+    paymentId: number;
+    paymentNo: string | null;
+    date: Date;
+    journal: string | null;
+    memo: string | null;
+    invoiceNo: string;
+    amount: number;
+  }[];
 };
 
 export async function getSpkDetail(sub: string, access: ClientAccess, soId: number): Promise<SpkDetail | null> {
@@ -235,7 +260,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
   const aeLogin = aeOnly(access) ? access.login : "";
   return withMart({ sub, client: access.client }, async (c, env) => {
     const head = await c.query(
-      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""}, quotation_name FROM mart.mart_spk
+      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""}, quotation_name, tracker_stage FROM mart.mart_spk
         WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
       [env, soId, aeLogin],
     );
@@ -251,9 +276,23 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
         WHERE env = $1 AND so_id = $2 ORDER BY date DESC, slot LIMIT 200`,
       [env, soId],
     );
+    const invs = await c.query(
+      `SELECT invoice_id, invoice_no, move_type, state, invoice_date, invoice_date_due, payment_state, is_overdue
+              ${withValue ? ", amount_total, amount_residual" : ""}
+         FROM mart.mart_spk_invoice WHERE env = $1 AND so_id = $2 ORDER BY invoice_date NULLS LAST, invoice_id`,
+      [env, soId],
+    );
+    const pays = withValue
+      ? await c.query(
+          `SELECT payment_id, payment_no, date, journal, memo, invoice_no, amount FROM mart.mart_spk_payment
+            WHERE env = $1 AND so_id = $2 ORDER BY date DESC, payment_id DESC`,
+          [env, soId],
+        )
+      : null;
     const h = head.rows[0];
     return {
       spk: { ...mapRow(h, withValue), quotationName: h.quotation_name ?? null },
+      track: String(h.tracker_stage),
       locations: locs.rows.map((x) => ({
         taskId: Number(x.task_id),
         location: x.location,
@@ -275,6 +314,30 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
         hours: Number(x.hours),
         people: Number(x.people),
       })),
+      invoices: invs.rows.map((x) => ({
+        invoiceId: Number(x.invoice_id),
+        invoiceNo: x.invoice_no ?? "(draft)",
+        isRefund: x.move_type === "out_refund",
+        state: x.state,
+        invoiceDate: x.invoice_date ?? null,
+        dueDate: x.invoice_date_due ?? null,
+        paymentState: x.payment_state ?? null,
+        isOverdue: x.is_overdue === true,
+        ...(withValue ? { amountTotal: Number(x.amount_total), residual: Number(x.amount_residual) } : {}),
+      })),
+      ...(pays
+        ? {
+            payments: pays.rows.map((x) => ({
+              paymentId: Number(x.payment_id),
+              paymentNo: x.payment_no ?? null,
+              date: x.date,
+              journal: x.journal ?? null,
+              memo: x.memo ?? null,
+              invoiceNo: x.invoice_no,
+              amount: Number(x.amount),
+            })),
+          }
+        : {}),
     };
   });
 }

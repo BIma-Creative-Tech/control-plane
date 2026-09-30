@@ -78,6 +78,14 @@ export const webEnvSchema = baseEnvSchema
      */
     DATAMART_URL: postgresUrl.optional(),
     DATAMART_ENV: z.enum(["prod", "staging"]).optional(),
+    /**
+     * Plan infra 15 — link "Buka Odoo" di dashboard: `slug=https://host` dipisah koma
+     * (mis. `expomedia=https://erp.expomedia.id`). Opsional; client tanpa entri = tanpa link.
+     */
+    DASHBOARD_ODOO_URLS: z
+      .string()
+      .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")
+      .optional(),
   })
   .superRefine((env, ctx) => {
     if ((env.DATAMART_URL === undefined) !== (env.DATAMART_ENV === undefined)) {

@@ -30,16 +30,24 @@ export default async function DashboardPage() {
           </p>
         ) : null}
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {access.map((a) => (
-            <Link key={a.client} href={`/dashboard/spk?client=${a.client}`}
+          {access.flatMap((a) => [
+            <Link key={`${a.client}-quotation`} href={`/dashboard/quotation?client=${a.client}`}
+              className="rounded border bg-white p-4 hover:bg-slate-50">
+              <div className="text-xs uppercase text-slate-500">{a.client}</div>
+              <div className="font-semibold">Quotation Tracker</div>
+              <div className="mt-1 text-sm text-slate-600">
+                Penawaran → SPK → Produksi → Absensi → Penagihan → Pembayaran · {a.name}
+              </div>
+            </Link>,
+            <Link key={`${a.client}-spk`} href={`/dashboard/spk?client=${a.client}`}
               className="rounded border bg-white p-4 hover:bg-slate-50">
               <div className="text-xs uppercase text-slate-500">{a.client}</div>
               <div className="font-semibold">Dashboard SPK</div>
               <div className="mt-1 text-sm text-slate-600">
                 {a.canSeeValue ? "Status & nilai proyek" : "Status pengerjaan"} · {a.name}
               </div>
-            </Link>
-          ))}
+            </Link>,
+          ])}
         </div>
       </main>
     </>
