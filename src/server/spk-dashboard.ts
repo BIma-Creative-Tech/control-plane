@@ -243,6 +243,18 @@ export type SpkDetail = {
     amountTotal?: number;
     residual?: number;
   }[];
+  /** Supply chain (plan infra 16): PO, penerimaan, MO, surat jalan, tagihan vendor; nominal hanya bila canSeeValue. */
+  scm: {
+    kind: string;
+    docId: number;
+    docNo: string;
+    state: string;
+    date: Date | null;
+    party: string | null;
+    detail: string | null;
+    amount?: number | null;
+    amountPaid?: number | null;
+  }[];
   /** Pembayaran per invoice — hanya untuk yang berhak melihat nilai. */
   payments?: {
     paymentId: number;
@@ -280,6 +292,12 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
       `SELECT invoice_id, invoice_no, move_type, state, invoice_date, invoice_date_due, payment_state, is_overdue
               ${withValue ? ", amount_total, amount_residual" : ""}
          FROM mart.mart_spk_invoice WHERE env = $1 AND so_id = $2 ORDER BY invoice_date NULLS LAST, invoice_id`,
+      [env, soId],
+    );
+    const scm = await c.query(
+      `SELECT kind, doc_id, doc_no, state, doc_date, party, detail${withValue ? ", amount, amount_paid" : ""}
+         FROM mart.mart_spk_scm WHERE env = $1 AND so_id = $2
+        ORDER BY array_position(ARRAY['po','receipt','bill','mo','delivery'], kind), doc_date NULLS LAST, doc_id`,
       [env, soId],
     );
     const pays = withValue
@@ -324,6 +342,18 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
         paymentState: x.payment_state ?? null,
         isOverdue: x.is_overdue === true,
         ...(withValue ? { amountTotal: Number(x.amount_total), residual: Number(x.amount_residual) } : {}),
+      })),
+      scm: scm.rows.map((x) => ({
+        kind: String(x.kind),
+        docId: Number(x.doc_id),
+        docNo: String(x.doc_no),
+        state: String(x.state),
+        date: x.doc_date ?? null,
+        party: x.party ?? null,
+        detail: x.detail ?? null,
+        ...(withValue
+          ? { amount: x.amount === null ? null : Number(x.amount), amountPaid: x.amount_paid === null ? null : Number(x.amount_paid) }
+          : {}),
       })),
       ...(pays
         ? {

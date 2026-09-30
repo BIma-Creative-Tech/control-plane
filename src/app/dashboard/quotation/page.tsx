@@ -10,8 +10,13 @@ import { accessFor, listAccess } from "@/server/spk-dashboard";
 import { Nav } from "../../nav";
 import { FunnelBar, Progress, TrackSteps } from "../spk/bars";
 
+/** Langkah funnel yang bukan `tracker_stage` (tidak bisa jadi filter tabel). */
+const INFO_STEPS = new Set(["lead", "pengadaan", "dikirim", "absensi"]);
+const STEP_NOTE: Record<string, string> = { lead: "pipeline ", pengadaan: "biaya ", lunas: "dibayar " };
+
 /**
- * Quotation Tracker (plan infra 15): Penawaran → SPK → Produksi → Absensi kru → Ditagih → Lunas per client.
+ * Quotation Tracker (plan infra 15/16): Lead CRM → Penawaran → SPK → Pengadaan → Produksi → Terkirim → Absensi kru
+ * → Ditagih → Lunas per client.
  * Landing pascalogin Odoo untuk grup "Dashboard Quotation Tracker". Server component tanpa JS klien.
  */
 export default async function QuotationTrackerPage(props: PageProps<"/dashboard/quotation">) {
@@ -31,7 +36,7 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
   const pages = Math.max(1, Math.ceil(d.total / p.pageSize));
   const top = Math.max(1, d.funnel[0]?.reached ?? 1);
   const odoo = odooUrlFor(access.client);
-  const cols = access.canSeeValue ? 8 : 7;
+  const cols = access.canSeeValue ? 9 : 8;
 
   return (
     <>
@@ -41,8 +46,8 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
           <div>
             <h1 className="text-lg font-semibold">Quotation Tracker · {access.client}</h1>
             <p className="text-sm text-slate-600">
-              Penawaran → SPK → Produksi → Absensi kru → Penagihan → Pembayaran · data diperbarui{" "}
-              {tanggalJam(d.refreshedAt)} WIB (tiap 30 menit)
+              Lead → Penawaran → SPK → Pengadaan → Produksi → Pengiriman → Penagihan → Pembayaran · data{" "}
+              {tanggalJam(d.refreshedAt)} WIB (otomatis ±2 menit setelah ada perubahan di Odoo)
             </p>
           </div>
           <div className="flex gap-2 text-sm">
@@ -57,7 +62,7 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
           </div>
         </div>
 
-        <section aria-label="Alur penawaran" className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        <section aria-label="Alur penawaran" className="grid grid-cols-2 gap-2 md:grid-cols-5 xl:grid-cols-9">
           {d.funnel.map((s) => {
             const active = p.track === s.key;
             const body = (
@@ -68,17 +73,19 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
                 <div className="mt-1 text-xs text-slate-500">
                   {s.key === "absensi"
                     ? `${d.crewHours.toLocaleString("id-ID")} jam kru`
-                    : s.key === "lunas" ? "pembayaran penuh" : `${s.current.toLocaleString("id-ID")} berhenti di sini`}
+                    : s.key === "lunas" ? "pembayaran penuh"
+                    : s.key === "lead" ? `${s.current.toLocaleString("id-ID")} belum ada penawaran`
+                    : INFO_STEPS.has(s.key) ? "SPK aktif" : `${s.current.toLocaleString("id-ID")} berhenti di sini`}
                 </div>
                 {s.amount !== undefined ? (
                   <div className="text-xs font-medium" title={rupiah(s.amount)}>
-                    {s.key === "lunas" ? "dibayar " : ""}{rupiahCompact(s.amount)}
+                    {STEP_NOTE[s.key] ?? ""}{rupiahCompact(s.amount)}
                   </div>
                 ) : null}
               </>
             );
             const cls = `block rounded border bg-white p-3 ${active ? "border-slate-900 ring-1 ring-slate-900" : ""}`;
-            return s.key === "absensi" ? (
+            return INFO_STEPS.has(s.key) ? (
               <div key={s.key} className={cls}>{body}</div>
             ) : (
               <Link key={s.key} className={`${cls} hover:bg-slate-50`}
@@ -90,13 +97,16 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
         </section>
 
         {d.value ? (
-          <section className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-            <Amount label="Penawaran terbuka" value={d.value.quoted} mockup={d.value.isMockup} />
+          <section className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+            <Amount label="Pipeline lead" value={d.value.pipeline} mockup={d.value.isMockup} />
+            <Amount label="Penawaran terbuka" value={d.value.quoted} />
             <Amount label="Nilai SPK" value={d.value.spk} />
             <Amount label="Sudah ditagih" value={d.value.invoiced} />
             <Amount label="Sudah dibayar" value={d.value.paid} />
             <Amount label="Piutang" value={d.value.due} />
             <Amount label="Lewat jatuh tempo" value={d.value.overdue} warn={d.value.overdue > 0} />
+            <Amount label="Biaya material (PO)" value={d.value.materialCost} />
+            <Amount label="Hutang vendor" value={d.value.vendorDue} />
           </section>
         ) : null}
 
@@ -128,6 +138,7 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
                 <th className="p-2">Klien / Brand</th>
                 <th className="p-2">Tahap</th>
                 <th className="hidden p-2 md:table-cell">Produksi</th>
+                <th className="hidden p-2 xl:table-cell">Pengadaan &amp; kirim</th>
                 <th className="hidden p-2 text-right lg:table-cell">Absensi kru</th>
                 <th className="p-2">Penagihan</th>
                 <th className="hidden p-2 lg:table-cell">Pembayaran</th>
@@ -157,6 +168,14 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
                         <span className={`rounded px-1.5 text-xs ${stageTone(r.stage)}`}>{r.stage}</span>
                         <Progress value={r.progress} />
                         <div className="text-xs text-slate-500">{r.locations} lokasi</div>
+                      </>
+                    ) : <span className="text-slate-400">-</span>}
+                  </td>
+                  <td className="hidden p-2 text-xs xl:table-cell">
+                    {r.poCount || r.moCount || r.deliveryCount ? (
+                      <>
+                        <div>{r.poCount} PO{r.materialCost !== undefined ? ` · ${rupiahCompact(r.materialCost)}` : ""}</div>
+                        <div className="text-slate-500">MO {r.moDone}/{r.moCount} · SJ {r.deliveryDone}/{r.deliveryCount}</div>
                       </>
                     ) : <span className="text-slate-400">-</span>}
                   </td>
@@ -197,6 +216,36 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
             {p.page < pages ? <Link className="rounded border bg-white px-2 py-1" href={`/dashboard/quotation${trackerQuery(p, { page: p.page + 1 })}`}>Berikutnya</Link> : null}
           </span>
         </nav>
+        {d.openLeads.length ? (
+          <section className="overflow-x-auto rounded border bg-white">
+            <h2 className="border-b p-3 font-medium">Lead CRM terbaru yang belum jadi penawaran</h2>
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="p-2">Lead</th><th className="p-2">Klien / Brand</th><th className="p-2">Tahap CRM</th>
+                  <th className="hidden p-2 md:table-cell">AE</th><th className="p-2">Dibuat</th>
+                  {access.canSeeValue ? <th className="p-2 text-right">Perkiraan nilai</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {d.openLeads.map((x) => (
+                  <tr key={x.leadId} className="border-t align-top">
+                    <td className="p-2">
+                      {odoo ? (
+                        <a href={`${odoo}/odoo/crm/${x.leadId}`} className="text-blue-700 underline">{x.name}</a>
+                      ) : x.name}
+                    </td>
+                    <td className="p-2">{x.customer ?? "-"}<div className="text-xs text-slate-500">{x.brand}</div></td>
+                    <td className="p-2">{x.stage ?? "-"}</td>
+                    <td className="hidden p-2 md:table-cell">{x.ae ?? "-"}</td>
+                    <td className="whitespace-nowrap p-2">{tanggal(x.createdAt)}</td>
+                    {access.canSeeValue ? <td className="p-2 text-right">{rupiah(x.expectedRevenue)}</td> : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        ) : null}
       </main>
     </>
   );
