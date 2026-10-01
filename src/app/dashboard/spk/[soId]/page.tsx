@@ -4,16 +4,15 @@ import { Icon, type IconName } from "@/components/icon";
 import { datamartEnabled } from "@/db/datamart";
 import { requirePermission } from "@/lib/authz";
 import {
-  ACTIVITY_LABEL, PAYMENT_STATE_LABEL, SCM_KIND_LABEL, SCM_STATE_LABEL, TRACK_LABEL, rupiah, scmTone, stageTone, tanggal,
+  ACTIVITY_LABEL, PAYMENT_STATE_LABEL, TRACK_LABEL, rupiah, scmTone, stageTone, tanggal,
   tanggalJam, trackTone,
 } from "@/lib/format";
 import { parseSpkListParams } from "@/lib/spk-params";
 import { accessFor, getSpkDetail } from "@/server/spk-dashboard";
 import { Nav } from "../../../nav";
-import { Badge, EmptyRow, MockupBadge, Muted, Panel, ROW, TD, TH, rise } from "../../ui";
+import { Badge, EmptyRow, MockupBadge, Panel, ROW, TD, TH, rise } from "../../ui";
 import { Progress, TrackStepper } from "../bars";
-
-const SCM_ICON: Record<string, IconName> = { po: "shopping-cart", receipt: "box", mo: "3dcube", delivery: "truck-fast", bill: "receipt-2" };
+import { Procurement } from "./procurement";
 
 /** Detail satu SPK: tahap per lokasi, status terakhir, kegiatan lapangan & kru; nilai hanya untuk yang berhak. */
 export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[soId]">) {
@@ -161,48 +160,8 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
           ) : null}
         </div>
 
-        <Panel title="Pengadaan, produksi & pengiriman" icon="truck-fast" count={d.scm.length} className={rise(3)}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className={TH}>Dokumen</th><th className={TH}>No</th><th className={TH}>Tanggal</th>
-                  <th className={TH}>Vendor / keterangan</th><th className={TH}>Status</th>
-                  {access.canSeeValue ? <th className={`text-right ${TH}`}>Nilai / dibayar</th> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {d.scm.map((x) => (
-                  <tr key={`${x.kind}-${x.docId}`} className={ROW}>
-                    <td className={TD}>
-                      <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                        <span className="grid size-7 place-items-center rounded-lg bg-muted"><Icon name={SCM_ICON[x.kind] ?? "document-text"} className="size-4" /></span>
-                        {SCM_KIND_LABEL[x.kind] ?? x.kind}
-                      </span>
-                    </td>
-                    <td className={`font-medium ${TD}`}>{x.docNo}</td>
-                    <td className={`whitespace-nowrap ${TD}`}>{tanggal(x.date)}</td>
-                    <td className={TD}>
-                      {x.party ?? "-"}
-                      {x.detail && x.kind !== "po" && x.kind !== "bill" ? <div className="text-xs text-muted-foreground">{x.detail}</div> : null}
-                    </td>
-                    <td className={TD}>
-                      <Badge tone={scmTone(x.state)}>{SCM_STATE_LABEL[x.state] ?? x.state}</Badge>
-                      {x.kind === "bill" && x.detail ? <div className="mt-1 text-xs text-muted-foreground">{PAYMENT_STATE_LABEL[x.detail] ?? x.detail}</div> : null}
-                    </td>
-                    {access.canSeeValue ? (
-                      <td className={`whitespace-nowrap text-right tabular-nums ${TD}`}>
-                        {x.amount === null || x.amount === undefined ? <Muted>—</Muted> : rupiah(x.amount)}
-                        {x.amountPaid !== null && x.amountPaid !== undefined ? <div className="text-xs text-muted-foreground">dibayar {rupiah(x.amountPaid)}</div> : null}
-                      </td>
-                    ) : null}
-                  </tr>
-                ))}
-                {d.scm.length === 0 ? <EmptyRow cols={access.canSeeValue ? 6 : 5}>Belum ada PO / produksi / surat jalan</EmptyRow> : null}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
+        <Procurement client={access.client} soId={soId} scm={d.scm} products={d.products}
+          vendorPayments={d.vendorPayments} canSeeValue={access.canSeeValue} />
 
         <Panel title="Lokasi" icon="location" count={d.locations.length} className={rise(4)}>
           <div className="overflow-x-auto">

@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { Icon, type IconName } from "@/components/icon";
 import { NumberTicker } from "@/components/number-ticker";
-import { tanggalJam } from "@/lib/format";
+import { scmTone, tanggalJam, trackTone } from "@/lib/format";
 
 /** Jeda bertahap animasi masuk (kelas literal agar terdeteksi Tailwind). */
 const RISE = [
@@ -112,6 +112,11 @@ export function Badge({ tone, children, className }: { tone: string; children: R
       {children}
     </span>
   );
+}
+
+/** Warna badge untuk nada status (lib/scm `Tone`). */
+export function toneClass(tone: "neutral" | "info" | "warn" | "good" | "danger") {
+  return { neutral: scmTone("draft"), info: scmTone("confirmed"), warn: trackTone("ditagih"), good: scmTone("done"), danger: scmTone("cancel") }[tone];
 }
 
 export function MockupBadge({ short }: { short?: boolean }) {

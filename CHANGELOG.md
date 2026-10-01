@@ -20,6 +20,14 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 - Teks kesegaran data Dashboard SPK: "otomatis ±2 menit" (sebelumnya masih "tiap 30 menit").
 
 ### Added
+- **Detail SPK — pengadaan per PO**: satu baris per PO dengan kolom Keterangan (produk, vendor, status terakhir),
+  No PO, No GR, Tagihan vendor, Pembayaran ke vendor (nomor & alokasi hanya untuk hak nilai) dan Nilai; MO → surat jalan
+  di baris ringkas. Butuh data mart infra `8b16f04` (`mart_spk_scm.po_id`, `mart_spk_vendor_payment`,
+  `mart_spk_scm_line`).
+- **Halaman detail dokumen** `/dashboard/spk/[soId]/dokumen/[kind]/[docId]` (PO, GR, tagihan vendor, pembayaran ke
+  vendor, MO, surat jalan): alur dokumen PO → GR → Tagihan → Pembayaran (atau MO → Surat jalan) dengan tautan, baris
+  barang (qty pesan/terima/tagih atau rencana/selesai, hasil & komponen MO). Dokumen wajib milik SPK tsb (akses sama
+  dengan detail SPK); pembayaran & nominal hanya untuk hak nilai (tanpa hak → 404).
 - Dependensi `motion` 13.4.3 (MIT) dan devDependency `iconsax` 0.1.1 (MIT) — versi sama dengan web-expomedia.
 
 ## [0.5.0] - 2026-09-30

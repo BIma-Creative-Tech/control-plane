@@ -1,6 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { withMart } from "@/db/datamart";
+import type { ScmDoc, VendorPayment } from "@/lib/scm";
 import type { SpkListParams } from "@/lib/spk-params";
 
 /**
@@ -244,17 +245,11 @@ export type SpkDetail = {
     residual?: number;
   }[];
   /** Supply chain (plan infra 16): PO, penerimaan, MO, surat jalan, tagihan vendor; nominal hanya bila canSeeValue. */
-  scm: {
-    kind: string;
-    docId: number;
-    docNo: string;
-    state: string;
-    date: Date | null;
-    party: string | null;
-    detail: string | null;
-    amount?: number | null;
-    amountPaid?: number | null;
-  }[];
+  scm: ScmDoc[];
+  /** Ringkasan produk per dokumen PO & MO (hasil): doc_id → "Produk A, Produk B". */
+  products: Record<string, string>;
+  /** Pembayaran ke vendor per tagihan — hanya untuk yang berhak melihat nilai. */
+  vendorPayments?: VendorPayment[];
   /** Pembayaran per invoice — hanya untuk yang berhak melihat nilai. */
   payments?: {
     paymentId: number;
@@ -294,12 +289,15 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
          FROM mart.mart_spk_invoice WHERE env = $1 AND so_id = $2 ORDER BY invoice_date NULLS LAST, invoice_id`,
       [env, soId],
     );
-    const scm = await c.query(
-      `SELECT kind, doc_id, doc_no, state, doc_date, party, detail${withValue ? ", amount, amount_paid" : ""}
-         FROM mart.mart_spk_scm WHERE env = $1 AND so_id = $2
-        ORDER BY array_position(ARRAY['po','receipt','bill','mo','delivery'], kind), doc_date NULLS LAST, doc_id`,
+    const scm = await queryScm(c, env, soId, withValue);
+    const prods = await c.query(
+      `SELECT kind, doc_id, string_agg(product, ', ' ORDER BY sequence NULLS LAST, line_id) AS products
+         FROM mart.mart_spk_scm_line
+        WHERE env = $1 AND so_id = $2 AND (kind = 'po' OR (kind = 'mo' AND role = 'hasil')) AND product IS NOT NULL
+        GROUP BY kind, doc_id`,
       [env, soId],
     );
+    const vpays = withValue ? await queryVendorPayments(c, env, soId) : null;
     const pays = withValue
       ? await c.query(
           `SELECT payment_id, payment_no, date, journal, memo, invoice_no, amount FROM mart.mart_spk_payment
@@ -343,18 +341,9 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
         isOverdue: x.is_overdue === true,
         ...(withValue ? { amountTotal: Number(x.amount_total), residual: Number(x.amount_residual) } : {}),
       })),
-      scm: scm.rows.map((x) => ({
-        kind: String(x.kind),
-        docId: Number(x.doc_id),
-        docNo: String(x.doc_no),
-        state: String(x.state),
-        date: x.doc_date ?? null,
-        party: x.party ?? null,
-        detail: x.detail ?? null,
-        ...(withValue
-          ? { amount: x.amount === null ? null : Number(x.amount), amountPaid: x.amount_paid === null ? null : Number(x.amount_paid) }
-          : {}),
-      })),
+      scm,
+      products: Object.fromEntries(prods.rows.map((x) => [`${x.kind}:${x.doc_id}`, String(x.products)])),
+      ...(vpays ? { vendorPayments: vpays } : {}),
       ...(pays
         ? {
             payments: pays.rows.map((x) => ({
@@ -368,6 +357,137 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
             })),
           }
         : {}),
+    };
+  });
+}
+
+async function queryScm(c: PoolClient, env: string, soId: number, withValue: boolean): Promise<ScmDoc[]> {
+  const r = await c.query(
+    `SELECT kind, doc_id, doc_no, state, doc_date, party, detail, po_id${withValue ? ", amount, amount_paid" : ""}
+       FROM mart.mart_spk_scm WHERE env = $1 AND so_id = $2
+      ORDER BY array_position(ARRAY['po','receipt','bill','mo','delivery'], kind), doc_date NULLS LAST, doc_id`,
+    [env, soId],
+  );
+  return r.rows.map((x) => ({
+    kind: String(x.kind),
+    docId: Number(x.doc_id),
+    docNo: String(x.doc_no),
+    state: String(x.state),
+    date: x.doc_date ?? null,
+    party: x.party ?? null,
+    detail: x.detail ?? null,
+    poId: x.po_id === null ? null : Number(x.po_id),
+    ...(withValue
+      ? { amount: x.amount === null ? null : Number(x.amount), amountPaid: x.amount_paid === null ? null : Number(x.amount_paid) }
+      : {}),
+  }));
+}
+
+/** Pembayaran ke vendor (mart_spk_vendor_payment) — HANYA dipanggil bila canSeeValue. */
+async function queryVendorPayments(c: PoolClient, env: string, soId: number): Promise<VendorPayment[]> {
+  const r = await c.query(
+    `SELECT po_id, bill_id, bill_no, payment_id, payment_no, state, date, journal, memo, amount
+       FROM mart.mart_spk_vendor_payment WHERE env = $1 AND so_id = $2 ORDER BY date NULLS LAST, payment_id`,
+    [env, soId],
+  );
+  return r.rows.map((x) => ({
+    poId: Number(x.po_id),
+    billId: Number(x.bill_id),
+    billNo: String(x.bill_no),
+    paymentId: Number(x.payment_id),
+    paymentNo: x.payment_no ?? null,
+    state: String(x.state),
+    date: x.date ?? null,
+    journal: x.journal ?? null,
+    memo: x.memo ?? null,
+    amount: Number(x.amount),
+  }));
+}
+
+export type ScmLine = {
+  lineId: number;
+  role: string | null;
+  code: string | null;
+  product: string | null;
+  description: string | null;
+  qty: number | null;
+  qtyDone: number | null;
+  qtyBilled: number | null;
+  uom: string | null;
+  amount?: number | null;
+};
+
+export type ScmDocument = {
+  spkNo: string;
+  customer: string | null;
+  /** Semua dokumen SCM SPK ini (untuk alur PO → GR → tagihan → pembayaran). */
+  scm: ScmDoc[];
+  vendorPayments?: VendorPayment[];
+  /** Dokumen yang dibuka (null untuk kind 'payment'). */
+  doc: ScmDoc | null;
+  /** Untuk kind 'payment': alokasi pembayaran per tagihan. */
+  payment?: VendorPayment[];
+  lines: ScmLine[];
+};
+
+/**
+ * Detail satu dokumen SCM milik SPK `soId`. Akses = sama dengan detail SPK (RLS client + AE murni hanya SPK miliknya);
+ * dokumen harus milik SPK ini (cegah membuka dokumen SPK lain lewat URL). Pembayaran vendor & nominal hanya bila
+ * canSeeValue — kind 'payment' tanpa hak → null (404).
+ */
+export async function getScmDocument(
+  sub: string, access: ClientAccess, soId: number, kind: string, docId: number,
+): Promise<ScmDocument | null> {
+  const withValue = access.canSeeValue;
+  if (kind === "payment" && !withValue) return null;
+  const aeLogin = aeOnly(access) ? access.login : "";
+  return withMart({ sub, client: access.client }, async (c, env) => {
+    const head = await c.query(
+      `SELECT spk_no, customer FROM mart.mart_spk WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
+      [env, soId, aeLogin],
+    );
+    if (head.rowCount === 0) return null;
+    const scm = await queryScm(c, env, soId, withValue);
+    const vendorPayments = withValue ? await queryVendorPayments(c, env, soId) : undefined;
+    let doc: ScmDoc | null = null;
+    let payment: VendorPayment[] | undefined;
+    if (kind === "payment") {
+      payment = vendorPayments?.filter((p) => p.paymentId === docId);
+      if (!payment?.length) return null;
+    } else {
+      doc = scm.find((d) => d.kind === kind && d.docId === docId) ?? null;
+      if (!doc) return null;
+    }
+    const lines = doc
+      ? await c.query(
+          `SELECT line_id, role, default_code, product, description, qty, qty_done, qty_billed, uom
+                  ${withValue ? ", amount" : ""}
+             FROM mart.mart_spk_scm_line WHERE env = $1 AND so_id = $2 AND kind = $3 AND doc_id = $4
+            ORDER BY role NULLS FIRST, sequence NULLS LAST, line_id`,
+          [env, soId, kind, docId],
+        )
+      : { rows: [] };
+    const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    const h = head.rows[0];
+    return {
+      spkNo: String(h.spk_no),
+      customer: h.customer ?? null,
+      scm,
+      ...(vendorPayments ? { vendorPayments } : {}),
+      doc,
+      ...(payment ? { payment } : {}),
+      lines: lines.rows.map((x) => ({
+        lineId: Number(x.line_id),
+        role: x.role ?? null,
+        code: x.default_code ?? null,
+        product: x.product ?? null,
+        description: x.description ?? null,
+        qty: num(x.qty),
+        qtyDone: num(x.qty_done),
+        qtyBilled: num(x.qty_billed),
+        uom: x.uom ?? null,
+        ...(withValue ? { amount: num(x.amount) } : {}),
+      })),
     };
   });
 }
