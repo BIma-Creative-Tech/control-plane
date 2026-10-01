@@ -76,7 +76,7 @@ export default async function ScmDocumentPage(props: PageProps<"/dashboard/spk/[
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   {party ? <span className="inline-flex items-center gap-1.5"><Icon name="buildings" className="size-4" /><span className="font-medium text-foreground">{party}</span></span> : null}
                   <span className="inline-flex items-center gap-1.5"><Icon name="calendar" className="size-4" />{tanggal(date)}</span>
-                  <span className="inline-flex items-center gap-1.5"><Icon name="clipboard-tick" className="size-4" />SPK {d.spkNo}{d.customer ? ` · ${d.customer}` : ""}</span>
+                  <span className="inline-flex items-center gap-1.5"><Icon name="clipboard-tick" className="size-4" />{d.spkNo}{d.customer ? ` · ${d.customer}` : ""}</span>
                 </div>
                 {pay?.[0]?.journal || pay?.[0]?.memo ? (
                   <div className="mt-1 text-xs text-muted-foreground">{[pay[0].journal, pay[0].memo].filter(Boolean).join(" · ")}</div>

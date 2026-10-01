@@ -28,7 +28,7 @@ export function Procurement(props: {
         <table className="w-full text-left text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className={`min-w-64 ${TH}`}>Keterangan</th>
+              <th className={`min-w-64 max-w-md ${TH}`}>Keterangan</th>
               <th className={TH}>No PO</th>
               <th className={TH}>No GR</th>
               <th className={TH}>Tagihan vendor</th>
@@ -42,7 +42,7 @@ export function Procurement(props: {
               const payments = uniquePayments(r.payments);
               return (
                 <tr key={r.po?.docId ?? "tanpa-po"} className={ROW}>
-                  <td className={TD}>
+                  <td className={`max-w-md ${TD}`}>
                     <div className="line-clamp-2 font-semibold">
                       {r.po ? (props.products[`po:${r.po.docId}`] ?? "Pengadaan") : "Penerimaan / tagihan tanpa PO"}
                     </div>
@@ -126,7 +126,7 @@ function DocLink({ href, no, sub }: { href: string; no: string; sub?: string }) 
   return (
     <div className="min-w-0">
       <Link href={href} className={`${LINK} whitespace-nowrap`}>{no}</Link>
-      {sub ? <div className="text-xs text-muted-foreground">{sub}</div> : null}
+      {sub ? <div className="whitespace-nowrap text-xs text-muted-foreground">{sub}</div> : null}
     </div>
   );
 }
