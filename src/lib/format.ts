@@ -1,4 +1,4 @@
-/** Format tampilan dashboard (id-ID, WIB). Murni, diuji unit. */
+/** Format tampilan dashboard (id-ID, WIB). Murni, diuji unit. Kelas tone dipakai <Badge> (ring-1 ring-inset). */
 const RUPIAH = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 const COMPACT = new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 });
 const DATE = new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Jakarta" });
@@ -12,14 +12,14 @@ export const tanggal = (d: Date | string | null | undefined) => (d ? DATE.format
 export const tanggalJam = (d: Date | string | null | undefined) => (d ? DATETIME.format(new Date(d)) : "-");
 
 const STAGE_TONE: Record<string, string> = {
-  Desain: "bg-slate-200 text-slate-800",
-  Produksi: "bg-blue-100 text-blue-800",
-  Instalasi: "bg-cyan-100 text-cyan-800",
-  Laporan: "bg-amber-100 text-amber-800",
-  BAST: "bg-emerald-100 text-emerald-800",
-  Selesai: "bg-emerald-200 text-emerald-900",
+  Desain: "bg-stone-500/15 text-stone-800 ring-stone-600/25 dark:text-stone-200 dark:ring-stone-400/30",
+  Produksi: "bg-blue-500/10 text-blue-800 ring-blue-600/25 dark:text-blue-300 dark:ring-blue-400/30",
+  Instalasi: "bg-cyan-500/10 text-cyan-800 ring-cyan-600/25 dark:text-cyan-300 dark:ring-cyan-400/30",
+  Laporan: "bg-amber-500/12 text-amber-800 ring-amber-600/25 dark:text-amber-300 dark:ring-amber-400/30",
+  BAST: "bg-emerald-500/10 text-emerald-800 ring-emerald-600/25 dark:text-emerald-300 dark:ring-emerald-400/30",
+  Selesai: "bg-emerald-600 text-white ring-emerald-700/40 dark:bg-emerald-500/25 dark:text-emerald-200 dark:ring-emerald-400/40",
 };
-export const stageTone = (stage: string) => STAGE_TONE[stage] ?? "bg-slate-100 text-slate-700";
+export const stageTone = (stage: string) => STAGE_TONE[stage] ?? "bg-slate-500/10 text-slate-700 ring-slate-500/25 dark:text-slate-300 dark:ring-slate-400/30";
 
 export const ACTIVITY_LABEL: Record<string, string> = {
   loading: "Loading (pasang)", unloading: "Unloading (bongkar)", installment: "Instalasi", maintenance: "Maintenance",
@@ -31,14 +31,14 @@ export const TRACK_LABEL: Record<string, string> = {
   penawaran: "Penawaran", spk: "SPK", produksi: "Produksi", ditagih: "Ditagih", lunas: "Lunas", batal: "Batal",
 };
 const TRACK_TONE: Record<string, string> = {
-  penawaran: "bg-slate-200 text-slate-800",
-  spk: "bg-indigo-100 text-indigo-800",
-  produksi: "bg-blue-100 text-blue-800",
-  ditagih: "bg-amber-100 text-amber-800",
-  lunas: "bg-emerald-100 text-emerald-800",
-  batal: "bg-rose-100 text-rose-800",
+  penawaran: "bg-stone-500/15 text-stone-800 ring-stone-600/25 dark:text-stone-200 dark:ring-stone-400/30",
+  spk: "bg-indigo-500/10 text-indigo-800 ring-indigo-600/25 dark:text-indigo-300 dark:ring-indigo-400/30",
+  produksi: "bg-blue-500/10 text-blue-800 ring-blue-600/25 dark:text-blue-300 dark:ring-blue-400/30",
+  ditagih: "bg-amber-500/12 text-amber-800 ring-amber-600/25 dark:text-amber-300 dark:ring-amber-400/30",
+  lunas: "bg-emerald-500/10 text-emerald-800 ring-emerald-600/25 dark:text-emerald-300 dark:ring-emerald-400/30",
+  batal: "bg-rose-500/10 text-rose-800 ring-rose-600/25 dark:text-rose-300 dark:ring-rose-400/30",
 };
-export const trackTone = (track: string) => TRACK_TONE[track] ?? "bg-slate-100 text-slate-700";
+export const trackTone = (track: string) => TRACK_TONE[track] ?? "bg-slate-500/10 text-slate-700 ring-slate-500/25 dark:text-slate-300 dark:ring-slate-400/30";
 
 /** account.move.payment_state (Odoo 19). */
 export const PAYMENT_STATE_LABEL: Record<string, string> = {
@@ -58,7 +58,7 @@ export const SCM_STATE_LABEL: Record<string, string> = {
   to_close: "Siap ditutup", posted: "Diposting",
 };
 export const scmTone = (state: string) =>
-  state === "done" || state === "posted" ? "bg-emerald-100 text-emerald-800"
-  : state === "cancel" ? "bg-rose-100 text-rose-800"
-  : state === "draft" || state === "sent" ? "bg-slate-200 text-slate-800"
-  : "bg-blue-100 text-blue-800";
+  state === "done" || state === "posted" ? "bg-emerald-500/10 text-emerald-800 ring-emerald-600/25 dark:text-emerald-300 dark:ring-emerald-400/30"
+  : state === "cancel" ? "bg-rose-500/10 text-rose-800 ring-rose-600/25 dark:text-rose-300 dark:ring-rose-400/30"
+  : state === "draft" || state === "sent" ? "bg-slate-500/10 text-slate-700 ring-slate-500/25 dark:text-slate-300 dark:ring-slate-400/30"
+  : "bg-blue-500/10 text-blue-800 ring-blue-600/25 dark:text-blue-300 dark:ring-blue-400/30";

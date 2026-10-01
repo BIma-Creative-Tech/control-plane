@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
+import { Manrope, Syne } from "next/font/google";
 import { connection } from "next/server";
 import "./globals.css";
+
+// next/font mengunduh font saat BUILD dan menyajikannya dari origin sendiri → cocok dengan CSP `font-src 'self'`.
+// Pasangan font sama dengan website expomedia.id (Syne judul, Manrope isi).
+const heading = Syne({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-heading-face", display: "swap" });
+const body = Manrope({ subsets: ["latin"], variable: "--font-body", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Control Plane",
@@ -12,8 +18,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // (docs guides/content-security-policy.md §Forcing dynamic rendering).
   await connection();
   return (
-    <html lang="id">
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">{children}</body>
+    <html lang="id" className={`${heading.variable} ${body.variable}`}>
+      <body className="min-h-screen">{children}</body>
     </html>
   );
 }

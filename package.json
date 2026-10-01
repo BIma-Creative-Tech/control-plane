@@ -18,10 +18,12 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node dist/db/migrate.mjs",
-    "worker": "node dist/worker/index.mjs"
+    "worker": "node dist/worker/index.mjs",
+    "icons": "node scripts/iconsax-subset.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.3",
+    "motion": "13.4.3",
     "next": "16.3.6",
     "next-auth": "5.0.0-beta.32",
     "pg": "8.23.0",
@@ -43,6 +45,7 @@
     "esbuild": "0.28.2",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.6",
+    "iconsax": "0.1.1",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vite": "8.3.0",
