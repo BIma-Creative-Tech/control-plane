@@ -57,20 +57,18 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
           ) : null}
         </section>
 
-        <div className={`grid gap-4 ${d.value && d.valueByCustomer ? "xl:grid-cols-[3fr_2fr]" : ""}`}>
+        <div className={`grid items-start gap-4 ${d.value && d.valueByCustomer ? "xl:grid-cols-[3fr_2fr]" : ""}`}>
           <Panel title="Tahap SPK" icon="status-up" className={rise(4)}
             aside={<span className="text-xs text-muted-foreground">lokasi paling tertinggal · klik untuk filter</span>}>
             <div className="p-4">
               <StageBar stages={d.stages.map((s) => ({ stage: s.stage, count: s.count, active: p.stage === s.stage, href: stageHref(s.stage) }))} />
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="mt-3 flex flex-wrap gap-2">
                 {d.stages.map((s) => (
                   <Link key={s.stage} href={stageHref(s.stage)} aria-current={p.stage === s.stage ? "true" : undefined}
-                    className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm transition-colors hover:bg-muted ${
+                    className={`inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm transition-colors hover:bg-muted ${
                       p.stage === s.stage ? "border-foreground bg-muted" : ""}`}>
-                    <span className="flex min-w-0 items-center gap-2">
-                      <svg viewBox="0 0 10 10" className="size-2.5 shrink-0" aria-hidden="true"><rect width={10} height={10} rx={3} className={stageFill(s.stage)} /></svg>
-                      <span className="truncate">{s.stage}</span>
-                    </span>
+                    <svg viewBox="0 0 10 10" className="size-2.5 shrink-0" aria-hidden="true"><rect width={10} height={10} rx={3} className={stageFill(s.stage)} /></svg>
+                    {s.stage}
                     <span className="font-semibold tabular-nums">{s.count.toLocaleString("id-ID")}</span>
                   </Link>
                 ))}

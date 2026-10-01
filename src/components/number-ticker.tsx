@@ -1,7 +1,7 @@
 /**
  * Number Ticker — adaptasi 21st.dev / Magic UI (MIT, https://21st.dev/@dillionverma/components/number-ticker),
  * pola yang sama dengan website expomedia: SERVER component yang merender NILAI AKHIR (tanpa JS / reduced motion
- * melihat angka benar); hitungan naik dijalankan <MotionEnhancer> (spring Motion, damping 60 / stiffness 100).
+ * melihat angka benar); hitungan naik dijalankan <MotionEnhancer> (tween Motion 0,9 dtk).
  * Angka animasi `aria-hidden` + teks `sr-only` agar pembaca layar tidak membaca hitungan.
  */
 const FMT = new Intl.NumberFormat("id-ID");

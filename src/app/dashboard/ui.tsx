@@ -95,7 +95,7 @@ export function Panel(props: { title?: string; icon?: IconName; count?: number; 
             ) : null}
             {props.title}
             {props.count !== undefined ? (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">{props.count}</span>
+              <span className="rounded-full bg-muted px-2 py-0.5 font-sans text-xs font-semibold tabular-nums text-muted-foreground">{props.count}</span>
             ) : null}
           </h2>
           {props.aside}

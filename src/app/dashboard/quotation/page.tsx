@@ -75,7 +75,7 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
                     {String(i + 1).padStart(2, "0")}
                   </span>
                 </div>
-                <div className={`mt-3 text-xs font-medium ${active ? "opacity-80" : "text-muted-foreground"}`}>{s.label}</div>
+                <div className={`mt-3 line-clamp-2 min-h-8 text-xs leading-4 font-medium ${active ? "opacity-80" : "text-muted-foreground"}`}>{s.label}</div>
                 <div className="text-2xl font-bold tracking-tight"><NumberTicker value={s.reached} /></div>
                 <FunnelBar value={s.reached} max={top} label={`${s.label}: ${s.reached}`} active={active} />
                 <div className={`mt-2 text-xs ${active ? "opacity-80" : "text-muted-foreground"}`}>
@@ -285,7 +285,7 @@ function ValueGroup(props: { title: string; icon: IconName; cols: string; items:
         {props.items.map((it) => (
           <div key={it.label} title={rupiah(it.value)}
             className={`min-w-0 border-l-2 pl-3 ${it.warn ? "border-rose-500" : it.good ? "border-emerald-500" : "border-border"}`}>
-            <div className="truncate text-xs text-muted-foreground">{it.label}{it.mockup ? <MockupBadge /> : null}</div>
+            <div className="flex items-center text-xs text-muted-foreground"><span className="truncate">{it.label}</span>{it.mockup ? <MockupBadge /> : null}</div>
             <div className={`text-lg font-bold tracking-tight tabular-nums ${it.warn ? "text-rose-700 dark:text-rose-300" : ""}`}>
               {rupiahCompact(it.value)}
             </div>
