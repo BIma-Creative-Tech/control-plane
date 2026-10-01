@@ -7,6 +7,21 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), dan p
 Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`) — **TEMPORARY** sampai GHCR/CI deploy
 (infra `docs/03-operations/control-plane.md`).
 
+## [Unreleased]
+
+### Changed
+- **Tampilan baru dashboard** (Quotation Tracker, Dashboard SPK, detail SPK, indeks `/dashboard`, nav) mengikuti
+  referensi website expomedia.id: tema Onyx monokrom terang/gelap (ikut sistem, hanya di `/dashboard`), font Syne +
+  Manrope (`next/font`, self-hosted), ikon Iconsax dirender server sebagai SVG (`npm run icons` →
+  `src/generated/iconsax-icons.json`; tanpa `dangerouslySetInnerHTML`/atribut `style`), kartu & bento ala 21st.dev,
+  angka KPI hitung naik (Motion, satu client component; reduced motion dihormati), animasi masuk & bar tumbuh via
+  keyframe CSS. Funnel bergaya stepper ber-ikon, nilai dikelompokkan Penjualan / Penagihan / Supply chain, tab
+  Quotation Tracker ↔ Dashboard SPK, stepper Penawaran → Lunas di detail SPK. Data, query, dan hak akses tidak berubah.
+- Teks kesegaran data Dashboard SPK: "otomatis ±2 menit" (sebelumnya masih "tiap 30 menit").
+
+### Added
+- Dependensi `motion` 13.4.3 (MIT) dan devDependency `iconsax` 0.1.1 (MIT) — versi sama dengan web-expomedia.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added

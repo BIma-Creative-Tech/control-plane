@@ -285,7 +285,7 @@ function ValueGroup(props: { title: string; icon: IconName; cols: string; items:
         {props.items.map((it) => (
           <div key={it.label} title={rupiah(it.value)}
             className={`min-w-0 border-l-2 pl-3 ${it.warn ? "border-rose-500" : it.good ? "border-emerald-500" : "border-border"}`}>
-            <div className="flex items-center text-xs text-muted-foreground"><span className="truncate">{it.label}</span>{it.mockup ? <MockupBadge /> : null}</div>
+            <div className="flex items-center text-xs text-muted-foreground"><span className="truncate">{it.label}</span>{it.mockup ? <MockupBadge short /> : null}</div>
             <div className={`text-lg font-bold tracking-tight tabular-nums ${it.warn ? "text-rose-700 dark:text-rose-300" : ""}`}>
               {rupiahCompact(it.value)}
             </div>
