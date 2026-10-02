@@ -4,7 +4,8 @@
  */
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "./client";
-import { clients, domains, environments, invoices, plans, subscriptions, tenantUserAccess, users } from "./schema";
+import { clients, environments, invoices, plans, subscriptions, tenantUserAccess, users } from "./schema";
+import { listTenantDomains } from "./tenant-queries";
 import { timestampToDate } from "../lib/billing";
 import type { PortalTenantRow, PortalUserRow } from "../lib/portal";
 
@@ -90,19 +91,7 @@ export async function portalAccess(db: Db, clientId: string) {
     .where(eq(environments.clientId, clientId));
 }
 
+/** Domain tenant + checklist bahan (sama dengan halaman tenant platform, db/tenant-queries.ts). */
 export async function portalDomains(db: Db, clientId: string) {
-  return db
-    .select({
-      id: domains.id,
-      fqdn: domains.fqdn,
-      purpose: domains.purpose,
-      status: domains.status,
-      dkimTxt: domains.dkimTxt,
-      verifiedAt: domains.verifiedAt,
-      envKind: environments.kind,
-    })
-    .from(domains)
-    .leftJoin(environments, eq(environments.id, domains.environmentId))
-    .where(eq(domains.clientId, clientId))
-    .orderBy(asc(domains.fqdn));
+  return listTenantDomains(db, clientId);
 }

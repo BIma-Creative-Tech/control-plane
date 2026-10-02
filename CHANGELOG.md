@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **SaaS Fase 1 W5 — Domains**: CRUD domain per tenant di halaman tenant (superadmin, izin `domains:manage`, audit),
+  tautan environment odoo/web milik tenant yang sama, DKIM untuk mail, status `pending_dns`, token verifikasi acak
+  server; checklist DNS yang digenerate (A tanpa AAAA ke `PLATFORM_PUBLIC_IPV4`; MX/SPF/DKIM/DMARC untuk mail) di
+  halaman tenant dan `/portal/domains`. Env web baru `PLATFORM_PUBLIC_IPV4` (opsional). Verifikasi otomatis = Fase 2.
 - **SaaS Fase 1 W6 — Portal tenant**: `/portal` (Ringkasan read-only: environment, langganan, invoice terbuka),
   `/portal/users` (tenant-admin: tambah tenant-user, nonaktif/aktif, reset password, akses Odoo per env; batas user plan
   `plans.max_users` dengan kunci per tenant), `/portal/domains` (read-only). Izin baru `portal:view`, `portal:admin`;

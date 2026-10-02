@@ -4,7 +4,7 @@
  */
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from "drizzle-orm";
 import type { Db } from "./client";
-import { auditLogs, clients, provisionJobs, users } from "./schema";
+import { auditLogs, clients, domains, environments, provisionJobs, users } from "./schema";
 import { AUDIT_PAGE_SIZE, type AuditParams } from "../lib/audit-params";
 import { orderChain, type ChainStepRow } from "../lib/user-admin";
 
@@ -39,6 +39,26 @@ export async function listUsersOfTenant(db: Db, clientId: string) {
     .where(eq(users.clientId, clientId))
     .orderBy(asc(users.email))
     .limit(200);
+}
+
+/** Domain satu tenant (+ kind environment tertaut) — halaman tenant & portal (checklist DNS dari lib/domains.ts). */
+export async function listTenantDomains(db: Db, clientId: string) {
+  return db
+    .select({
+      id: domains.id,
+      fqdn: domains.fqdn,
+      purpose: domains.purpose,
+      status: domains.status,
+      dkimTxt: domains.dkimTxt,
+      verifiedAt: domains.verifiedAt,
+      environmentId: domains.environmentId,
+      envKind: environments.kind,
+      createdAt: domains.createdAt,
+    })
+    .from(domains)
+    .leftJoin(environments, eq(environments.id, domains.environmentId))
+    .where(eq(domains.clientId, clientId))
+    .orderBy(asc(domains.fqdn));
 }
 
 export type ChainView = { chainId: string; createdAt: Date; actor: string; origin: string | null; steps: (ChainStepRow & { dryRun: boolean; result: Record<string, string> | null })[] };

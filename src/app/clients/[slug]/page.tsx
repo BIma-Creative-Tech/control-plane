@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/db";
-import { getTenantBySlug, listClientChains, listUsersOfTenant } from "@/db/tenant-queries";
+import { getTenantBySlug, listClientChains, listTenantDomains, listUsersOfTenant } from "@/db/tenant-queries";
 import { getWebEnv } from "@/env";
 import { requirePermission } from "@/lib/authz";
 import { INSTANCE_ENVS, UUID_REGEX, envAllowedForInstance, instanceJobTypes } from "@/lib/job-contract";
@@ -13,6 +13,9 @@ import { listEnvironmentsForClient, listJobs } from "@/server/queries";
 import { JobTable, ResultBanner, StatusBadge } from "../../jobs/components";
 import { Nav } from "../../nav";
 import { createEnvironmentAction, tenantStateAction } from "../actions";
+import { createDomainAction, deleteDomainAction, updateDomainAction } from "../domain-actions";
+import { DnsChecklistTable } from "../../domains/checklist";
+import { DOMAIN_PURPOSES, ENV_LINK_PURPOSES } from "@/lib/domains";
 import { ChainList } from "../chain-list";
 import { TenantBillingSummary } from "../../billing/tenant-billing";
 
@@ -40,12 +43,15 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
   const kinds = instance ? INSTANCE_ENVS[instance] : (["prod", "demo", "staging"] as const);
   const canManage = can(session.roles, "clients:manage");
 
-  const [envs, tenantUsers, jobs, chains] = await Promise.all([
+  const [envs, tenantUsers, jobs, chains, domainRows] = await Promise.all([
     listEnvironmentsForClient(client.id),
     listUsersOfTenant(db, client.id),
     listJobs({ client: client.slug, page: 1 }, 10),
     listClientChains(db, client.id, 10),
+    listTenantDomains(db, client.id),
   ]);
+  const canDomains = can(session.roles, "domains:manage") && !client.isPlatform && !client.terminatedAt && client.status !== "terminated";
+  const platformIpv4 = env.PLATFORM_PUBLIC_IPV4 ?? null;
   const instanceEnvs = instance ? envs.filter((e) => envAllowedForInstance(instance, e.kind)) : [];
   const stateOn =
     canManage &&
@@ -178,6 +184,100 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
 
         {/* Ringkasan langganan & invoice (ADR 0018) — aksi di /subscriptions dan /invoices. */}
         {!client.isPlatform ? <TenantBillingSummary session={session} clientId={client.id} slug={client.slug} /> : null}
+
+        {!client.isPlatform ? (
+          <section id="domains" className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="font-semibold">Domain</h2>
+              <span className="text-xs text-slate-500">
+                Checklist DNS digenerate; verifikasi otomatis: Fase 2. IP platform: {platformIpv4 ?? "IP belum dikonfigurasi"}.
+              </span>
+            </div>
+            {domainRows.length === 0 ? <p className="text-sm text-slate-500">Belum ada domain.</p> : null}
+            {domainRows.map((d) => (
+              <div key={d.id} className="space-y-2 rounded border bg-white p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono font-semibold">{d.fqdn}</span>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{d.purpose ?? "purpose ?"}</span>
+                  {d.envKind ? <span className="font-mono text-xs text-slate-500">env {d.envKind}</span> : null}
+                  <StatusBadge value={d.status} />
+                </div>
+                <DnsChecklistTable fqdn={d.fqdn} purpose={d.purpose} dkimTxt={d.dkimTxt} platformIpv4={platformIpv4} />
+                {canDomains ? (
+                  <div className="flex flex-wrap gap-4">
+                    <details>
+                      <summary className="cursor-pointer text-xs underline">Ubah…</summary>
+                      <form action={updateDomainAction} className="mt-2 flex flex-wrap items-center gap-2">
+                        <input type="hidden" name="back" value={client.slug} />
+                        <input type="hidden" name="domainId" value={d.id} />
+                        <select name="purpose" defaultValue={d.purpose ?? "odoo"} className={input}>
+                          {DOMAIN_PURPOSES.map((p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                        <select name="environmentId" defaultValue={d.environmentId ?? ""} className={input}>
+                          <option value="">tanpa environment</option>
+                          {envs.map((e) => (
+                            <option key={e.id} value={e.id}>
+                              {e.kind}
+                            </option>
+                          ))}
+                        </select>
+                        <input name="dkim_txt" defaultValue={d.dkimTxt ?? ""} maxLength={2048} placeholder="DKIM TXT (mail)" className={`${input} w-80`} />
+                        <button type="submit" className={btn}>
+                          Simpan
+                        </button>
+                      </form>
+                    </details>
+                    <details>
+                      <summary className="cursor-pointer text-xs text-red-700 underline">Hapus…</summary>
+                      <form action={deleteDomainAction} className="mt-2 flex flex-wrap items-center gap-2">
+                        <input type="hidden" name="back" value={client.slug} />
+                        <input type="hidden" name="domainId" value={d.id} />
+                        <input name="confirm" required maxLength={253} placeholder={`ketik ${d.fqdn}`} autoComplete="off" className={input} />
+                        <button type="submit" className={btnDanger}>
+                          Hapus
+                        </button>
+                      </form>
+                    </details>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {canDomains ? (
+              <form action={createDomainAction} className="flex flex-wrap items-center gap-2 rounded border bg-white p-4 text-sm">
+                <span className="font-semibold">Tambah domain</span>
+                <input type="hidden" name="back" value={client.slug} />
+                <input type="hidden" name="clientId" value={client.id} />
+                <input name="fqdn" required maxLength={253} placeholder="erp.klien.co.id" className={input} />
+                <select name="purpose" defaultValue="odoo" className={input}>
+                  {DOMAIN_PURPOSES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+                <select name="environmentId" defaultValue="" className={input}>
+                  <option value="">tanpa environment</option>
+                  {envs.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.kind}
+                    </option>
+                  ))}
+                </select>
+                <input name="dkim_txt" maxLength={2048} placeholder="DKIM TXT (mail, opsional)" className={`${input} w-80`} />
+                <button type="submit" className={btn}>
+                  Simpan
+                </button>
+                <p className="w-full text-xs text-slate-500">
+                  Status awal pending_dns. Environment hanya untuk kegunaan {ENV_LINK_PURPOSES.join("/")}; DKIM hanya untuk mail.
+                </p>
+              </form>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="space-y-2">
           <div className="flex items-center gap-3">

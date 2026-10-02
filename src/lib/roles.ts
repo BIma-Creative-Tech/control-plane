@@ -63,6 +63,8 @@ export const PERMISSIONS = {
   "portal:view": ["client_admin", "client_user"],
   /** Portal tenant W6 — `/portal/users` dan `/portal/domains` (tenant-admin). Mutasi user = `users:manage_own`. */
   "portal:admin": ["client_admin"],
+  /** Domains (W5): CRUD data domain per tenant + checklist DNS. Lihat = `jobs:view` (halaman tenant) / portal. */
+  "domains:manage": ["superadmin"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

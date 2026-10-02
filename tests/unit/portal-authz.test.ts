@@ -235,7 +235,7 @@ describe("Server Action portal dipanggil langsung", () => {
     as(["client_admin"]);
     h.services.portalChangeAccess.mockResolvedValueOnce({ ok: false, reason: "authz", denial: "cross_tenant" });
     expect(await redirectOf(portalChangeAccessAction(fd([["userId", U]])))).toBe("/portal/users?r=not_found");
-    for (const c of ["not_found", "plan_limit", "role_not_allowed", "self_action", "unbound"]) expect(ACTION_RESULT_CODES).toContain(c);
+    for (const c of ["not_found", "plan_limit", "role_not_allowed", "self_action"]) expect(ACTION_RESULT_CODES).toContain(c);
   });
 });
 

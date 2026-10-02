@@ -103,6 +103,21 @@ export const workerEnvSchema = baseEnvSchema
     }
   });
 
+/** IPv4 non-publik (RFC 1918, loopback, link-local, CGNAT, 0/8, multicast/cadangan). Murni. */
+export function isNonPublicIpv4(ip: string): boolean {
+  const [a = 0, b = 0] = ip.split(".").map(Number);
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  );
+}
+
 export const webEnvSchema = baseEnvSchema
   .extend({
     // Auth.js v5 membaca nama-nama ini langsung (node_modules/@auth/core/lib/utils/env.js).
@@ -121,6 +136,17 @@ export const webEnvSchema = baseEnvSchema
      * Plan infra 15 — link "Buka Odoo" di dashboard: `slug=https://host` dipisah koma
      * (mis. `expomedia=https://erp.expomedia.id`). Opsional; client tanpa entri = tanpa link.
      */
+    /**
+     * W5 Domains: IPv4 publik platform untuk checklist DNS (record A domain odoo/web/insight; tanpa AAAA). Opsional —
+     * kosong = checklist menampilkan "IP belum dikonfigurasi". Alamat privat/loopback/link-local ditolak.
+     */
+    PLATFORM_PUBLIC_IPV4: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z
+        .ipv4()
+        .refine((ip) => !isNonPublicIpv4(ip), "harus IPv4 publik (bukan privat/loopback/link-local/CGNAT)")
+        .optional(),
+    ),
     DASHBOARD_ODOO_URLS: z
       .string()
       .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")

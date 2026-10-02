@@ -268,6 +268,22 @@ Tanpa itu, uji email memakai mailer perekam.
   audit memuat `plan_limit` (`no_subscription|unlimited|limited`). Kanal platform (/users) tidak dibatasi plan.
 - `/portal/domains` (`portal:admin`, read-only Fase 1): domain tenant + kegunaan + status.
 
+## Domains (SaaS Fase 1 W5)
+
+- Halaman tenant `/clients/<slug>` bagian **Domain** (lihat: `jobs:view`; CRUD: `domains:manage` = superadmin): fqdn
+  (unik global, huruf kecil, titik akhir dibuang), kegunaan `odoo|web|mail|insight|sso`, tautan environment (hanya
+  `odoo|web`, environment milik tenant yang sama — id dari form diverifikasi ulang → `env_mismatch`), DKIM TXT (hanya
+  `mail`). Status awal `pending_dns`; token verifikasi acak dibuat server (tidak pernah dari input, tidak masuk audit).
+  fqdn tidak bisa diubah (hapus + buat ulang); hapus = ketik fqdn persis. Semua mutasi diaudit `domain.create|update|delete`
+  (penolakan `result=rejected`). Tenant platform/terminated ditolak.
+- **Checklist DNS** digenerate (`src/lib/domains.ts` `dnsChecklist`), tampil di halaman tenant dan `/portal/domains`:
+  - odoo/web/insight: `A <fqdn> <PLATFORM_PUBLIC_IPV4>` (tanpa AAAA); env kosong → "IP belum dikonfigurasi";
+  - mail: `MX 10 mail.bimacreative.tech.`, `TXT @ "v=spf1 include:_spf.bimacreative.tech -all"`,
+    `TXT mail._domainkey <dkim_txt | menunggu DKIM>`, `TXT _dmarc "v=DMARC1; p=none; adkim=s; aspf=s;
+    rua=mailto:dmarc@<fqdn>"` (naikkan ke quarantine setelah 2 minggu bersih);
+  - sso: belum ditetapkan. Verifikasi otomatis (`dns_verify`): Fase 2.
+- Env web `PLATFORM_PUBLIC_IPV4` (opsional, IPv4 publik; privat/loopback/link-local/CGNAT ditolak saat boot).
+
 ## Auth & otorisasi
 
 - OIDC Authorization Code + **PKCE S256** + `state` + `nonce`; client confidential.

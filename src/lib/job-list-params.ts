@@ -70,7 +70,10 @@ export const ACTION_RESULT_CODES = [
   "approve_required",
   // Portal tenant (W6)
   "plan_limit",
-  "unbound",
+  // Domains (W5)
+  "updated",
+  "deleted",
+  "env_mismatch",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -124,5 +127,8 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   plan_required: "Jalankan \"Rencana sync realm\" dulu: rencana terakhir harus sukses (≤ 24 jam) tanpa blocker.",
   approve_required: "Realm prod/demo: centang persetujuan eksplisit sebelum menerapkan.",
   plan_limit: "Batas jumlah user paket langganan tercapai (user aktif + undangan + yang sedang diproses). Hubungi admin platform untuk menaikkan paket.",
-  unbound: "Akun Anda belum terikat ke tenant mana pun — hubungi admin platform.",
+  updated: "Perubahan tersimpan.",
+  deleted: "Data dihapus.",
+  env_mismatch:
+    "Environment tidak cocok: hanya domain odoo/web yang boleh ditautkan, dan environment harus milik tenant yang sama.",
 };
