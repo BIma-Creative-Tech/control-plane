@@ -17,6 +17,8 @@ export function Nav({ session }: { session: Session }) {
         <Link href="/dashboard" className={ITEM}><Icon name="category" className="size-4" />Dashboard</Link>
         {can(session.roles, "clients:list") ? <Link href="/clients" className={ITEM}><Icon name="buildings" className="size-4" />Clients</Link> : null}
         {can(session.roles, "users:view") ? <Link href="/users" className={ITEM}><Icon name="people" className="size-4" />Users</Link> : null}
+        {can(session.roles, "billing:view") ? <Link href="/subscriptions" className={ITEM}><Icon name="wallet-check" className="size-4" />Subscriptions</Link> : null}
+        {can(session.roles, "billing:view") ? <Link href="/invoices" className={ITEM}><Icon name="receipt-2" className="size-4" />Invoices</Link> : null}
         {can(session.roles, "jobs:view") ? <Link href="/jobs" className={ITEM}><Icon name="setting-4" className="size-4" />Jobs</Link> : null}
         <span className="ml-auto hidden rounded-full border px-2.5 py-1 text-xs text-muted-foreground md:inline">
           {session.roles.join(", ") || "tanpa role"}
