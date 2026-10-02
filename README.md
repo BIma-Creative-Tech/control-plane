@@ -163,6 +163,31 @@ docker run --rm --network cp-int-test -v "$PWD":/app -w /app \
 docker rm -f cp-int-pg && docker network rm cp-int-test
 ```
 
+## Tenant, Audit, Realm (SaaS Fase 1 W5)
+
+- **"Tenant baru"** di `/clients` (superadmin, `clients:manage`; aktif bila allowlist instance memuat semua tipe
+  onboarding): slug (bukan `platform`), nama, brand, email+nama tenant-admin (nama ASCII), environment instance ini
+  (prod-inst: `prod` + opsional `demo` dengan host; staging-inst: `staging`), override host (aturan HOST job-contract).
+  SATU transaksi: INSERT `clients` + `environments` (logika = "Tambah environment") + audit `tenant.create` + SATU rantai:
+  `kc_org_ensure` → per env `odoo_db_provision → odoo_route → odoo_sso_provision → odoo_tenant_config(compat)` →
+  `kc_user_ensure(invite)` → per env `kc_user_set_roles(client_admin, odoo=admin)` → per env `odoo_user_ensure(admin)`.
+  Slug/DB/host terpakai, email F1, kuota → ditolak utuh (tanpa baris tersisa), diaudit.
+- **Rantai + tipe lama**: `odoo_db_provision|odoo_route|odoo_sso_provision` boleh di rantai; `environment_id` diturunkan
+  server dari (client, env) → ikut `provision_jobs_one_active_uq`; job aktif (environment, type) args sama dipakai ulang,
+  args beda → `duplicate`. Aksi berisiko butuh `jobs:odoo_admin`; `odoo_sso_user|odoo_sso_disable` tidak boleh di rantai.
+  Host SSO ⊆ route (rantai/DB) dicek saat enqueue DAN ulang oleh worker saat dispatch (`host_not_in_route`). Maks 20
+  langkah; kuota rantai += `odoo_db_provision` 3/hari.
+- **`/clients/<slug>`**: status tenant, environment (db/route/sso/`tenant_check` dari job `odoo_tenant_config` terakhir),
+  user tenant (link `/users?tenant=`), rantai + 10 job terakhir, **Suspend/Resume** (superadmin, ketik slug →
+  `tenant_suspend|tenant_resume` per env instance ini; kebalikan aktif → `state_busy`), **"Ulangi dari langkah ini"**
+  (superadmin; hanya rantai `tenant.*`/`realm.*`/`chain.retry`; ditolak bila user target kini `disabled` atau akun aktor
+  sendiri), slot billing (`billing-slot.tsx`, diisi branch billing). `clients.status` TIDAK diubah di sini.
+- **`/audit`** (superadmin+ops, `audit:view`): filter aktor (prefix sub), tenant, aksi (prefix, `starts_with`), hasil,
+  rentang tanggal UTC, 50/halaman. Email tidak pernah tampil (tanpa join `users.email`; metadata disamarkan).
+- **`/realm`** (superadmin, `realm:sync`): "Rencana sync realm" (`kc_realm_sync` dry-run, slug `platform`, env realm
+  instance) → RESULT changed/blockers; "Terapkan" = ketik nama realm + rencana sukses ≤ 24 jam tanpa blocker; prod/demo
+  hanya dengan checkbox persetujuan → `approve=true`. Daftar `users` tanpa tenant → "Ikat ke tenant…" di `/users`.
+
 ## Auth & otorisasi
 
 - OIDC Authorization Code + **PKCE S256** + `state` + `nonce`; client confidential.

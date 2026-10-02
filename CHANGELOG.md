@@ -10,6 +10,12 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **SaaS Fase 1 W5 — Tenant/Audit/Realm**: form **"Tenant baru"** (satu transaksi: client + environment + SATU rantai
+  onboarding `kc_org_ensure → odoo_db_provision → odoo_route → odoo_sso_provision → odoo_tenant_config(compat) →
+  kc_user_ensure → kc_user_set_roles → odoo_user_ensure`), rantai mendukung tipe lama terikat environment
+  (`environment_id` server-side, indeks satu-aktif, dedupe), langkah dry-run, `prelude` transaksional; halaman tenant
+  (status, `tenant_check`, user, rantai + "Ulangi dari langkah ini", Suspend/Resume override, slot billing); **`/audit`**
+  (izin baru `audit:view`); **`/realm`** (`kc_realm_sync` rencana/terapkan + approve prod, daftar user tanpa tenant).
 - **SaaS Fase 1 — Users** (kontrak infra `docs/plans/saas-phase-1-contract.md` §2): migrasi `0004_saas_p1_users` (aditif),
   10 tipe job identitas/tenant di `job-contract.ts` (skema Zod `.strict()`, regex = dispatcher 1.1.0, timeout, RESULT keys
   `org roles enabled state tenant`, `idempotency_key`), fixture dispatcher f175457. Rantai job (`after_job_id`/`chain_id`,
