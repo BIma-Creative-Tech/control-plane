@@ -28,10 +28,11 @@ export const ACTIVITY_LABEL: Record<string, string> = {
 
 /** Quotation Tracker (plan infra 15): label & warna tahap `mart_spk.tracker_stage`. */
 export const TRACK_LABEL: Record<string, string> = {
-  penawaran: "Penawaran", spk: "SPK", produksi: "Produksi", ditagih: "Ditagih", lunas: "Lunas", batal: "Batal",
+  penawaran: "Penawaran dibuat", terkirim: "Penawaran terkirim", spk: "SPK", produksi: "Produksi", ditagih: "Ditagih", lunas: "Lunas", batal: "Batal",
 };
 const TRACK_TONE: Record<string, string> = {
   penawaran: "bg-stone-500/15 text-stone-800 ring-stone-600/25 dark:text-stone-200 dark:ring-stone-400/30",
+  terkirim: "bg-sky-500/10 text-sky-800 ring-sky-600/25 dark:text-sky-300 dark:ring-sky-400/30",
   spk: "bg-indigo-500/10 text-indigo-800 ring-indigo-600/25 dark:text-indigo-300 dark:ring-indigo-400/30",
   produksi: "bg-blue-500/10 text-blue-800 ring-blue-600/25 dark:text-blue-300 dark:ring-blue-400/30",
   ditagih: "bg-amber-500/12 text-amber-800 ring-amber-600/25 dark:text-amber-300 dark:ring-amber-400/30",

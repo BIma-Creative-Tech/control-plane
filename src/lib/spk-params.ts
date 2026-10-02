@@ -20,7 +20,7 @@ const schema = z.object({
     .catch(undefined),
   q: text(60),
   stage: text(40),
-  status: z.enum(["spk", "penawaran", ""]).default("spk").catch("spk"),
+  status: z.enum(["spk", "penawaran", "dibuat", "terkirim", ""]).default("spk").catch("spk"),
   sort: z.enum(SPK_SORTS).default("date_desc").catch("date_desc"),
   page: z.coerce.number().int().min(1).max(1000).default(1).catch(1),
   pageSize: z.literal(50).default(50).catch(50),
@@ -57,9 +57,9 @@ export function spkQuery(p: Partial<SpkListParams>, override: Partial<SpkListPar
 
 /**
  * Quotation Tracker (plan infra 15): tahap terjauh alur Penawaran → SPK → Produksi → Ditagih → Lunas
- * (`mart_spk.tracker_stage`). "" = semua kecuali batal.
+ * (`mart_spk.tracker_stage`; penawaran dipisah: "penawaran" = dibuat/draft, "terkirim" = sent). "" = semua kecuali batal.
  */
-export const TRACK_STAGES = ["penawaran", "spk", "produksi", "ditagih", "lunas", "batal"] as const;
+export const TRACK_STAGES = ["penawaran", "terkirim", "spk", "produksi", "ditagih", "lunas", "batal"] as const;
 export type TrackStage = (typeof TRACK_STAGES)[number];
 
 const trackerSchema = schema.pick({ client: true, q: true, sort: true, page: true, pageSize: true }).extend({

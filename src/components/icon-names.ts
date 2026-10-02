@@ -16,6 +16,7 @@ export const ICON_NAMES = [
   // Funnel & KPI
   "user-tag",
   "document-text",
+  "send-2",
   "clipboard-tick",
   "shopping-cart",
   "3dcube",

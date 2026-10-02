@@ -20,12 +20,12 @@ import {
 const INFO_STEPS = new Set(["lead", "pengadaan", "dikirim", "absensi"]);
 const STEP_NOTE: Record<string, string> = { lead: "pipeline ", pengadaan: "biaya ", lunas: "dibayar " };
 const STEP_ICON: Record<string, IconName> = {
-  lead: "user-tag", penawaran: "document-text", spk: "clipboard-tick", pengadaan: "shopping-cart", produksi: "3dcube",
+  lead: "user-tag", penawaran: "document-text", terkirim: "send-2", spk: "clipboard-tick", pengadaan: "shopping-cart", produksi: "3dcube",
   dikirim: "truck-fast", absensi: "people", ditagih: "receipt-2", lunas: "wallet-check",
 };
 
 /**
- * Quotation Tracker (plan infra 15/16): Lead CRM → Penawaran → SPK → Pengadaan → Produksi → Terkirim → Absensi kru
+ * Quotation Tracker (plan infra 15/16): Lead CRM → Penawaran dibuat → Penawaran terkirim → SPK → Pengadaan → Produksi → Terkirim → Absensi kru
  * → Ditagih → Lunas per client.
  * Landing pascalogin Odoo untuk grup "Dashboard Quotation Tracker". Server component; satu-satunya JS klien =
  * hitung naik angka (MotionEnhancer di layout dashboard).
@@ -54,14 +54,14 @@ export default async function QuotationTrackerPage(props: PageProps<"/dashboard/
       <Nav session={session} />
       <main className="mx-auto max-w-[1600px] space-y-5 px-4 py-6 sm:px-6">
         <PageHeader eyebrow={access.client} title="Quotation Tracker"
-          subtitle="Lead → Penawaran → SPK → Pengadaan → Produksi → Pengiriman → Penagihan → Pembayaran"
+          subtitle="Lead → Penawaran (dibuat/terkirim) → SPK → Pengadaan → Produksi → Pengiriman → Penagihan → Pembayaran"
           refreshedAt={d.refreshedAt} refreshNote="otomatis ±2 menit setelah ada perubahan di Odoo"
           actions={<>
             <DashboardTabs client={access.client} active="quotation" />
             {odoo ? <ButtonLink href={`${odoo}/odoo`} icon="export-arrow-01" primary external>Buka Odoo</ButtonLink> : null}
           </>} />
 
-        <section aria-label="Alur penawaran" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
+        <section aria-label="Alur penawaran" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
           {d.funnel.map((s, i) => {
             const active = p.track === s.key;
             const info = INFO_STEPS.has(s.key);

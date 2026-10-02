@@ -4,7 +4,8 @@ vi.mock("server-only", () => ({}));
 import { parseEnv, webEnvSchema } from "@/env";
 import { PAYMENT_STATE_LABEL, SCM_KIND_LABEL, SCM_STATE_LABEL, TRACK_LABEL, scmTone, trackTone } from "@/lib/format";
 import { parseOdooUrls } from "@/lib/odoo-links";
-import { TRACK_STAGES, parseTrackerParams, trackerQuery } from "@/lib/spk-params";
+import { TRACK_STAGES, parseSpkListParams, parseTrackerParams, trackerQuery } from "@/lib/spk-params";
+import { MART_SPK } from "@/server/mart-spk";
 
 const valid = {
   NODE_ENV: "production",
@@ -71,5 +72,25 @@ describe("label supply chain (plan infra 16)", () => {
     expect(scmTone("cancel")).toContain("rose");
     expect(scmTone("draft")).toContain("slate");
     expect(scmTone("assigned")).toContain("blue");
+  });
+});
+
+describe("penawaran dibuat vs terkirim (mart_spk.quotation_state)", () => {
+  it("tahap 'terkirim' tepat setelah 'penawaran' dan punya label sendiri", () => {
+    expect(TRACK_STAGES.indexOf("terkirim")).toBe(TRACK_STAGES.indexOf("penawaran") + 1);
+    expect(TRACK_LABEL.penawaran).toBe("Penawaran dibuat");
+    expect(TRACK_LABEL.terkirim).toBe("Penawaran terkirim");
+    expect(trackTone("terkirim")).toContain("sky");
+    expect(trackerQuery({}, { track: "terkirim" })).toBe("?track=terkirim");
+  });
+  it("filter status daftar SPK menerima dibuat/terkirim", () => {
+    expect(parseSpkListParams({ status: "terkirim" }).status).toBe("terkirim");
+    expect(parseSpkListParams({ status: "dibuat" }).status).toBe("dibuat");
+    expect(parseSpkListParams({ status: "sent" }).status).toBe("spk");
+  });
+  it("sumber SQL toleran terhadap data mart lama tanpa kolom quotation_state", () => {
+    expect(MART_SPK).toContain("to_jsonb(m) ->> 'quotation_state'");
+    expect(MART_SPK).toContain("'dibuat'");
+    expect(MART_SPK).not.toMatch(/\$\d/);
   });
 });

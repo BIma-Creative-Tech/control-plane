@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { datamartEnabled } from "@/db/datamart";
 import { requirePermission } from "@/lib/authz";
-import { rupiah, rupiahCompact, stageTone, tanggal } from "@/lib/format";
+import { TRACK_LABEL, rupiah, rupiahCompact, stageTone, tanggal, trackTone } from "@/lib/format";
 import { parseSpkListParams, spkQuery } from "@/lib/spk-params";
 import { accessFor, getSpkDashboard, listAccess } from "@/server/spk-dashboard";
 import { Nav } from "../../nav";
@@ -46,7 +46,8 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
 
         <section className={`grid grid-cols-2 gap-2.5 md:grid-cols-3 ${d.value ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
           <StatCard index={0} label="SPK" value={d.kpi.spk} icon="clipboard-tick" sub={`${d.kpi.locations.toLocaleString("id-ID")} lokasi`} />
-          <StatCard index={1} label="Penawaran" value={d.kpi.quotations} icon="document-text" sub="belum dikonfirmasi" />
+          <StatCard index={1} label="Penawaran" value={d.kpi.quotations} icon="document-text"
+            sub={`${d.kpi.quotationsSent.toLocaleString("id-ID")} terkirim · belum dikonfirmasi`} />
           <StatCard index={2} label="Dalam proses" value={d.kpi.inProgress} icon="status-up" tone="info" sub="desain → instalasi" />
           <StatCard index={3} label="Menunggu BAST" value={d.kpi.waitingBast} icon="task-square" tone="warn" sub="laporan sudah" />
           <StatCard index={4} label="Selesai (BAST)" value={d.kpi.done} icon="tick-circle" tone="good" />
@@ -103,7 +104,9 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
             <label className="sr-only" htmlFor="status">Status</label>
             <select id="status" name="status" defaultValue={p.status} className={INPUT}>
               <option value="spk">SPK</option>
-              <option value="penawaran">Penawaran</option>
+              <option value="penawaran">Penawaran (semua)</option>
+              <option value="dibuat">Penawaran dibuat</option>
+              <option value="terkirim">Penawaran terkirim</option>
               <option value="">Semua</option>
             </select>
             <label className="sr-only" htmlFor="stage">Tahap</label>
@@ -144,6 +147,11 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
                   <tr key={r.soId} className={ROW}>
                     <td className={TD}>
                       <Link href={`/dashboard/spk/${r.soId}?client=${access.client}`} className={`${LINK} whitespace-nowrap`}>{r.spkNo}</Link>
+                      {r.quotationState ? (
+                        <Badge tone={trackTone(r.quotationState === "terkirim" ? "terkirim" : "penawaran")} className="ml-1.5">
+                          {TRACK_LABEL[r.quotationState === "terkirim" ? "terkirim" : "penawaran"]}
+                        </Badge>
+                      ) : null}
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Icon name="calendar" className="size-3.5" />{r.legacyRef ? `No lama ${r.legacyRef} · ` : ""}{tanggal(r.dateOrder)}
                       </div>

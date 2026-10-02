@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { withMart } from "@/db/datamart";
 import type { ScmDoc, VendorPayment } from "@/lib/scm";
 import type { SpkListParams } from "@/lib/spk-params";
+import { MART_SPK } from "@/server/mart-spk";
 
 /**
  * Query dashboard SPK (ADR 0016). Semua SQL konstanta + parameter posisi; kolom nilai (Rp) hanya DIPILIH bila
@@ -52,7 +53,7 @@ const FILTER = `
   AND ($2::text = '' OR spk_no ILIKE '%' || $2 || '%' OR legacy_ref ILIKE '%' || $2 || '%'
        OR customer ILIKE '%' || $2 || '%' OR brand ILIKE '%' || $2 || '%' OR ae ILIKE '%' || $2 || '%')
   AND ($3::text = '' OR stage = $3)
-  AND ($4::text = '' OR status = $4)
+  AND ($4::text = '' OR status = $4 OR q_state = $4)
   AND ($5::text = '' OR ae_login = $5)`;
 
 // Urutan hanya dari daftar tetap (bukan input bebas) → aman digabung ke SQL.
@@ -69,6 +70,8 @@ export type SpkRow = {
   spkNo: string;
   legacyRef: string | null;
   status: string;
+  /** Penawaran: 'dibuat' | 'terkirim'; SPK/batal: null. */
+  quotationState: string | null;
   dateOrder: Date | null;
   customer: string | null;
   brand: string | null;
@@ -91,7 +94,7 @@ export type SpkDashboard = {
   rows: SpkRow[];
   total: number;
   refreshedAt: Date | null;
-  kpi: { spk: number; quotations: number; locations: number; done: number; waitingBast: number; inProgress: number };
+  kpi: { spk: number; quotations: number; quotationsSent: number; locations: number; done: number; waitingBast: number; inProgress: number };
   stages: { stage: string; seq: number; count: number }[];
   value?: { total: number; invoiced: number; paid: number; due: number; isMockup: boolean };
   valueByCustomer?: { customer: string; value: number }[];
@@ -104,6 +107,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
     spkNo: String(x.spk_no),
     legacyRef: (x.legacy_ref as string) ?? null,
     status: String(x.status),
+    quotationState: (x.q_state as string) ?? null,
     dateOrder: (x.date_order as Date) ?? null,
     customer: (x.customer as string) ?? null,
     brand: (x.brand as string) ?? null,
@@ -126,7 +130,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
   return row;
 }
 
-const BASE_COLS = `so_id, spk_no, legacy_ref, status, date_order, customer, brand, ae, locations, stage, stage_seq,
+const BASE_COLS = `so_id, spk_no, legacy_ref, status, q_state, date_order, customer, brand, ae, locations, stage, stage_seq,
   progress_pct, last_status, last_status_at, crew_hours`;
 const VALUE_COLS = `, value, invoiced, paid, due, is_mockup`;
 
@@ -139,28 +143,29 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
     const sort = !withValue && p.sort === "value_desc" ? "date_desc" : p.sort;
     const cols = BASE_COLS + (withValue ? VALUE_COLS : "");
     const list = await c.query(
-      `SELECT ${cols} FROM mart.mart_spk WHERE ${FILTER} ORDER BY ${ORDER_BY[sort]} LIMIT $6 OFFSET $7`,
+      `SELECT ${cols} FROM ${MART_SPK} WHERE ${FILTER} ORDER BY ${ORDER_BY[sort]} LIMIT $6 OFFSET $7`,
       [...args, p.pageSize, (p.page - 1) * p.pageSize],
     );
     const agg = await c.query(
       `SELECT count(*)::int AS total,
               count(*) FILTER (WHERE status = 'spk')::int AS spk,
               count(*) FILTER (WHERE status = 'penawaran')::int AS quotations,
+              count(*) FILTER (WHERE q_state = 'terkirim')::int AS quotations_sent,
               coalesce(sum(locations) FILTER (WHERE status = 'spk'), 0)::int AS locations,
               count(*) FILTER (WHERE status = 'spk' AND stage IN ('BAST', 'Selesai'))::int AS done,
               count(*) FILTER (WHERE status = 'spk' AND stage = 'Laporan')::int AS waiting_bast,
               count(*) FILTER (WHERE status = 'spk' AND stage NOT IN ('BAST', 'Selesai', 'Laporan'))::int AS in_progress,
               max(refreshed_at) AS refreshed_at
-         FROM mart.mart_spk WHERE ${FILTER}`,
+         FROM ${MART_SPK} WHERE ${FILTER}`,
       args,
     );
     const stages = await c.query(
-      `SELECT stage, min(stage_seq)::int AS seq, count(*)::int AS count FROM mart.mart_spk
+      `SELECT stage, min(stage_seq)::int AS seq, count(*)::int AS count FROM ${MART_SPK}
         WHERE ${FILTER} AND status = 'spk' GROUP BY stage ORDER BY 2`,
       args,
     );
     const customers = await c.query(
-      `SELECT DISTINCT customer FROM mart.mart_spk WHERE env = $1 AND customer IS NOT NULL
+      `SELECT DISTINCT customer FROM ${MART_SPK} WHERE env = $1 AND customer IS NOT NULL
          AND ($2::text = '' OR ae_login = $2) ORDER BY 1`,
       [env, aeLogin],
     );
@@ -172,6 +177,7 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
       kpi: {
         spk: a.spk,
         quotations: a.quotations,
+        quotationsSent: a.quotations_sent,
         locations: a.locations,
         done: a.done,
         waitingBast: a.waiting_bast,
@@ -184,11 +190,11 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
       const v = await c.query(
         `SELECT coalesce(sum(value), 0) AS total, coalesce(sum(invoiced), 0) AS invoiced, coalesce(sum(paid), 0) AS paid,
                 coalesce(sum(due), 0) AS due, coalesce(bool_or(is_mockup), false) AS is_mockup
-           FROM mart.mart_spk WHERE ${FILTER} AND status = 'spk'`,
+           FROM ${MART_SPK} WHERE ${FILTER} AND status = 'spk'`,
         args,
       );
       const byCustomer = await c.query(
-        `SELECT coalesce(customer, '-') AS customer, sum(value) AS value FROM mart.mart_spk
+        `SELECT coalesce(customer, '-') AS customer, sum(value) AS value FROM ${MART_SPK}
           WHERE ${FILTER} AND status = 'spk' GROUP BY 1 ORDER BY 2 DESC LIMIT 8`,
         args,
       );
@@ -208,7 +214,7 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
 
 export type SpkDetail = {
   spk: SpkRow & { quotationName: string | null };
-  /** Tahap Quotation Tracker (mart_spk.tracker_stage). */
+  /** Tahap Quotation Tracker (mart_spk.tracker_stage; penawaran terkirim = 'terkirim', lihat mart-spk.ts). */
   track: string;
   locations: {
     taskId: number;
@@ -267,7 +273,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
   const aeLogin = aeOnly(access) ? access.login : "";
   return withMart({ sub, client: access.client }, async (c, env) => {
     const head = await c.query(
-      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""}, quotation_name, tracker_stage FROM mart.mart_spk
+      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""}, quotation_name, track FROM ${MART_SPK}
         WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
       [env, soId, aeLogin],
     );
@@ -308,7 +314,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
     const h = head.rows[0];
     return {
       spk: { ...mapRow(h, withValue), quotationName: h.quotation_name ?? null },
-      track: String(h.tracker_stage),
+      track: String(h.track),
       locations: locs.rows.map((x) => ({
         taskId: Number(x.task_id),
         location: x.location,
@@ -443,7 +449,7 @@ export async function getScmDocument(
   const aeLogin = aeOnly(access) ? access.login : "";
   return withMart({ sub, client: access.client }, async (c, env) => {
     const head = await c.query(
-      `SELECT spk_no, customer FROM mart.mart_spk WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
+      `SELECT spk_no, customer FROM ${MART_SPK} WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
       [env, soId, aeLogin],
     );
     if (head.rowCount === 0) return null;

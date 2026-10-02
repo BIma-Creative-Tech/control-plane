@@ -20,6 +20,12 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 - Teks kesegaran data Dashboard SPK: "otomatis ±2 menit" (sebelumnya masih "tiap 30 menit").
 
 ### Added
+- **Penawaran dibuat vs terkirim**: funnel Quotation Tracker memisah "Penawaran dibuat" (draft) dan "Penawaran
+  terkirim" (Odoo `sent`: tombol Send / "Mark Quotation as Sent"; SPK dihitung sudah melewati langkah ini), filter
+  tahap `track=terkirim`, badge & stepper Penawaran → Terkirim → SPK di daftar dan detail SPK; Dashboard SPK: filter
+  status Penawaran dibuat/terkirim, badge di No SPK, jumlah terkirim di kartu Penawaran. Memakai kolom data mart
+  `mart_spk.quotation_state` (infra branch `feat/datamart-quotation-sent`); data mart lama tanpa kolom itu tetap
+  jalan (semua penawaran = dibuat, `src/server/mart-spk.ts`).
 - **Detail SPK — pengadaan per PO**: satu baris per PO dengan kolom Keterangan (produk, vendor, status terakhir),
   No PO, No GR, Tagihan vendor, Pembayaran ke vendor (nomor & alokasi hanya untuk hak nilai) dan Nilai; MO → surat jalan
   di baris ringkas. Butuh data mart infra `8b16f04` (`mart_spk_scm.po_id`, `mart_spk_vendor_payment`,

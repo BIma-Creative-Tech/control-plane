@@ -72,13 +72,14 @@ export function FunnelBar(props: { value: number; max: number; label: string; ac
 
 const TRACK_STEPS = [
   { key: "penawaran", label: "Penawaran" },
+  { key: "terkirim", label: "Terkirim" },
   { key: "spk", label: "SPK" },
   { key: "produksi", label: "Produksi" },
   { key: "ditagih", label: "Ditagih" },
   { key: "lunas", label: "Lunas" },
 ];
 
-/** Segmen tahap Penawaran → SPK → Produksi → Ditagih → Lunas (terisi = sudah dilewati). */
+/** Segmen tahap Penawaran → Terkirim → SPK → Produksi → Ditagih → Lunas (terisi = sudah dilewati). */
 export function TrackSteps({ track }: { track: string }) {
   const at = TRACK_STEPS.findIndex((s) => s.key === track);
   return (
@@ -94,7 +95,7 @@ export function TrackSteps({ track }: { track: string }) {
 export function TrackStepper({ track }: { track: string }) {
   const at = TRACK_STEPS.findIndex((s) => s.key === track);
   return (
-    <ol className="grid grid-cols-5 gap-1.5" aria-label="Tahap penawaran sampai pelunasan">
+    <ol className="grid grid-cols-6 gap-1.5" aria-label="Tahap penawaran sampai pelunasan">
       {TRACK_STEPS.map((s, i) => {
         const done = at >= 0 && i <= at;
         return (
