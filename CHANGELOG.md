@@ -10,6 +10,14 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **SaaS Fase 1 — Subscriptions & Invoices** (ADR 0018 infra, W5/W7): migrasi `0005_saas_p1_billing` (aditif: status
+  `implementation|warranty|past_due`, kolom go-live/garansi, `plans.service` + harga nullable, `invoices.kind` + periode +
+  referensi bukti, `domains.purpose|dkim_txt|last_check`, `environments.tenant_check`, `notification_log`); seed 7 plan
+  D7 saat boot; halaman `/subscriptions` dan `/invoices` (izin `billing:view`, `billing:manage`; tandai lunas
+  `invoices:confirm`); `subscription_tick` harian 00:15 WIB (transisi D4, `tenant_suspend`/`tenant_resume` per env
+  instance, invoice maintenance, cek tenant-admin, email pengingat via `nodemailer`); `TICK_NOW` hanya staging;
+  rekonsiliasi RESULT `state` → `clients.status` dan `mode` → `environments.tenant_check`; halaman publik
+  `/suspended[/<slug>]`.
 - **SaaS Fase 1 — Users** (kontrak infra `docs/plans/saas-phase-1-contract.md` §2): migrasi `0004_saas_p1_users` (aditif),
   10 tipe job identitas/tenant di `job-contract.ts` (skema Zod `.strict()`, regex = dispatcher 1.1.0, timeout, RESULT keys
   `org roles enabled state tenant`, `idempotency_key`), fixture dispatcher f175457. Rantai job (`after_job_id`/`chain_id`,
@@ -20,6 +28,8 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 - Tenant internal `platform` dibuat idempoten oleh `migrate.mjs`; slug `platform` reserved di form.
 
 ### Security
+- FK `audit_logs.actor_user_id` / `provision_jobs.actor_user_id` → `ON DELETE RESTRICT` (migrasi 0005; usulan
+  `docs/temuan-users-prod-kosong.md`): baris `users` beraudit tidak bisa dihapus.
 - Temuan QA Fase 1 (Lead 2026-10-03):
   - **F1 (High)** — pengambilalihan user lama lintas tenant: setiap mutasi Users ditolak bila email sudah ada sebagai
     baris tanpa tenant / ber-role superadmin-ops (untuk tenant klien) / milik tenant lain. Kontrak v1.2: `kc_user_ensure`
