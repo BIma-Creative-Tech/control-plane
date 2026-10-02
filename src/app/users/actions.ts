@@ -1,8 +1,10 @@
 "use server";
 
 /**
- * Server Actions halaman Users (kontrak SaaS Fase 1 §2.3). Setiap aksi: requireAnyPermission(users:manage |
- * users:manage_own — yang terakhir default-deny untuk semua role sampai portal tenant W6, temuan QA F1.3) → Origin fail-closed → Zod `.strict()` → aktor (sub Keycloak) → layanan jobs/users.ts
+ * Server Actions halaman Users (kontrak SaaS Fase 1 §2.3) — kanal PLATFORM. Setiap aksi: requirePermission(users:manage)
+ * (W6: `users:manage_own` milik client_admin TIDAK membuka aksi ini — portal tenant punya Server Action sendiri di
+ * app/portal/users/actions.ts; layanan juga menolak cakupan `own` dari kanal platform, temuan QA F1.3) → Origin
+ * fail-closed → Zod `.strict()` → aktor (sub Keycloak) → layanan jobs/users.ts
  * (otorisasi tingkat aksi: tenant sendiri, role yang boleh, diri sendiri, satu admin + rantai job + audit, satu
  * transaksi) → redirect dengan kode ter-whitelist. Tidak ada eksekusi apa pun di request HTTP (ADR 0009).
  */
@@ -21,7 +23,7 @@ import {
   type UserActionOutcome,
   type UsersServiceInput,
 } from "@/jobs/users";
-import { requireAnyPermission } from "@/lib/authz";
+import { requirePermission } from "@/lib/authz";
 import { instanceJobTypes } from "@/lib/job-contract";
 import type { ActionResultCode } from "@/lib/job-list-params";
 import { logger } from "@/lib/logger";
@@ -45,7 +47,7 @@ async function handle<N extends UserFormName>(
   formData: FormData,
   call: (svc: UsersServiceInput, parsed: Extract<UserFormResult<N>, { success: true }>) => Promise<UserActionOutcome>,
 ): Promise<never> {
-  const session = await requireAnyPermission(["users:manage", "users:manage_own"]);
+  const session = await requirePermission("users:manage");
   // `back` hanya untuk redirect (slug tenant filter) — bukan bagian skema aksi.
   const rawBack = formData.get("back");
   const tenant = typeof rawBack === "string" && BACK_RE.test(rawBack) ? rawBack : null;
@@ -62,7 +64,7 @@ async function handle<N extends UserFormName>(
   let outcome: UserActionOutcome;
   try {
     outcome = await call(
-      { instance, allowedTypes: instanceJobTypes(env.INFRA_JOBS_TYPES), actor, meta: await requestMeta() },
+      { instance, allowedTypes: instanceJobTypes(env.INFRA_JOBS_TYPES), actor, meta: await requestMeta(), channel: "platform" },
       parsed as Extract<UserFormResult<N>, { success: true }>,
     );
   } catch (err) {

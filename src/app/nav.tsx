@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Session } from "next-auth";
 import { Icon } from "@/components/icon";
-import { can } from "@/lib/roles";
+import { can, landingPath } from "@/lib/roles";
 import { logoutAction } from "./actions";
 
 const ITEM = "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -10,10 +10,14 @@ export function Nav({ session }: { session: Session }) {
   return (
     <nav className="sticky top-0 z-20 border-b bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/70">
       <div className="mx-auto flex max-w-[1600px] items-center gap-1 px-4 py-2.5 text-sm sm:gap-2 sm:px-6">
-        <Link href="/dashboard" className="mr-2 flex items-center gap-2 font-heading text-base font-bold tracking-tight">
+        <Link href={landingPath(session.roles)} className="mr-2 flex items-center gap-2 font-heading text-base font-bold tracking-tight">
           <span className="grid size-8 place-items-center rounded-lg bg-primary text-xs font-bold text-primary-foreground" aria-hidden="true">CP</span>
           <span className="hidden sm:inline">Control Plane</span>
         </Link>
+        {/* Portal tenant (W6): tenant-admin/tenant-user; halaman platform di bawah hanya tampil untuk izin platform. */}
+        {can(session.roles, "portal:view") ? <Link href="/portal" className={ITEM}><Icon name="chart-2" className="size-4" />Ringkasan</Link> : null}
+        {can(session.roles, "portal:admin") ? <Link href="/portal/users" className={ITEM}><Icon name="people" className="size-4" />Users</Link> : null}
+        {can(session.roles, "portal:admin") ? <Link href="/portal/domains" className={ITEM}><Icon name="gps" className="size-4" />Domain</Link> : null}
         <Link href="/dashboard" className={ITEM}><Icon name="category" className="size-4" />Dashboard</Link>
         {can(session.roles, "clients:list") ? <Link href="/clients" className={ITEM}><Icon name="buildings" className="size-4" />Clients</Link> : null}
         {can(session.roles, "users:view") ? <Link href="/users" className={ITEM}><Icon name="people" className="size-4" />Users</Link> : null}

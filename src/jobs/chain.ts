@@ -106,7 +106,9 @@ export type ChainPreconditionDetail =
   | "plan_required"
   | "no_env"
   /** Onboarding: plan langganan tidak ada/tidak aktif/bukan layanan odoo (createSubscriptionTx di prelude). */
-  | "plan_inactive";
+  | "plan_inactive"
+  /** Portal W6: tambah/aktifkan user melebihi plans.max_users langganan Odoo tenant. */
+  | "plan_limit";
 
 export type ChainOutcome =
   | { ok: true; chainId: string; jobIds: string[]; reused: number }

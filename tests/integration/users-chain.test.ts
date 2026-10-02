@@ -305,7 +305,7 @@ describe.skipIf(!URL_)("Users: rantai job ⇄ dispatcher palsu (Postgres nyata)"
     const base = { instance: "prod" as const, allowedTypes: ALL, actor: CADMIN, meta: META };
     const F = { ok: false, reason: "authz", denial: "forbidden" };
 
-    // tenant sendiri (acme) pun ditolak — users:manage_own default-deny sampai portal tenant W6.
+    // tenant sendiri (acme) pun ditolak — users:manage_own (W6) hanya berlaku di kanal portal, bukan layanan /users.
     expect(await addUser(db, send, { ...base, clientId: acmeId, email: "sari2@acme.co.id", name: null, cpRole: "client_user", odoo: {} })).toEqual(F);
     expect(await addUser(db, send, { ...base, clientId: betaId, email: "x@beta.co.id", name: null, cpRole: "client_user", odoo: {} })).toEqual(F);
     expect(await addUser(db, send, { ...base, clientId: platformId, email: "x@bimacreative.tech", name: null, cpRole: "ops", odoo: {} })).toEqual(F);

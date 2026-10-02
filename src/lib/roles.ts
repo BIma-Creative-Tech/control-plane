@@ -49,18 +49,37 @@ export const PERMISSIONS = {
   "users:view": ["superadmin", "ops"],
   "users:manage": ["superadmin"],
   /**
-   * Cakupan tenant sendiri (users.client_id aktor), hanya role client_user/client_admin, satu admin. Temuan QA F1
-   * (Lead 2026-10-03): DEFAULT-DENY untuk semua role sampai portal tenant (W6) ada — client_admin tidak boleh memanggil
-   * Server Action Users. Jalur kode `scope: "own"` (lib/user-admin.ts) + testnya dipertahankan untuk W6.
+   * Cakupan tenant sendiri (users.client_id aktor). Portal tenant W6 (keputusan Lead integrasi Fase 1): AKTIF untuk
+   * client_admin HANYA lewat Server Action portal (`/portal/users`) — authorizeUserMutation menolak cakupan `own` dari
+   * kanal platform (`/users` = `users:manage`) dan cakupan `all` dari kanal portal. Role yang boleh diberikan: client_user
+   * saja (memberi client_admin = superadmin, Fase 1); semua aturan F1 tetap.
    */
-  "users:manage_own": [],
+  "users:manage_own": ["client_admin"],
   /** Job kc_realm_sync (prod/demo wajib approve). */
   "realm:sync": ["superadmin"],
   /** Halaman /audit (baca audit_logs; email tidak pernah ditampilkan). */
   "audit:view": ["superadmin", "ops"],
+  /** Portal tenant W6 — `/portal` Ringkasan (read-only), dibatasi tenant users.client_id sesi (server-side). */
+  "portal:view": ["client_admin", "client_user"],
+  /** Portal tenant W6 — `/portal/users` dan `/portal/domains` (tenant-admin). Mutasi user = `users:manage_own`. */
+  "portal:admin": ["client_admin"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof PERMISSIONS;
+
+/** Role platform (staf). Sesi dengan salah satu role ini memakai halaman platform, bukan portal. */
+export function isPlatformStaff(roles: readonly Role[] | undefined): boolean {
+  return !!roles && (roles.includes("superadmin") || roles.includes("ops"));
+}
+
+/**
+ * Halaman awal per role (W6): staf platform → /dashboard; tenant-admin/tenant-user → /portal; tanpa role → /dashboard
+ * (halaman itu sendiri menolak/menjelaskan). Murni (diuji unit).
+ */
+export function landingPath(roles: readonly Role[] | undefined): "/dashboard" | "/portal" {
+  if (isPlatformStaff(roles)) return "/dashboard";
+  return roles && (roles.includes("client_admin") || roles.includes("client_user")) ? "/portal" : "/dashboard";
+}
 
 /** Role paling berkuasa (untuk cache `users.role`); tanpa role → client_user (paling rendah). */
 export function primaryRole(roles: readonly Role[] | undefined): Role {

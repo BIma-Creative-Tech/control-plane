@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **SaaS Fase 1 W6 — Portal tenant**: `/portal` (Ringkasan read-only: environment, langganan, invoice terbuka),
+  `/portal/users` (tenant-admin: tambah tenant-user, nonaktif/aktif, reset password, akses Odoo per env; batas user plan
+  `plans.max_users` dengan kunci per tenant), `/portal/domains` (read-only). Izin baru `portal:view`, `portal:admin`;
+  `users:manage_own` aktif untuk client_admin HANYA lewat kanal portal; halaman awal per role (`landingPath`).
 - **SaaS Fase 1 — integrasi** (`feat/saas-p1` = users + billing + tenants): halaman tenant memakai `TenantBillingSummary`
   dan kolom `environments.tenant_check`; form "Tenant baru" + plan Odoo opsional (langganan `implementation` di
   transaksi yang sama); override harga per langganan (`subscriptions.price_amount/price_currency`, disunting di migrasi
@@ -39,6 +43,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 - Tenant internal `platform` dibuat idempoten oleh `migrate.mjs`; slug `platform` reserved di form.
 
 ### Security
+- W6: `/users` Server Action = `users:manage` saja (sebelumnya `users:manage | users:manage_own`); layanan Users menolak
+  cakupan `own` dari kanal platform dan cakupan `all` dari kanal portal; portal tidak menerima `clientId`/`cp_role` dari
+  form; memberi client_admin dari portal ditolak (`role_not_allowed`); `userId` tenant lain → `not_found` (diaudit
+  `cross_tenant`). Inventaris statis (uji unit) memastikan setiap halaman/Server Action platform menolak role tenant.
 - FK `audit_logs.actor_user_id` / `provision_jobs.actor_user_id` → `ON DELETE RESTRICT` (migrasi 0005; usulan
   `docs/temuan-users-prod-kosong.md`): baris `users` beraudit tidak bisa dihapus.
 - Temuan QA Fase 1 (Lead 2026-10-03):

@@ -73,8 +73,21 @@ export type UserAuthzDenial =
 
 export type UserAuthzResult = { ok: true; scope: "all" | "own" } | { ok: false; reason: UserAuthzDenial };
 
-/** Role yang boleh DIBERIKAN client_admin (kontrak §2.2: hanya client_user/client_admin, tanpa `none`). */
-export const OWN_SCOPE_ROLES: readonly CpRoleArg[] = ["client_user", "client_admin"];
+/**
+ * Kanal pemanggil mutasi user (W6): `platform` = halaman /users (cakupan `all`, users:manage); `portal` = /portal/users
+ * (cakupan `own`, users:manage_own). Cakupan yang tidak cocok dengan kanal → `forbidden` — izin users:manage_own milik
+ * client_admin tidak pernah membuka Server Action platform, dan portal tidak pernah bertindak lintas tenant.
+ */
+export type UserChannel = "platform" | "portal";
+
+/**
+ * Role yang boleh DIBERIKAN client_admin lewat portal. Kontrak §2.2 mengizinkan client_user/client_admin; keputusan Lead
+ * Fase 1: memberi client_admin = superadmin saja → portal hanya client_user (tanpa `none`).
+ */
+export const OWN_SCOPE_ROLES: readonly CpRoleArg[] = ["client_user"];
+
+/** Role CP tenant klien (adopt superadmin): client_admin/client_user. */
+export const TENANT_CP_ROLES: readonly CpRoleArg[] = ["client_user", "client_admin"];
 
 function rolesAllowedFor(tenant: TenantRef, scope: "all" | "own"): readonly CpRoleArg[] {
   const bySlug = cpRolesForSlug(tenant.isPlatform ? PLATFORM_SLUG : tenant.slug);
@@ -101,7 +114,7 @@ export function authorizeUserMutation(
   actor: UserActorContext,
   tenant: TenantRef,
   m: UserMutation,
-  ctx: { otherActiveAdmins: number; permissions?: PermissionMap },
+  ctx: { otherActiveAdmins: number; permissions?: PermissionMap; channel?: UserChannel },
 ): UserAuthzResult {
   if (actor.status === "disabled") return { ok: false, reason: "actor_disabled" };
   const perms = ctx.permissions ?? PERMISSIONS;
@@ -111,11 +124,14 @@ export function authorizeUserMutation(
     scope = "all";
   } else if (canWith(perms, actor.roles, "users:manage_own")) {
     scope = "own";
-    // Tenant aktor dari users.client_id (DB), bukan dari input form/klaim.
-    if (actor.clientId === null || actor.clientId !== tenant.id || tenant.isPlatform) return { ok: false, reason: "cross_tenant" };
   } else {
     return { ok: false, reason: "forbidden" };
   }
+  // W6: cakupan harus cocok dengan kanal (default platform) — dicek SEBELUM cakupan tenant (kanal salah = forbidden).
+  const channel = ctx.channel ?? "platform";
+  if ((channel === "platform") !== (scope === "all")) return { ok: false, reason: "forbidden" };
+  // Tenant aktor dari users.client_id (DB), bukan dari input form/klaim.
+  if (scope === "own" && (actor.clientId === null || actor.clientId !== tenant.id || tenant.isPlatform)) return { ok: false, reason: "cross_tenant" };
 
   const target = m.kind === "add" ? null : m.target;
   if (target) {
@@ -132,6 +148,8 @@ export function authorizeUserMutation(
     if (m.kind === "disable") return { ok: false, reason: "self_action" };
     if ((m.kind === "change_access" || m.kind === "enable") && requested !== target.role) return { ok: false, reason: "self_action" };
   }
+  // W6: tenant-admin hanya mengelola tenant-user (bukan admin lain, bukan dirinya, bukan staf platform).
+  if (scope === "own" && target && target.role !== "client_user") return { ok: false, reason: "role_not_allowed" };
   if (target && target.status === "disabled" && (m.kind === "change_access" || m.kind === "password_reset")) {
     return { ok: false, reason: "target_disabled" };
   }
@@ -155,9 +173,11 @@ export function authorizeAdopt(
   tenant: TenantRef,
   target: TargetUser,
   cpRole: CpRoleArg,
-  ctx: { otherActiveAdmins: number },
+  ctx: { otherActiveAdmins: number; channel?: UserChannel },
 ): UserAuthzResult {
   if (actor.status === "disabled") return { ok: false, reason: "actor_disabled" };
+  // Adopt tidak pernah lewat portal (W6).
+  if ((ctx.channel ?? "platform") !== "platform") return { ok: false, reason: "forbidden" };
   if (!canWith(PERMISSIONS, actor.roles, "users:manage")) return { ok: false, reason: "forbidden" };
   if (target.clientId !== null) return { ok: false, reason: "already_bound" };
   if (tenant.terminated) return { ok: false, reason: "tenant_inactive" };
@@ -167,7 +187,7 @@ export function authorizeAdopt(
     return { ok: true, scope: "all" };
   }
   if (isPlatformRole(target.role)) return { ok: false, reason: "role_not_allowed" };
-  if (!OWN_SCOPE_ROLES.includes(cpRole)) return { ok: false, reason: "role_not_allowed" };
+  if (!TENANT_CP_ROLES.includes(cpRole)) return { ok: false, reason: "role_not_allowed" };
   if (target.keycloakSub === actor.sub) return { ok: false, reason: "self_action" };
   if (cpRole === "client_admin" && ctx.otherActiveAdmins > 0) return { ok: false, reason: "one_admin" };
   return { ok: true, scope: "all" };
@@ -362,4 +382,24 @@ export function orderChain(steps: ChainStepRow[]): ChainStepRow[] {
   // Sisa (tidak terhubung — mestinya tidak ada) tetap ditampilkan di akhir.
   for (const s of steps) if (!out.includes(s)) out.push(s);
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Batas user per plan (portal W6)
+// ---------------------------------------------------------------------------
+export type PlanLimitInfo =
+  /** Tenant tanpa langganan Odoo non-terminated → tidak dicek (dicatat di audit). */
+  | { kind: "no_subscription" }
+  /** plans.max_users NULL (mis. odoo-dedicated "sesuai kontrak") → tidak dibatasi. */
+  | { kind: "unlimited"; planCode: string }
+  | { kind: "limited"; planCode: string; maxUsers: number };
+
+/**
+ * Keputusan batas user (murni): `used` = user tenant invited/active + user yang sedang dalam proses (job
+ * kc_user_ensure / aktifkan yang masih aktif, belum menjadi baris invited/active). Menambah/mengaktifkan satu user
+ * diizinkan bila used + 1 ≤ max_users.
+ */
+export function planLimitAllows(limit: PlanLimitInfo, used: number): boolean {
+  if (limit.kind !== "limited") return true;
+  return used + 1 <= limit.maxUsers;
 }

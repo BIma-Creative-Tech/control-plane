@@ -245,6 +245,29 @@ Tanpa itu, uji email memakai mailer perekam.
   instance) → RESULT changed/blockers; "Terapkan" = ketik nama realm + rencana sukses ≤ 24 jam tanpa blocker; prod/demo
   hanya dengan checkbox persetujuan → `approve=true`. Daftar `users` tanpa tenant → "Ikat ke tenant…" di `/users`.
 
+## Portal tenant (SaaS Fase 1 W6, ADR 0018 D9)
+
+- Halaman awal per role: staf (superadmin/ops) → `/dashboard`; tenant-admin/tenant-user → `/portal` (`/` dan login
+  mengarahkan lewat `landingPath`). `/dashboard` (SPK) tetap bisa dibuka role tenant (`dashboard:view`).
+- Cakupan tenant SELALU `users.client_id` baris users sesi (dicari by `sub`, `decidePortalScope`) — tidak pernah dari
+  URL/form/klaim. Baris disabled → `/forbidden`; belum terikat / tenant platform → pesan tanpa data.
+- `/portal` Ringkasan (`portal:view` = client_admin + client_user, read-only): environment + status, langganan
+  (implementasi/garansi/aktif/lewat jatuh tempo/ditangguhkan + tanggal), invoice terbuka (nomor, jumlah, jatuh tempo).
+- `/portal/users` (`portal:admin` = client_admin; mutasi `users:manage_own` = client_admin): daftar user tenant; tambah
+  (email, nama ASCII, akses Odoo per env), nonaktifkan/aktifkan, reset password, akses Odoo per env (none/user/admin).
+  Server Action sendiri (`app/portal/users/actions.ts`, form `.strict()` TANPA `clientId`/`cp_role`) → `jobs/portal.ts`
+  (kanal `portal`). Aturan: role yang diberikan hanya `client_user` (memberi client_admin = superadmin, Fase 1); target
+  hanya tenant-user tenant sendiri (bukan diri sendiri, admin lain, staf platform); semua aturan F1 (emailBindingConflict,
+  adopt tidak pernah, satu admin); `userId` tenant lain → diaudit `cross_tenant`, ditampilkan `not_found`.
+  `authorizeUserMutation`: cakupan `own` hanya dari kanal portal, cakupan `all` hanya dari kanal platform — `/users`
+  Server Action kini `requirePermission("users:manage")`.
+- **Batas user plan**: tambah/aktifkan dari portal ditolak `plan_limit` bila kursi terpakai + 1 > `plans.max_users`
+  langganan Odoo non-terminated tenant. Kursi = users invited/active + email yang sedang diproses job aktif
+  (`kc_user_ensure`, `kc_user_set_enabled enabled=true`) — dihitung ulang di transaksi enqueue di bawah
+  `pg_advisory_xact_lock('tenant-seats:<client>')` (paralel aman). Tanpa langganan / `max_users` NULL → tidak dicek;
+  audit memuat `plan_limit` (`no_subscription|unlimited|limited`). Kanal platform (/users) tidak dibatasi plan.
+- `/portal/domains` (`portal:admin`, read-only Fase 1): domain tenant + kegunaan + status.
+
 ## Auth & otorisasi
 
 - OIDC Authorization Code + **PKCE S256** + `state` + `nonce`; client confidential.

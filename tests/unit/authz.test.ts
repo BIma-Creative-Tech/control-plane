@@ -49,8 +49,9 @@ describe("otorisasi role (default deny)", () => {
   it("ops boleh list clients tapi tidak manage; superadmin boleh semua (kecuali izin bercakupan tenant sendiri)", () => {
     expect(can(["ops"], "clients:list")).toBe(true);
     expect(can(["ops"], "clients:manage")).toBe(false);
-    // `users:manage_own` = cakupan tenant SENDIRI (client_admin); superadmin memakai `users:manage` (semua tenant).
-    const TENANT_SCOPED = new Set(["users:manage_own"]);
+    // `users:manage_own` + izin portal = cakupan tenant SENDIRI (client_admin/client_user); superadmin memakai izin
+    // platform (`users:manage`, semua tenant) dan tidak masuk portal.
+    const TENANT_SCOPED = new Set(["users:manage_own", "portal:view", "portal:admin"]);
     for (const p of Object.keys(PERMISSIONS) as (keyof typeof PERMISSIONS)[]) {
       expect(can(["superadmin"], p)).toBe(!TENANT_SCOPED.has(p));
     }

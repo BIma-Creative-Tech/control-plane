@@ -8,9 +8,9 @@
  * user lama tanpa tenant / ber-role platform / milik tenant lain tidak bisa diambil alih lewat tenant klien; user lama
  * hanya bisa diikat lewat adoptUser (superadmin, `kc_user_ensure adopt=true`).
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { auditLogs, clients, environments, tenantUserAccess, users } from "../db/schema";
+import { auditLogs, clients, environments, plans, subscriptions, tenantUserAccess, users } from "../db/schema";
 import {
   EMAIL_MAX,
   EMAIL_REGEX,
@@ -34,7 +34,10 @@ import {
   buildPasswordResetSteps,
   emailBindingConflict,
   envsForInstance,
+  planLimitAllows,
   type ChainStep,
+  type PlanLimitInfo,
+  type UserChannel,
   type UserAuthzResult,
   type TargetUser,
   type TenantRef,
@@ -44,14 +47,19 @@ import {
   type UserStatus,
 } from "../lib/user-admin";
 import type { ActionResultCode } from "../lib/job-list-params";
-import { enqueueChain, type ChainFailure } from "./chain";
-import type { Actor, RequestMeta, SendFn } from "./service";
+import { ChainAbort, enqueueChain, type ChainFailure } from "./chain";
+import type { Actor, RequestMeta, SendFn, Tx } from "./service";
 
 export interface UsersServiceInput {
   instance: Instance;
   allowedTypes: readonly BridgeJobType[];
   actor: Actor;
   meta: RequestMeta;
+  /**
+   * W6: kanal pemanggil (default `platform` = /users). `portal` = /portal/users: cakupan tenant sendiri saja, batas
+   * user plan untuk tambah/aktifkan (lib/user-admin.ts authorizeUserMutation + planLimitAllows).
+   */
+  channel?: UserChannel;
 }
 
 export type UserActionFailure =
@@ -131,6 +139,48 @@ async function loadTarget(db: Db, userId: string): Promise<(TargetUser & { displ
   };
 }
 
+/**
+ * Batas user plan (portal W6): langganan layanan odoo non-terminated terbaru tenant → plans.max_users. Tanpa langganan
+ * → tidak dicek (dicatat di audit `plan_limit`).
+ */
+export async function loadPlanLimit(db: Db | Tx, clientId: string): Promise<PlanLimitInfo> {
+  const row = (
+    await db
+      .select({ code: plans.code, maxUsers: plans.maxUsers })
+      .from(subscriptions)
+      .innerJoin(plans, eq(plans.id, subscriptions.planId))
+      .where(and(eq(subscriptions.clientId, clientId), eq(plans.service, "odoo"), ne(subscriptions.status, "terminated")))
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(1)
+  )[0];
+  if (!row) return { kind: "no_subscription" };
+  return row.maxUsers === null ? { kind: "unlimited", planCode: row.code } : { kind: "limited", planCode: row.code, maxUsers: row.maxUsers };
+}
+
+/**
+ * Kursi terpakai tenant: users invited/active + email yang sedang diproses job aktif (kc_user_ensure, atau
+ * kc_user_set_enabled enabled=true) dan belum tercatat invited/active — agar dua tambah paralel tidak melewati batas.
+ */
+export async function countTenantSeats(db: Db | Tx, clientId: string): Promise<number> {
+  const r = await db.execute<{ n: number }>(sql`
+    SELECT (SELECT count(*) FROM users WHERE client_id = ${clientId} AND status IN ('invited', 'active'))::int
+         + (SELECT count(DISTINCT lower(j.payload -> 'args' ->> 'email'))
+              FROM provision_jobs j
+             WHERE j.client_id = ${clientId}
+               AND j.dry_run = false
+               AND j.status IN ('queued', 'dispatched', 'running')
+               AND (j.type = 'kc_user_ensure' OR (j.type = 'kc_user_set_enabled' AND j.payload -> 'args' ->> 'enabled' = 'true'))
+               AND NOT EXISTS (
+                 SELECT 1 FROM users u
+                  WHERE u.client_id = ${clientId} AND u.status IN ('invited', 'active')
+                    AND lower(u.email) = lower(j.payload -> 'args' ->> 'email')))::int AS n`);
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+function planLimitMd(l: PlanLimitInfo): Record<string, unknown> {
+  return l.kind === "limited" ? { kind: l.kind, plan: l.planCode, max_users: l.maxUsers } : l.kind === "unlimited" ? { kind: l.kind, plan: l.planCode } : { kind: l.kind };
+}
+
 async function otherAdmins(db: Db, clientId: string, excludeUserId: string | null): Promise<number> {
   const rows = await db
     .select({ id: users.id })
@@ -197,7 +247,7 @@ async function run(
     excludeAdmin: string | null;
     email: string;
     /** Otorisasi khusus (adopt); default authorizeUserMutation(mutation). */
-    authorize?: (actor: UserActorContext, otherActiveAdmins: number) => UserAuthzResult;
+    authorize?: (actor: UserActorContext, otherActiveAdmins: number, channel: UserChannel) => UserAuthzResult;
     /** Baris yang dikecualikan dari aturan pengikatan email (target adopt, client_id NULL). */
     bindingExcludeId?: string | null;
     /** Prasyarat SETELAH otorisasi (tidak membocorkan data tenant lain ke aktor yang tidak berwenang). */
@@ -209,7 +259,10 @@ async function run(
   const actor = await loadActor(db, input.actor);
   const baseMd = { tenant: p.tenant.slug, email_hash: emailHash(p.email) };
   const nAdmins = await otherAdmins(db, p.tenant.id, p.excludeAdmin);
-  const authz = p.authorize ? p.authorize(actor, nAdmins) : authorizeUserMutation(actor, p.tenant, p.mutation, { otherActiveAdmins: nAdmins });
+  const channel = input.channel ?? "platform";
+  const authz = p.authorize
+    ? p.authorize(actor, nAdmins, channel)
+    : authorizeUserMutation(actor, p.tenant, p.mutation, { otherActiveAdmins: nAdmins, channel });
   if (!authz.ok) {
     await auditRejected(db, input, p.action, p.tenant.id, p.targetId, { ...baseMd, reason: "authz", denial: authz.reason });
     return { ok: false, reason: "authz", denial: authz.reason };
@@ -228,7 +281,11 @@ async function run(
     });
     return { ok: false, ...failure };
   }
-  const md = { ...p.md(), ...baseMd };
+  // W6: tambah/aktifkan dari portal tunduk batas user plan — dicek ulang di transaksi enqueue di bawah kunci per
+  // tenant (paralel aman); tanpa langganan Odoo → tidak dicek, dicatat di audit.
+  const seat = channel === "portal" && (p.mutation.kind === "add" || p.mutation.kind === "enable");
+  const limit = seat ? await loadPlanLimit(db, p.tenant.id) : null;
+  const md = { ...p.md(), ...baseMd, ...(limit ? { plan_limit: planLimitMd(limit) } : {}) };
   const out = await enqueueChain(db, send, {
     instance: input.instance,
     allowedTypes: input.allowedTypes,
@@ -236,7 +293,17 @@ async function run(
     steps: p.steps(),
     actor: input.actor,
     meta: input.meta,
-    audit: { action: p.action, targetType: "user", targetId: p.targetId, metadata: { ...md, scope: authz.scope } },
+    audit: { action: p.action, targetType: "user", targetId: p.targetId, metadata: { ...md, scope: authz.scope, channel } },
+    ...(limit && limit.kind === "limited"
+      ? {
+          prelude: async (tx: Tx) => {
+            await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`tenant-seats:${p.tenant.id}`}))`);
+            if (!planLimitAllows(limit, await countTenantSeats(tx, p.tenant.id))) {
+              throw new ChainAbort({ reason: "precondition", detail: "plan_limit" });
+            }
+          },
+        }
+      : {}),
   });
   if (!out.ok) return out;
   return { ok: true, chainId: out.chainId, jobIds: out.jobIds };
@@ -430,7 +497,7 @@ export async function adoptUser(
     mutation: { kind: "change_access", target, cpRole: input.cpRole },
     excludeAdmin: target.id,
     email,
-    authorize: (actor, n) => authorizeAdopt(actor, t.tenant, target, input.cpRole, { otherActiveAdmins: n }),
+    authorize: (actor, n, channel) => authorizeAdopt(actor, t.tenant, target, input.cpRole, { otherActiveAdmins: n, channel }),
     bindingExcludeId: target.id,
     pre: async () => (validEmail(email) ? null : { reason: "precondition", detail: "no_email" }),
     md: () => ({ cp_role: input.cpRole, previous_role: target.role, adopt: true }),
@@ -464,6 +531,7 @@ export function userOutcomeCode(o: UserActionOutcome): ActionResultCode {
         return o.detail;
       }
       if (o.detail === "no_email") return "precondition";
+      if (o.detail === "plan_limit") return "plan_limit";
       return "invalid";
     default:
       return o.reason;

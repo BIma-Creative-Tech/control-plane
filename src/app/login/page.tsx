@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { landingPath } from "@/lib/roles";
 import { loginAction } from "../actions";
 
 export default async function LoginPage(props: PageProps<"/login">) {
   const session = await auth();
-  if (session) redirect("/dashboard");
+  if (session) redirect(landingPath(session.roles));
   const params = await props.searchParams;
   const hasError = typeof params.error === "string";
 

@@ -70,23 +70,23 @@ const target = (over: Partial<TargetUser> = {}): TargetUser => ({
 const NO_ADMIN = { otherActiveAdmins: 0 };
 const ONE_ADMIN = { otherActiveAdmins: 1 };
 /**
- * Peta izin portal tenant (W6, BELUM aktif): `users:manage_own` untuk client_admin. Hanya untuk menguji jalur kode
- * `scope: "own"` yang dipertahankan; produksi memakai PERMISSIONS (default-deny, temuan QA F1.3).
+ * Portal tenant (W6, AKTIF): `users:manage_own` = client_admin di PERMISSIONS produksi, HANYA lewat kanal `portal`
+ * (kanal platform /users → forbidden, temuan QA F1.3 tetap). `W6` = peta produksi (alias, dipertahankan untuk uji).
  */
-const W6: PermissionMap = { ...PERMISSIONS, "users:manage_own": ["client_admin"] };
-const NO_ADMIN_W6 = { otherActiveAdmins: 0, permissions: W6 };
-const ONE_ADMIN_W6 = { otherActiveAdmins: 1, permissions: W6 };
+const W6: PermissionMap = PERMISSIONS;
+const NO_ADMIN_W6 = { otherActiveAdmins: 0, permissions: W6, channel: "portal" as const };
+const ONE_ADMIN_W6 = { otherActiveAdmins: 1, permissions: W6, channel: "portal" as const };
 
 describe("izin Users (roles.ts, default deny)", () => {
-  it("users:view = superadmin+ops; users:manage = superadmin; users:manage_own = default-deny (F1.3); realm:sync = superadmin", () => {
+  it("users:view = superadmin+ops; users:manage = superadmin; users:manage_own = client_admin (W6 portal saja); realm:sync = superadmin", () => {
     expect(can(["superadmin"], "users:view")).toBe(true);
     expect(can(["ops"], "users:view")).toBe(true);
     expect(can(["client_admin"], "users:view")).toBe(false);
     expect(can(["client_user"], "users:view")).toBe(false);
     expect(can(["ops"], "users:manage")).toBe(false);
     expect(can(["client_admin"], "users:manage")).toBe(false);
-    expect(can(["client_admin"], "users:manage_own")).toBe(false);
-    expect(PERMISSIONS["users:manage_own"]).toEqual([]);
+    expect(can(["client_admin"], "users:manage_own")).toBe(true);
+    expect(PERMISSIONS["users:manage_own"]).toEqual(["client_admin"]);
     expect(canWith(W6, ["client_admin"], "users:manage_own")).toBe(true);
     expect(can(["client_user"], "users:manage_own")).toBe(false);
     expect(can(["ops"], "realm:sync")).toBe(false);
@@ -111,7 +111,7 @@ describe("izin Users (roles.ts, default deny)", () => {
 });
 
 describe("authorizeUserMutation — cakupan & lintas tenant", () => {
-  it("F1.3: client_admin dengan peta izin produksi → forbidden untuk setiap mutasi (portal tenant W6 belum ada)", () => {
+  it("F1.3 + W6: client_admin lewat kanal platform (/users) → forbidden untuk setiap mutasi; lewat portal → scope own", () => {
     const ca = actor(["client_admin"], ACME.id);
     const muts = [
       { kind: "add", cpRole: "client_user" },
@@ -122,7 +122,7 @@ describe("authorizeUserMutation — cakupan & lintas tenant", () => {
     ] as const;
     for (const m of muts) {
       expect(authorizeUserMutation(ca, ACME, m, NO_ADMIN)).toEqual({ ok: false, reason: "forbidden" });
-      // Jalur W6 tetap ada (peta izin portal tenant disuntik eksplisit).
+      expect(authorizeUserMutation(ca, ACME, m, { ...NO_ADMIN, channel: "platform" })).toEqual({ ok: false, reason: "forbidden" });
       expect(authorizeUserMutation(ca, ACME, m, NO_ADMIN_W6)).toEqual({ ok: true, scope: "own" });
     }
   });
@@ -232,9 +232,14 @@ describe("aturan satu tenant-admin (ADR 0018 D3)", () => {
     ).toEqual({ ok: false, reason: "one_admin" });
   });
   it("client_admin tidak bisa menambah client_admin kedua (dirinya = admin yang ada)", () => {
+    // Keputusan Lead Fase 1: memberi client_admin = superadmin saja → dari portal role_not_allowed (sebelum aturan satu admin).
     expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: "client_admin" }, ONE_ADMIN_W6)).toEqual({
       ok: false,
-      reason: "one_admin",
+      reason: "role_not_allowed",
+    });
+    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: "client_admin" }, NO_ADMIN_W6)).toEqual({
+      ok: false,
+      reason: "role_not_allowed",
     });
   });
 });

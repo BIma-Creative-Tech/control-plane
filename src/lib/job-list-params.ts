@@ -68,6 +68,9 @@ export const ACTION_RESULT_CODES = [
   "no_env",
   "plan_required",
   "approve_required",
+  // Portal tenant (W6)
+  "plan_limit",
+  "unbound",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -120,4 +123,6 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   no_env: "Tenant tidak punya environment yang dilayani instance ini.",
   plan_required: "Jalankan \"Rencana sync realm\" dulu: rencana terakhir harus sukses (≤ 24 jam) tanpa blocker.",
   approve_required: "Realm prod/demo: centang persetujuan eksplisit sebelum menerapkan.",
+  plan_limit: "Batas jumlah user paket langganan tercapai (user aktif + undangan + yang sedang diproses). Hubungi admin platform untuk menaikkan paket.",
+  unbound: "Akun Anda belum terikat ke tenant mana pun — hubungi admin platform.",
 };

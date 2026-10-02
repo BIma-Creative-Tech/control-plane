@@ -26,6 +26,17 @@ export const userFormSchemas = {
   passwordReset: z.object({ userId: uuid }).strict(),
   /** "Ikat ke tenant…" (F1.4): user lama client_id NULL → tenant/platform; role diverifikasi ulang di layanan. */
   adoptUser: z.object({ userId: uuid, clientId: uuid, cp_role: z.enum(CP_ROLE_ARGS) }).strict(),
+  /**
+   * Portal tenant (W6): TANPA clientId dan TANPA cp_role — tenant = users.client_id sesi, role = client_user (diisi
+   * server). Field tambahan (clientId, cp_role, …) → ditolak `.strict()`.
+   */
+  portalAddUser: z
+    .object({
+      email: z.string().trim().toLowerCase().max(EMAIL_MAX).regex(EMAIL_REGEX),
+      name: z.string().trim().max(NAME_MAX * 2).optional(),
+    })
+    .strict(),
+  portalChangeAccess: z.object({ userId: uuid }).strict(),
 } as const;
 
 export type UserFormName = keyof typeof userFormSchemas;
@@ -50,11 +61,13 @@ export function parseUserForm<N extends UserFormName>(name: N, entries: Iterable
   }
   if (Object.keys(odoo).length > MAX_ENV_FIELDS) return { success: false, issue: "invalid" };
   // Hanya form yang memuat akses Odoo boleh membawa field odoo_*.
-  if (Object.keys(odoo).length > 0 && !["addUser", "changeAccess", "enableUser"].includes(name)) return { success: false, issue: "invalid" };
+  if (Object.keys(odoo).length > 0 && !["addUser", "changeAccess", "enableUser", "portalAddUser", "portalChangeAccess"].includes(name)) {
+    return { success: false, issue: "invalid" };
+  }
   const r = userFormSchemas[name].safeParse(rest);
   if (!r.success) return { success: false, issue: "invalid" };
   const data = r.data as z.infer<(typeof userFormSchemas)[N]>;
-  if (name === "addUser") {
+  if (name === "addUser" || name === "portalAddUser") {
     const n = (data as { name?: string }).name;
     if (n !== undefined && n !== "" && asciiName(n) === null) return { success: false, issue: "name_invalid" };
   }

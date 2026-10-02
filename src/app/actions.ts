@@ -5,7 +5,8 @@ import { keycloakLogoutUrl, signIn, signOut } from "@/auth";
 
 // Server Actions: Next.js memeriksa Origin (anti-CSRF). Tidak menerima input user.
 export async function loginAction(): Promise<void> {
-  await signIn("keycloak", { redirectTo: "/dashboard" });
+  // "/" mengarahkan per role (staf → /dashboard, tenant → /portal; app/page.tsx).
+  await signIn("keycloak", { redirectTo: "/" });
 }
 
 export async function logoutAction(): Promise<void> {
