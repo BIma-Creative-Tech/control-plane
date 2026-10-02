@@ -3,7 +3,7 @@
  * Field di luar skema, field berulang, atau File → ditolak. Teks bebas: tanpa karakter kontrol, panjang terbatas.
  */
 import { z } from "zod";
-import { AMOUNT_REGEX, CURRENCY_REGEX, isIsoDate } from "./billing";
+import { CURRENCY_REGEX, isIsoDate, isPositiveAmount } from "./billing";
 import { UUID_REGEX } from "./job-contract";
 import { formToObject } from "./job-forms";
 
@@ -22,7 +22,7 @@ const optionalAmount = z
   .string()
   .trim()
   .transform((v) => (v === "" ? undefined : v))
-  .pipe(z.string().regex(AMOUNT_REGEX).optional())
+  .pipe(z.string().refine(isPositiveAmount, "nominal > 0").optional())
   .optional();
 const currency = z.string().trim().toUpperCase().regex(CURRENCY_REGEX);
 const optionalUuid = z
@@ -57,7 +57,7 @@ export const billingFormSchemas = {
       clientId: uuid,
       subscriptionId: optionalUuid,
       kind: z.enum(["implementation", "maintenance"]),
-      amount: z.string().trim().regex(AMOUNT_REGEX),
+      amount: z.string().trim().refine(isPositiveAmount, "nominal > 0"),
       dueAt: isoDate,
     })
     .strict(),

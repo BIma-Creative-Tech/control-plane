@@ -34,7 +34,7 @@ import {
 } from "../lib/billing";
 import type { BridgeJobType, Instance } from "../lib/job-contract";
 import type { SendFn, Tx } from "../jobs/service";
-import { enqueueTenantStateTx, type TenantStateOutcome } from "../jobs/tenant-state";
+import { TenantStateError, enqueueTenantStateTx, type TenantStateOutcome } from "../jobs/tenant-state";
 import { mailErrorCode, type Mailer } from "./mailer";
 import { issueInvoiceTx, lockSubscription, type LockedSubscription } from "./service";
 
@@ -62,6 +62,8 @@ export interface TickReport {
   invoicesIssued: number;
   anomalies: number;
   errors: number;
+  /** Transisi ditunda karena job suspend/resume kebalikan masih aktif (QA N8). */
+  deferred: number;
   reminders: { sent: number; skipped: number; failed: number };
   tenantsWithoutAdmin: number;
   /** Keputusan email cek tenant-admin hari ini (`skipped` = SMTP nonaktif). */
@@ -154,10 +156,12 @@ async function applyTransition(d: TickDeps, tx: Tx, s: LockedSubscription, t: Tr
 }
 
 async function processTransitions(d: TickDeps, report: TickReport): Promise<void> {
+  // QA N8: tenant terminated dilewati (arsip = fase lain; tidak ada transisi/suspend untuknya).
   const candidates = await d.db
     .select({ id: subscriptions.id })
     .from(subscriptions)
-    .where(inArray(subscriptions.status, ["warranty", "active", "past_due"]))
+    .innerJoin(clients, eq(clients.id, subscriptions.clientId))
+    .where(and(inArray(subscriptions.status, ["warranty", "active", "past_due"]), ne(clients.status, "terminated"), isNull(clients.terminatedAt)))
     .orderBy(subscriptions.createdAt);
   for (const c of candidates) {
     try {
@@ -179,6 +183,23 @@ async function processTransitions(d: TickDeps, report: TickReport): Promise<void
         for (const t of plan.transitions) await applyTransition(d, tx, s, t, report);
       });
     } catch (err) {
+      // QA N8: job kebalikan (resume ↔ suspend) masih aktif → transisi ditunda (di-rollback), dicoba tick berikutnya.
+      if (err instanceof TenantStateError && err.reason === "busy") {
+        report.deferred++;
+        try {
+          await audit(d.db, {
+            action: "subscription.tick_deferred",
+            targetType: "subscription",
+            targetId: c.id,
+            clientId: null,
+            result: "failure",
+            metadata: { reason: "state_busy", opposite_job_id: err.detail, today: d.today },
+          });
+        } catch {
+          // diabaikan
+        }
+        continue;
+      }
       report.errors++;
       const msg = safeErrorMessage(err);
       d.logger.error({ subscriptionId: c.id, err: msg }, "subscription_tick: transisi gagal (di-rollback, dicoba tick berikutnya)");
@@ -389,6 +410,7 @@ export async function runSubscriptionTick(d: TickDeps): Promise<TickReport> {
     invoicesIssued: 0,
     anomalies: 0,
     errors: 0,
+    deferred: 0,
     reminders: { sent: 0, skipped: 0, failed: 0 },
     tenantsWithoutAdmin: 0,
     adminCheck: "skipped",

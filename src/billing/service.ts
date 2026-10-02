@@ -8,7 +8,7 @@
 import { and, eq, like, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
-import { auditLogs, clients, invoices, plans, subscriptions } from "../db/schema";
+import { auditLogs, clients, invoices, plans, subscriptions, users } from "../db/schema";
 import {
   dateToTimestamp,
   effectivePrice,
@@ -16,6 +16,7 @@ import {
   invoicePrefix,
   isAfter,
   isBillable,
+  isPositiveAmount,
   jakartaDate,
   nextInvoiceSeq,
   planGoLive,
@@ -52,6 +53,8 @@ export type BillingFailure =
   | { reason: "invoice_state" }
   | { reason: "quota"; detail: string }
   | { reason: "duplicate"; detail: string }
+  /** QA N8: job suspend/resume kebalikan masih aktif — tandai lunas ditolak, ulangi setelah job selesai. */
+  | { reason: "state_busy"; detail: string }
   | { reason: "error"; message: string };
 
 export type BillingOutcome = { ok: true; id: string; jobIds: string[] } | ({ ok: false } & BillingFailure);
@@ -121,7 +124,8 @@ async function run(
   t: AuditTarget,
   body: (tx: Tx, t: AuditTarget) => Promise<{ id: string; jobIds?: string[] }>,
 ): Promise<BillingOutcome> {
-  if (!can(input.actor.roles, permission)) {
+  // QA N2: baris users aktor berstatus disabled (sesi JWT masih hidup ≤ 8 jam) → ditolak seperti tidak berizin.
+  if (!can(input.actor.roles, permission) || (await actorDisabled(db, input.actor))) {
     await auditRejected(db, input, t, { reason: "forbidden" });
     return { ok: false, reason: "forbidden" };
   }
@@ -135,7 +139,13 @@ async function run(
     }
     if (err instanceof TenantStateError) {
       const failure: BillingFailure =
-        err.reason === "quota" ? { reason: "quota", detail: err.detail } : err.reason === "duplicate" ? { reason: "duplicate", detail: err.detail } : { reason: "invalid" };
+        err.reason === "quota"
+          ? { reason: "quota", detail: err.detail }
+          : err.reason === "duplicate"
+            ? { reason: "duplicate", detail: err.detail }
+            : err.reason === "busy"
+              ? { reason: "state_busy", detail: err.detail }
+              : { reason: "invalid" };
       await auditRejected(db, input, t, failure);
       return { ok: false, ...failure };
     }
@@ -145,6 +155,13 @@ async function run(
     }
     return { ok: false, reason: "error", message: safeErrorMessage(err) };
   }
+}
+
+/** Aktor nonaktif (users.status = disabled) — pola sama dengan jobs/tenants.ts. */
+async function actorDisabled(db: Db, actor: Actor): Promise<boolean> {
+  if (!actor.userId) return false;
+  const row = (await db.select({ status: users.status }).from(users).where(eq(users.id, actor.userId)).limit(1))[0];
+  return row?.status === "disabled";
 }
 
 function tenantActive(c: { isPlatform: boolean; status: string; terminatedAt: Date | null }): boolean {
@@ -298,6 +315,7 @@ export async function createSubscriptionTx(tx: Tx, input: BillingAuditInput, p: 
   if (!plan.isActive || !plan.service) throw new Abort({ reason: "plan_inactive" });
   if (p.requireService && plan.service !== p.requireService) throw new Abort({ reason: "plan_inactive" });
   if ((p.priceAmount === undefined) !== (p.priceCurrency === undefined)) throw new Abort({ reason: "invalid" });
+  if (p.priceAmount !== undefined && !isPositiveAmount(p.priceAmount)) throw new Abort({ reason: "invalid" });
   // Satu langganan non-terminated per layanan per tenant (klien terkunci FOR UPDATE di atas → tanpa balapan).
   const dup = await tx
     .select({ id: subscriptions.id })
@@ -349,6 +367,7 @@ export async function setSubscriptionPrice(
     if (!s) throw new Abort({ reason: "not_found" });
     t.clientId = s.clientId;
     if (s.status === "terminated") throw new Abort({ reason: "billing_status" });
+    if (p.priceAmount !== null && !isPositiveAmount(p.priceAmount)) throw new Abort({ reason: "invalid" });
     const next = p.priceAmount === null ? { priceAmount: null, priceCurrency: null } : { priceAmount: p.priceAmount, priceCurrency: p.priceCurrency };
     await tx.update(subscriptions).set({ ...next, updatedAt: sql`now()` }).where(eq(subscriptions.id, s.id));
     await auditOk(tx, input, t, {
@@ -404,6 +423,7 @@ export async function issueInvoice(
 ): Promise<BillingOutcome> {
   const now = input.now ?? new Date();
   return run(db, input, "billing:manage", { action: "invoice.issue", targetType: "invoice", targetId: null, clientId: p.clientId }, async (tx, t) => {
+    if (!isPositiveAmount(p.amount)) throw new Abort({ reason: "invalid" });
     const client = (
       await tx
         .select({ id: clients.id, isPlatform: clients.isPlatform, status: clients.status, terminatedAt: clients.terminatedAt })

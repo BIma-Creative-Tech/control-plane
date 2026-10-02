@@ -36,7 +36,7 @@ async function handle<N extends PortalForm>(
   const env = getWebEnv();
   const instance = env.INFRA_JOBS_INSTANCE;
   if (!instance) back("disabled");
-  const parsed = parseUserForm(form, formData.entries());
+  const parsed = parseUserForm(form, formData.entries(), { portal: true });
   if (!parsed.success) back(parsed.issue);
   const actor = await actorFromSession(session);
   if (!actor) back("reauth");

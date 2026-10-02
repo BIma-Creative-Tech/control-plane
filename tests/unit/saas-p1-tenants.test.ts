@@ -342,8 +342,9 @@ describe("ulangi rantai dari langkah gagal", () => {
     expect(retryStepsFrom(active, "b")).toEqual({ ok: false, issue: "chain_active" });
   });
 
-  it("asal rantai yang boleh diulang: aksi tenant/realm saja (rantai Users tidak)", () => {
-    for (const a of ["tenant.onboard", "tenant.suspend", "tenant.resume", "realm.sync_plan", "realm.sync_apply", "chain.retry"]) expect(retryableOrigin(a)).toBe(true);
+  it("asal rantai yang boleh diulang: onboarding saja (Users, realm sync N1, suspend/resume N3 tidak)", () => {
+    for (const a of ["tenant.onboard", "chain.retry"]) expect(retryableOrigin(a)).toBe(true);
+    for (const a of ["realm.sync_plan", "realm.sync_apply", "tenant.suspend", "tenant.resume"]) expect(retryableOrigin(a)).toBe(false);
     for (const a of ["user.add", "user.disable", "user.adopt", "user.change_access", "test.chain", "", null, undefined]) expect(retryableOrigin(a)).toBe(false);
   });
 
@@ -382,6 +383,10 @@ describe("kc_realm_sync: keputusan approve", () => {
     expect(d({ lastPlan: { ...okPlan, status: "failed" } })).toEqual({ ok: false, code: "plan_required" });
     expect(d({ lastPlan: { ...okPlan, status: "running", finishedAt: null } })).toEqual({ ok: false, code: "plan_required" });
     expect(d({ lastPlan: { ...okPlan, result: { ...okPlan.result, blockers: "1" } } })).toEqual({ ok: false, code: "plan_required" });
+    // N7: RESULT tanpa `blockers` / result null → tidak bersih (fail-closed).
+    expect(d({ lastPlan: { ...okPlan, result: { realm: "platform", changed: "3", mode: "plan" } } })).toEqual({ ok: false, code: "plan_required" });
+    expect(d({ lastPlan: { ...okPlan, result: null } })).toEqual({ ok: false, code: "plan_required" });
+    expect(d({ lastPlan: { ...okPlan, result: { ...okPlan.result, blockers: "" } } })).toEqual({ ok: false, code: "plan_required" });
     expect(d({ lastPlan: { ...okPlan, finishedAt: new Date(now.getTime() - REALM_PLAN_MAX_AGE_MS - 1000) } })).toEqual({ ok: false, code: "plan_required" });
     // Hasil keputusan lolos kontrak (approve wajib di prod).
     const ok = d({});
@@ -406,8 +411,9 @@ describe("audit: filter + redaksi email", () => {
     expect(p.tenant).toBe("acme-co");
     expect(p.actionPrefix).toBe("tenant.");
     expect(p.result).toBe("rejected");
-    expect(p.from?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
-    expect(p.toExclusive?.toISOString()).toBe("2026-10-04T00:00:00.000Z");
+    // N10: hari kalender WIB → 00:00 WIB = 17:00 UTC hari sebelumnya.
+    expect(p.from?.toISOString()).toBe("2026-09-30T17:00:00.000Z");
+    expect(p.toExclusive?.toISOString()).toBe("2026-10-03T17:00:00.000Z");
     expect(p.page).toBe(2);
     expect(auditPageHref(p, 3)).toBe("/audit?actor=6b1f0e2a&tenant=acme-co&action=tenant.&result=rejected&from=2026-10-01&to=2026-10-03&page=3");
     expect(parseAuditParams({ actor: "system:worker" }).actorPrefix).toBe("system:worker");
@@ -418,8 +424,9 @@ describe("audit: filter + redaksi email", () => {
     expect(p).toEqual({ page: 1, raw: {} });
     expect(parseAuditParams({ actor: "a b" }).actorPrefix).toBeUndefined();
     const sw = parseAuditParams({ from: "2026-10-05", to: "2026-10-01" });
-    expect(sw.from?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
-    expect(sw.toExclusive?.toISOString()).toBe("2026-10-06T00:00:00.000Z");
+    expect(sw.from?.toISOString()).toBe("2026-09-30T17:00:00.000Z");
+    expect(sw.toExclusive?.toISOString()).toBe("2026-10-05T17:00:00.000Z");
+    expect(sw.raw).toEqual({ from: "2026-10-01", to: "2026-10-05" });
     expect(parseAuditParams({ page: ["4", "5"] }).page).toBe(4);
   });
 

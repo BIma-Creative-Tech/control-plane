@@ -19,5 +19,7 @@ export async function requirePortal(permission: Extract<Permission, "portal:view
   const { user, tenant } = await loadPortalIdentity(getDb(), sub);
   const scope = decidePortalScope(user, tenant);
   if (scope.kind === "disabled") redirect("/forbidden");
+  // QA N6: halaman tenant-admin mensyaratkan baris DB client_admin berstatus active (bukan hanya role JWT).
+  if (permission === "portal:admin" && scope.kind === "ok" && (user?.role !== "client_admin" || user.status !== "active")) redirect("/forbidden");
   return { session, scope };
 }

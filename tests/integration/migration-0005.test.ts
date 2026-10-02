@@ -143,13 +143,19 @@ describe.skipIf(!URL_)("migrasi 0005 (ADR 0018)", () => {
       await expect(db.execute(sql`INSERT INTO domains (client_id, fqdn, verification_token, purpose) VALUES ('aaaaaaaa-0000-4000-8000-000000000001', 'x.example', 't', 'ftp')`)).rejects.toThrow();
     });
 
-    it("override harga langganan (keputusan Lead): nullable, ≥ 0, mata uang wajib bersama harga", async () => {
+    it("override harga langganan (keputusan Lead): nullable, > 0, mata uang wajib bersama harga; invoice > 0", async () => {
       const upd = (amount: string | null, cur: string | null) =>
         db.execute(sql`UPDATE subscriptions SET price_amount = ${amount}::numeric, price_currency = ${cur} WHERE id = 'ffffffff-0000-4000-8000-000000000001'`);
       await upd("2500000.50", "IDR");
       const r = await db.execute(sql`SELECT price_amount, price_currency FROM subscriptions`);
       expect(r.rows).toEqual([{ price_amount: "2500000.50", price_currency: "IDR" }]);
-      expect((await pgError(upd("-1", "IDR"))).constraint).toBe("subscriptions_price_nonneg");
+      expect((await pgError(upd("-1", "IDR"))).constraint).toBe("subscriptions_price_positive");
+      expect((await pgError(upd("0", "IDR"))).constraint).toBe("subscriptions_price_positive");
+      // QA N4: invoice nol ditolak DB (implementasi maupun maintenance).
+      expect(
+        (await pgError(db.execute(sql`INSERT INTO invoices (number, client_id, amount, due_at) VALUES ('Z-0', 'aaaaaaaa-0000-4000-8000-000000000001', 0, now())`)))
+          .constraint,
+      ).toBe("invoices_amount_positive");
       expect((await pgError(upd("10", null))).constraint).toBe("subscriptions_price_currency");
       expect((await pgError(upd(null, "IDR"))).constraint).toBe("subscriptions_price_currency");
       expect((await pgError(upd("10", "idr"))).constraint).toBe("subscriptions_price_currency");

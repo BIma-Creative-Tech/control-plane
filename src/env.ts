@@ -133,10 +133,6 @@ export const webEnvSchema = baseEnvSchema
     DATAMART_URL: postgresUrl.optional(),
     DATAMART_ENV: z.enum(["prod", "staging"]).optional(),
     /**
-     * Plan infra 15 — link "Buka Odoo" di dashboard: `slug=https://host` dipisah koma
-     * (mis. `expomedia=https://erp.expomedia.id`). Opsional; client tanpa entri = tanpa link.
-     */
-    /**
      * W5 Domains: IPv4 publik platform untuk checklist DNS (record A domain odoo/web/insight; tanpa AAAA). Opsional —
      * kosong = checklist menampilkan "IP belum dikonfigurasi". Alamat privat/loopback/link-local ditolak.
      */
@@ -161,6 +157,10 @@ export const webEnvSchema = baseEnvSchema
           .filter((x) => x !== ""),
       )
       .pipe(z.array(z.string().regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "domain tidak valid")).min(1, "minimal satu domain")),
+    /**
+     * Plan infra 15 — link "Buka Odoo" di dashboard: `slug=https://host` dipisah koma
+     * (mis. `expomedia=https://erp.expomedia.id`). Opsional; client tanpa entri = tanpa link.
+     */
     DASHBOARD_ODOO_URLS: z
       .string()
       .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")

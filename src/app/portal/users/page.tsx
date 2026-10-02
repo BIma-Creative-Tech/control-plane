@@ -31,15 +31,16 @@ function OdooSelects({ envs, access, email }: { envs: Env[]; access: Access[]; e
     <>
       {envs.map((e) => {
         const cur = email ? access.find((a) => a.environmentId === e.id && a.email === email) : undefined;
-        const def = cur && (cur.status === "active" || cur.status === "revoked") ? (cur.isAdmin ? "admin" : "user") : "none";
+        const active = cur && (cur.status === "active" || cur.status === "revoked");
+        // Portal hanya none|user (QA N5); akses admin yang ada dikelola admin platform — ditampilkan, tidak bisa dipilih.
         return (
           <label key={e.id} className="text-sm">
             Odoo <span className="font-mono">{e.kind}</span>{" "}
-            <select name={`odoo_${e.id}`} defaultValue={def} className={input}>
+            <select name={`odoo_${e.id}`} defaultValue={active ? "user" : "none"} className={input}>
               <option value="none">tanpa akses</option>
               <option value="user">user</option>
-              <option value="admin">admin</option>
             </select>
+            {active && cur.isAdmin ? <span className="ml-1 text-xs text-amber-700">(saat ini admin)</span> : null}
           </label>
         );
       })}
@@ -122,6 +123,8 @@ export default async function PortalUsersPage(props: PageProps<"/portal/users">)
               rows.map((u) => {
                 // Hanya tenant-user lain yang bisa dikelola dari portal (bukan diri sendiri / tenant-admin / staf platform).
                 const manageable = featureOn && u.role === "client_user" && u.id !== scope.userId;
+                // Akses Odoo admin (diberikan admin platform) tidak diubah dari portal — hindari penurunan tak sengaja.
+                const hasOdooAdmin = access.some((a) => a.email === u.email && a.isAdmin && a.status === "active");
                 return (
                   <tr key={u.id} className="border-t align-top">
                     <td className="p-2 font-mono">{u.email ?? "—"}</td>
@@ -133,13 +136,17 @@ export default async function PortalUsersPage(props: PageProps<"/portal/users">)
                     <td className="space-y-2 p-2">
                       {manageable && u.status !== "disabled" ? (
                         <>
-                          <form action={portalChangeAccessAction} className="flex flex-wrap items-center gap-2">
-                            <input type="hidden" name="userId" value={u.id} />
-                            <OdooSelects envs={envs} access={access} email={u.email} />
-                            <button type="submit" className={btn}>
-                              Simpan akses
-                            </button>
-                          </form>
+                          {hasOdooAdmin ? (
+                            <p className="text-xs text-slate-500">Akses Odoo admin — diubah lewat admin platform.</p>
+                          ) : (
+                            <form action={portalChangeAccessAction} className="flex flex-wrap items-center gap-2">
+                              <input type="hidden" name="userId" value={u.id} />
+                              <OdooSelects envs={envs} access={access} email={u.email} />
+                              <button type="submit" className={btn}>
+                                Simpan akses
+                              </button>
+                            </form>
+                          )}
                           <div className="flex flex-wrap gap-2">
                             <form action={portalPasswordResetAction}>
                               <input type="hidden" name="userId" value={u.id} />

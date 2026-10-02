@@ -11,7 +11,7 @@ const input = "rounded border px-2 py-1";
 const fmt = (d: Date) => d.toISOString().replace("T", " ").slice(0, 19);
 
 /**
- * Audit (W5): audit_logs dengan filter aktor (prefix sub), tenant, aksi (prefix), hasil, rentang tanggal (UTC) +
+ * Audit (W5): audit_logs dengan filter aktor (prefix sub), tenant, aksi (prefix), hasil, rentang tanggal (hari WIB) +
  * paginasi. superadmin + ops (`audit:view`). Email TIDAK pernah ditampilkan: tidak join users.email, metadata
  * disamarkan (redactAuditMetadata) — audit menyimpan email_hash.
  */
@@ -58,11 +58,11 @@ export default async function AuditPage(props: PageProps<"/audit">) {
             </select>
           </label>
           <label className="flex flex-col">
-            Dari (UTC)
+            Dari (WIB)
             <input type="date" name="from" defaultValue={p.raw.from ?? ""} className={input} />
           </label>
           <label className="flex flex-col">
-            Sampai (UTC)
+            Sampai (WIB)
             <input type="date" name="to" defaultValue={p.raw.to ?? ""} className={input} />
           </label>
           <button type="submit" className="rounded border px-3 py-1">

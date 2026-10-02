@@ -255,4 +255,30 @@ describe.skipIf(!URL_)("Portal tenant W6 ⇄ layanan Users (Postgres nyata)", ()
     expect(decidePortalScope(staff.user, staff.tenant)).toEqual({ kind: "unbound" });
     expect(decidePortalScope((await loadPortalIdentity(db, "nobody")).user, null)).toEqual({ kind: "unbound" });
   });
+
+  let dinaId: string;
+  it("QA N5: portal tidak pernah memberi akses Odoo admin (layanan), diaudit", async () => {
+    await ageActorRate();
+    dinaId = (await db.insert(users).values({ keycloakSub: "dina-sub", email: "dina@acme.co.id", role: "client_user", status: "active", clientId: acmeId }).returning())[0]!.id;
+    const RNA = { ok: false, reason: "authz", denial: "role_not_allowed" };
+    const j0 = await jobs();
+    expect(await portalAddUser(db, send, { ...base(ADMIN), email: "adm1@acme.co.id", name: null, odoo: { [envAcme]: "admin" } })).toEqual(RNA);
+    expect(await portalChangeAccess(db, send, { ...base(ADMIN), userId: dinaId, odoo: { [envAcme]: "admin" } })).toEqual(RNA);
+    expect(await jobs()).toBe(j0);
+    const rej = (await rejected("user.change_access")).filter((x) => (x.metadata as { denial?: string }).denial === "role_not_allowed");
+    expect(rej.length).toBeGreaterThanOrEqual(1);
+    // Kanal platform (superadmin) tetap boleh memberi admin.
+    expect(await changeUserAccess(db, send, { ...base(SUPER), userId: dinaId, cpRole: "client_user", odoo: { [envAcme]: "admin" } })).toMatchObject({ ok: true });
+  });
+
+  it("QA N6: admin yang diturunkan/dinonaktifkan di DB dengan JWT client_admin masih hidup → forbidden", async () => {
+    const F = { ok: false, reason: "authz", denial: "forbidden" };
+    await db.update(users).set({ role: "client_user" }).where(eq(users.id, adminRowId));
+    expect(await portalPasswordReset(db, send, { ...base(ADMIN), userId: dinaId })).toEqual(F);
+    expect(await portalAddUser(db, send, { ...base(ADMIN), email: "n6@acme.co.id", name: null, odoo: {} })).toEqual(F);
+    await db.update(users).set({ role: "client_admin", status: "invited" }).where(eq(users.id, adminRowId));
+    expect(await portalPasswordReset(db, send, { ...base(ADMIN), userId: dinaId })).toEqual(F);
+    await db.update(users).set({ status: "active" }).where(eq(users.id, adminRowId));
+    expect(await portalPasswordReset(db, send, { ...base(ADMIN), userId: dinaId })).toMatchObject({ ok: true });
+  });
 });

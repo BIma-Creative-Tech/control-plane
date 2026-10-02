@@ -234,10 +234,13 @@ export type RetryIssue =
   | "self_target";
 
 /**
- * Aksi audit asal rantai yang boleh diulang dari halaman tenant (audit `metadata.chain_id`). Rantai Users (`user.*`)
- * TIDAK: aturan authorizeUserMutation (diri sendiri, role, status target) hanya berlaku lewat aksi Users itu sendiri.
+ * Aksi audit asal rantai yang boleh diulang dari halaman tenant (audit `metadata.chain_id`): onboarding (dan ulangan
+ * onboarding) SAJA. Tidak boleh (QA ronde 2, keputusan Lead):
+ * - rantai Users (`user.*`) — aturan authorizeUserMutation hanya berlaku lewat aksi Users itu sendiri;
+ * - `realm.sync_*` (N1) — sync realm hanya lewat /realm (decideRealmSync: rencana segar tanpa blocker + approve prod);
+ * - `tenant.suspend|resume` (N3) — ulang manual lewat tombol berkonfirmasi slug (cek kebalikan aktif).
  */
-export const RETRYABLE_CHAIN_ORIGINS = ["tenant.onboard", "tenant.suspend", "tenant.resume", "realm.sync_plan", "realm.sync_apply", "chain.retry"] as const;
+export const RETRYABLE_CHAIN_ORIGINS = ["tenant.onboard", "chain.retry"] as const;
 
 export function retryableOrigin(action: string | null | undefined): boolean {
   return typeof action === "string" && (RETRYABLE_CHAIN_ORIGINS as readonly string[]).includes(action);
@@ -311,7 +314,8 @@ export function decideRealmSync(p: {
   if (needApprove && p.approveChecked !== true) return { ok: false, code: "approve_required" };
   const lp = p.lastPlan;
   const fresh = lp?.finishedAt ? p.now.getTime() - lp.finishedAt.getTime() <= REALM_PLAN_MAX_AGE_MS : false;
-  const blockers = lp?.result?.blockers ?? "0";
+  // N7 (fail-closed): RESULT `blockers` WAJIB ada dan = "0"; tidak ada → rencana dianggap tidak bersih.
+  const blockers = lp?.result?.blockers;
   if (!lp || lp.status !== "succeeded" || !fresh || blockers !== "0") return { ok: false, code: "plan_required" };
   return { ok: true, step: { type: "kc_realm_sync", env: p.realmEnv, args: needApprove ? { approve: true } : {} } };
 }

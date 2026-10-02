@@ -981,6 +981,10 @@
         "invoices_period_order": {
           "name": "invoices_period_order",
           "value": "\"invoices\".\"period_start\" IS NULL OR (\"invoices\".\"period_end\" IS NOT NULL AND \"invoices\".\"period_end\" > \"invoices\".\"period_start\")"
+        },
+        "invoices_amount_positive": {
+          "name": "invoices_amount_positive",
+          "value": "\"invoices\".\"amount\" > 0"
         }
       },
       "isRLSEnabled": false
@@ -2057,9 +2061,9 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "subscriptions_price_nonneg": {
-          "name": "subscriptions_price_nonneg",
-          "value": "\"subscriptions\".\"price_amount\" IS NULL OR \"subscriptions\".\"price_amount\" >= 0"
+        "subscriptions_price_positive": {
+          "name": "subscriptions_price_positive",
+          "value": "\"subscriptions\".\"price_amount\" IS NULL OR \"subscriptions\".\"price_amount\" > 0"
         },
         "subscriptions_price_currency": {
           "name": "subscriptions_price_currency",

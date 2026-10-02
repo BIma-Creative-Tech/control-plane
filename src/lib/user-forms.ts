@@ -45,7 +45,15 @@ export type UserFormResult<N extends UserFormName> =
   | { success: true; data: z.infer<(typeof userFormSchemas)[N]>; odoo: Record<string, OdooAccess> }
   | { success: false; issue: "invalid" | "name_invalid" };
 
-export function parseUserForm<N extends UserFormName>(name: N, entries: Iterable<[string, FormDataEntryValue]>): UserFormResult<N> {
+/**
+ * `opts.portal` (QA N5): kanal portal hanya boleh memberi akses Odoo `none|user` — `admin` ditolak di form (dan diulang
+ * di layanan jobs/users.ts).
+ */
+export function parseUserForm<N extends UserFormName>(
+  name: N,
+  entries: Iterable<[string, FormDataEntryValue]>,
+  opts: { portal?: boolean } = {},
+): UserFormResult<N> {
   const obj = formToObject(entries);
   if (!obj) return { success: false, issue: "invalid" };
   const odoo: Record<string, OdooAccess> = {};
@@ -54,6 +62,7 @@ export function parseUserForm<N extends UserFormName>(name: N, entries: Iterable
     const m = ODOO_FIELD.exec(k);
     if (m) {
       if (!(ODOO_ACCESS as readonly string[]).includes(v)) return { success: false, issue: "invalid" };
+      if (opts.portal && v === "admin") return { success: false, issue: "invalid" };
       odoo[m[1]!] = v as OdooAccess;
     } else {
       rest[k] = v;

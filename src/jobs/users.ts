@@ -90,9 +90,16 @@ export function userFeatureEnabled(allowed: readonly BridgeJobType[]): boolean {
 
 async function loadActor(db: Db, actor: Actor): Promise<UserActorContext> {
   const row = actor.userId
-    ? (await db.select({ clientId: users.clientId, status: users.status }).from(users).where(eq(users.id, actor.userId)).limit(1))[0]
+    ? (await db.select({ clientId: users.clientId, status: users.status, role: users.role }).from(users).where(eq(users.id, actor.userId)).limit(1))[0]
     : undefined;
-  return { sub: actor.sub, roles: actor.roles, userId: actor.userId, clientId: row?.clientId ?? null, status: (row?.status as UserStatus) ?? null };
+  return {
+    sub: actor.sub,
+    roles: actor.roles,
+    userId: actor.userId,
+    clientId: row?.clientId ?? null,
+    status: (row?.status as UserStatus) ?? null,
+    role: row?.role ?? null,
+  };
 }
 
 async function loadTenant(db: Db, clientId: string) {
@@ -224,6 +231,11 @@ async function auditRejected(
   }
 }
 
+/** QA N5: kanal portal tidak pernah memberi akses Odoo `admin` (hanya none|user) — ditolak role_not_allowed. */
+function portalOdooAdmin(input: UsersServiceInput, m: ReadonlyMap<string, OdooAccess>): UserActionFailure | null {
+  return input.channel === "portal" && [...m.values()].includes("admin") ? { reason: "authz", denial: "role_not_allowed" } : null;
+}
+
 /** Akses Odoo dari form: hanya environment tenant yang dilayani instance ini; id lain → env_unknown. */
 function accessMap(envs: readonly { environmentId: string }[], raw: Readonly<Record<string, OdooAccess>>): Map<string, OdooAccess> | null {
   const known = new Set(envs.map((e) => e.environmentId));
@@ -278,6 +290,7 @@ async function run(
       ...baseMd,
       reason: failure.reason,
       ...("detail" in failure ? { detail: failure.detail } : {}),
+      ...("denial" in failure ? { denial: failure.denial } : {}),
     });
     return { ok: false, ...failure };
   }
@@ -340,6 +353,8 @@ export async function addUser(
       envs = await loadEnvs(db, input.instance, t.tenant.id);
       const m = accessMap(envs, input.odoo);
       if (!m) return { reason: "precondition", detail: "env_unknown" };
+      const denied = portalOdooAdmin(input, m);
+      if (denied) return denied;
       access = m;
       // Nama non-ASCII DITOLAK (keputusan Lead Fase 1) — tidak ditransliterasi/dibuang diam-diam.
       if (input.name && input.name.trim() !== "") {
@@ -393,6 +408,8 @@ export async function changeUserAccess(
       envs = await loadEnvs(db, input.instance, c.tenant.id);
       const m = accessMap(envs, input.odoo);
       if (!m) return { reason: "precondition", detail: "env_unknown" };
+      const denied = portalOdooAdmin(input, m);
+      if (denied) return denied;
       access = m;
       existing = await loadExistingAccess(db, envs.map((e) => e.environmentId), email);
       return null;
@@ -423,6 +440,8 @@ export async function setUserEnabled(
     if (input.enabled) {
       const m = accessMap(envs, input.odoo ?? {});
       if (!m) return { reason: "precondition", detail: "env_unknown" };
+      const denied = portalOdooAdmin(input, m);
+      if (denied) return denied;
       access = m;
     }
     return null;

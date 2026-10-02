@@ -5,6 +5,9 @@
 import { z } from "zod";
 import { SLUG_REGEX } from "./slug";
 
+/** Asia/Jakarta = UTC+7 (tanpa DST). */
+const WIB_OFFSET_MS = 7 * 3600_000;
+
 export const AUDIT_PAGE_SIZE = 50;
 export const AUDIT_RESULTS = ["success", "rejected", "failure"] as const;
 
@@ -74,12 +77,14 @@ export function parseAuditParams(sp: Record<string, string | string[] | undefine
     to = new Date(from.getTime() + 86_400_000);
     from = f;
   }
+  // QA N10: tanggal filter = hari kalender Asia/Jakarta (WIB, UTC+7 tanpa DST) → batas UTC = 00:00 WIB = 17:00 UTC sehari
+  // sebelumnya. Nilai `raw` tetap tanggal yang dipilih.
   if (from) {
-    out.from = from;
+    out.from = new Date(from.getTime() - WIB_OFFSET_MS);
     out.raw.from = from.toISOString().slice(0, 10);
   }
   if (to) {
-    out.toExclusive = to;
+    out.toExclusive = new Date(to.getTime() - WIB_OFFSET_MS);
     out.raw.to = new Date(to.getTime() - 86_400_000).toISOString().slice(0, 10);
   }
   return out;

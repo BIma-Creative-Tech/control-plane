@@ -57,6 +57,8 @@ const actor = (roles: Role[], clientId: string | null, sub = "actor-sub", status
   userId: "77777777-7777-4777-8777-777777777777",
   clientId,
   status,
+  // QA N6: cache role DB = role JWT pertama (uji kanal portal memakai baris client_admin).
+  role: roles[0] ?? null,
 });
 const target = (over: Partial<TargetUser> = {}): TargetUser => ({
   id: "88888888-8888-4888-8888-888888888888",

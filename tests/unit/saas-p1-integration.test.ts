@@ -27,8 +27,8 @@ describe("effectivePrice: override langganan → harga plan → null", () => {
       source: "subscription",
     });
   });
-  it("override 0 tetap override (bukan falsy)", () => {
-    expect(effectivePrice({ subscriptionPrice: "0.00", subscriptionCurrency: "IDR", planPrice: "1000000.00", planCurrency: "IDR" })?.source).toBe("subscription");
+  it("override 0 diabaikan (QA N4: tanpa invoice nol; CHECK DB menolak override 0) → harga plan", () => {
+    expect(effectivePrice({ subscriptionPrice: "0.00", subscriptionCurrency: "IDR", planPrice: "1000000.00", planCurrency: "IDR" })?.source).toBe("plan");
   });
   it("tanpa override → plan; keduanya NULL → null", () => {
     expect(effectivePrice({ subscriptionPrice: null, subscriptionCurrency: null, planPrice: "750000.00", planCurrency: "IDR" })).toEqual({

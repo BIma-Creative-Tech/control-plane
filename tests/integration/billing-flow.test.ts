@@ -572,4 +572,106 @@ describe.skipIf(!URL_)("Billing: siklus langganan ⇄ tick ⇄ dispatcher palsu 
     expect((await terminateSubscription(db, svc(SUPER), { subscriptionId: dsub })).ok).toBe(true);
     expect(await setSubscriptionPrice(db, svc(SUPER), { subscriptionId: dsub, priceAmount: "1", priceCurrency: "IDR" })).toEqual({ ok: false, reason: "billing_status" });
   });
+
+  it("QA N2: aktor nonaktif (sesi masih hidup) → setiap aksi billing ditolak + diaudit", async () => {
+    const [t] = await db.insert(clients).values({ slug: "kappa-co", name: "Kappa" }).returning();
+    const inv = await issueInvoice(db, svc(SUPER), { clientId: t!.id, kind: "implementation", amount: "5000000", dueAt: "2027-12-31" });
+    expect(inv.ok).toBe(true);
+    const invId = (inv as { id: string }).id;
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, OPS.userId!));
+    expect(await markInvoicePaid(db, svc(OPS), { invoiceId: invId, paidAt: "2026-10-01", paymentReference: "BCA", proofReference: "mutasi" })).toEqual({
+      ok: false,
+      reason: "forbidden",
+    });
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, SUPER.userId!));
+    expect(await voidInvoice(db, svc(SUPER), { invoiceId: invId, reason: "uji nonaktif" })).toEqual({ ok: false, reason: "forbidden" });
+    expect(await issueInvoice(db, svc(SUPER), { clientId: t!.id, kind: "implementation", amount: "1", dueAt: "2027-12-31" })).toEqual({ ok: false, reason: "forbidden" });
+    await db.update(users).set({ status: "active" }).where(inArray(users.id, [OPS.userId!, SUPER.userId!]));
+    expect((await db.select().from(invoices).where(eq(invoices.id, invId)))[0]!.status).toBe("unpaid");
+    const rej = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.result, "rejected"), inArray(auditLogs.action, ["invoice.paid", "invoice.void"]), eq(auditLogs.targetId, invId)));
+    expect(rej.map((a) => [a.action, (a.metadata as { reason?: string }).reason]).sort()).toEqual([
+      ["invoice.paid", "forbidden"],
+      ["invoice.void", "forbidden"],
+    ]);
+    const rejIssue = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.result, "rejected"), eq(auditLogs.action, "invoice.issue"), eq(auditLogs.clientId, t!.id)));
+    expect(rejIssue).toHaveLength(1);
+  });
+
+  it("QA N4: invoice nol dan override harga nol ditolak (layanan + CHECK DB)", async () => {
+    const [t] = await db.insert(clients).values({ slug: "lambda-co", name: "Lambda" }).returning();
+    expect(await issueInvoice(db, svc(SUPER), { clientId: t!.id, kind: "implementation", amount: "0", dueAt: "2027-12-31" })).toEqual({ ok: false, reason: "invalid" });
+    const plan = (await db.select().from(plans).where(eq(plans.code, "web-profile")))[0]!;
+    expect(await createSubscription(db, svc(SUPER), { clientId: t!.id, planId: plan.id, priceAmount: "0.00", priceCurrency: "IDR" })).toEqual({ ok: false, reason: "invalid" });
+    const s = await createSubscription(db, svc(SUPER), { clientId: t!.id, planId: plan.id });
+    const sid = (s as { id: string }).id;
+    expect(await setSubscriptionPrice(db, svc(SUPER), { subscriptionId: sid, priceAmount: "0", priceCurrency: "IDR" })).toEqual({ ok: false, reason: "invalid" });
+    await expect(db.update(subscriptions).set({ priceAmount: "0", priceCurrency: "IDR" }).where(eq(subscriptions.id, sid))).rejects.toThrow();
+    await expect(
+      db.insert(invoices).values({ number: "INV/2099/01/0001", clientId: t!.id, amount: "0", dueAt: new Date("2099-01-31T00:00:00Z") }),
+    ).rejects.toThrow();
+  });
+
+  it("QA N8: suspend otomatis & resume saat lunas memakai cek kebalikan aktif (ditunda + audit); tenant terminated dilewati", async () => {
+    const odoo = (await db.select().from(plans).where(eq(plans.code, "odoo-shared-s")))[0]!;
+    const [t] = await db.insert(clients).values({ slug: "theta-co", name: "Theta" }).returning();
+    const tid = t!.id;
+    await db.insert(environments).values({
+      clientId: tid,
+      kind: "prod",
+      odooInstance: "pool-a",
+      dbName: "theta_co_prod",
+      url: "https://theta-co.erp.bimacreative.tech",
+      host: "theta-co.erp.bimacreative.tech",
+      routeStatus: "active",
+    });
+    const sid = ((await createSubscription(db, svc(SUPER), { clientId: tid, planId: odoo.id })) as { id: string }).id;
+    await db
+      .update(subscriptions)
+      .set({ status: "past_due", currentPeriodStart: dateToTimestamp("2027-06-01"), currentPeriodEnd: dateToTimestamp("2027-07-01"), graceUntil: dateToTimestamp("2027-09-01") })
+      .where(eq(subscriptions.id, sid));
+    // Job tenant_resume (kebalikan) masih aktif → transisi suspended ditunda, dicoba tick berikutnya.
+    const [resume] = await db
+      .insert(provisionJobs)
+      .values({ type: "tenant_resume", status: "queued", clientId: tid, env: "prod", actor: "user:super-sub", payload: { slug: "theta-co", args: {} } })
+      .returning();
+    let r = await runSubscriptionTick(tickDeps("2027-09-05", { mailer: null }));
+    expect(r.deferred).toBeGreaterThanOrEqual(1);
+    expect((await sub(sid)).status).toBe("past_due");
+    const deferred = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "subscription.tick_deferred"), eq(auditLogs.targetId, sid)));
+    expect(deferred[0]!.metadata).toMatchObject({ reason: "state_busy", opposite_job_id: resume!.id });
+    expect(await db.select().from(provisionJobs).where(and(eq(provisionJobs.clientId, tid), eq(provisionJobs.type, "tenant_suspend")))).toHaveLength(0);
+    // Job kebalikan selesai → tick berikutnya menyuspend.
+    await db.update(provisionJobs).set({ status: "succeeded" }).where(eq(provisionJobs.id, resume!.id));
+    r = await runSubscriptionTick(tickDeps("2027-09-06", { mailer: null }));
+    expect((await sub(sid)).status).toBe("suspended");
+    const susp = await db.select().from(provisionJobs).where(and(eq(provisionJobs.clientId, tid), eq(provisionJobs.type, "tenant_suspend")));
+    expect(susp).toHaveLength(1);
+    // Lunas saat tenant_suspend masih aktif → state_busy (tanpa perubahan); setelah selesai → active + tenant_resume.
+    const inv = await issueInvoice(db, svc(SUPER, at("2027-09-06")), { clientId: tid, subscriptionId: sid, kind: "maintenance", amount: "900000", dueAt: "2027-09-20" });
+    const invId = (inv as { id: string }).id;
+    const pay = () => markInvoicePaid(db, svc(OPS, at("2027-09-07")), { invoiceId: invId, paidAt: "2027-09-07", paymentReference: "BCA 7", proofReference: "mutasi" });
+    expect(await pay()).toMatchObject({ ok: false, reason: "state_busy", detail: susp[0]!.id });
+    expect((await sub(sid)).status).toBe("suspended");
+    expect((await db.select().from(invoices).where(eq(invoices.id, invId)))[0]!.status).toBe("unpaid");
+    await db.update(provisionJobs).set({ status: "succeeded" }).where(eq(provisionJobs.id, susp[0]!.id));
+    const paid = await pay();
+    expect(paid).toMatchObject({ ok: true });
+    expect((paid as { jobIds: string[] }).jobIds).toHaveLength(1);
+    expect((await sub(sid)).status).toBe("active");
+
+    // Tenant terminated: langganan tidak pernah ditransisikan tick.
+    const [term] = await db.insert(clients).values({ slug: "iota-co", name: "Iota" }).returning();
+    const isub = ((await createSubscription(db, svc(SUPER), { clientId: term!.id, planId: odoo.id })) as { id: string }).id;
+    await db.update(subscriptions).set({ status: "warranty", goLiveAt: "2027-01-01", warrantyUntil: "2027-03-01" }).where(eq(subscriptions.id, isub));
+    await db.update(clients).set({ status: "terminated" }).where(eq(clients.id, term!.id));
+    await runSubscriptionTick(tickDeps("2027-09-08", { mailer: null }));
+    expect((await sub(isub)).status).toBe("warranty");
+    expect(await db.select().from(invoices).where(eq(invoices.subscriptionId, isub))).toHaveLength(0);
+  });
 });

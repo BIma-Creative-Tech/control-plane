@@ -236,14 +236,27 @@ Tanpa itu, uji email memakai mailer perekam.
   RESULT `mode` job `odoo_tenant_config`),
   user tenant (link `/users?tenant=`), rantai + 10 job terakhir, **Suspend/Resume** (superadmin, ketik slug →
   `tenant_suspend|tenant_resume` per env instance ini; kebalikan aktif → `state_busy`), **"Ulangi dari langkah ini"**
-  (superadmin; hanya rantai `tenant.*`/`realm.*`/`chain.retry`; ditolak bila user target kini `disabled` atau akun aktor
+  (superadmin; hanya rantai `tenant.onboard`/`chain.retry` — QA N1/N3: sync realm hanya lewat `/realm`, suspend/resume
+  hanya lewat tombol berkonfirmasi slug; ditolak bila user target kini `disabled` atau akun aktor
   sendiri), ringkasan langganan & invoice terbuka (`TenantBillingSummary`, `billing:view`). `clients.status` TIDAK diubah
   di sini.
 - **`/audit`** (superadmin+ops, `audit:view`): filter aktor (prefix sub), tenant, aksi (prefix, `starts_with`), hasil,
-  rentang tanggal UTC, 50/halaman. Email tidak pernah tampil (tanpa join `users.email`; metadata disamarkan).
+  rentang tanggal = hari WIB (Asia/Jakarta), 50/halaman. Email tidak pernah tampil (tanpa join `users.email`; metadata disamarkan).
 - **`/realm`** (superadmin, `realm:sync`): "Rencana sync realm" (`kc_realm_sync` dry-run, slug `platform`, env realm
   instance) → RESULT changed/blockers; "Terapkan" = ketik nama realm + rencana sukses ≤ 24 jam tanpa blocker; prod/demo
   hanya dengan checkbox persetujuan → `approve=true`. Daftar `users` tanpa tenant → "Ikat ke tenant…" di `/users`.
+
+## QA ronde 2 (keputusan Lead, ringkas)
+
+- Billing: aktor dengan baris `users.status=disabled` ditolak di setiap aksi (audit `forbidden`). Tidak ada nominal nol
+  Fase 1: invoice (implementasi & maintenance) dan override harga > 0 (Zod + CHECK `invoices_amount_positive`,
+  `subscriptions_price_positive` di migrasi 0005); harga plan 0 = belum ditetapkan.
+- Suspend otomatis (tick) dan resume saat lunas memakai kunci `tenant-state:<client>` + cek job kebalikan aktif yang
+  sama dengan suspend/resume manual: tick menunda transisi (`subscription.tick_deferred`, dicoba tick berikutnya),
+  tandai lunas ditolak `state_busy`. Tick melewati tenant `terminated`.
+- Portal: akses Odoo yang bisa diberikan hanya `none|user` (form + layanan; `/users` platform tetap boleh `admin`);
+  kanal portal mensyaratkan baris DB `users.role=client_admin` + `status=active` (bukan hanya role JWT).
+- Sync realm: rencana dianggap bersih hanya bila RESULT `blockers` ADA dan = `0` (fail-closed).
 
 ## Portal tenant (SaaS Fase 1 W6, ADR 0018 D9)
 

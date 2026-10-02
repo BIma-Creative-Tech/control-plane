@@ -28,6 +28,11 @@ export interface UserActorContext {
   /** users.client_id aktor — satu-satunya sumber tenant untuk client_admin (klaim `tenant_id` belum dipercaya). */
   clientId: string | null;
   status: UserStatus | null;
+  /**
+   * users.role (cache DB) aktor. QA N6: kanal portal mensyaratkan baris DB `client_admin` + `active` — bukan hanya role
+   * di JWT (admin yang diturunkan/dinonaktifkan dengan sesi masih hidup ditolak).
+   */
+  role?: Role | null;
 }
 
 export interface TenantRef {
@@ -130,6 +135,8 @@ export function authorizeUserMutation(
   // W6: cakupan harus cocok dengan kanal (default platform) — dicek SEBELUM cakupan tenant (kanal salah = forbidden).
   const channel = ctx.channel ?? "platform";
   if ((channel === "platform") !== (scope === "all")) return { ok: false, reason: "forbidden" };
+  // QA N6: cakupan own = baris users aktor HARUS client_admin berstatus active (DB), selain role JWT.
+  if (scope === "own" && (actor.role !== "client_admin" || actor.status !== "active")) return { ok: false, reason: "forbidden" };
   // Tenant aktor dari users.client_id (DB), bukan dari input form/klaim.
   if (scope === "own" && (actor.clientId === null || actor.clientId !== tenant.id || tenant.isPlatform)) return { ok: false, reason: "cross_tenant" };
 

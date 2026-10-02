@@ -49,6 +49,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 - Tenant internal `platform` dibuat idempoten oleh `migrate.mjs`; slug `platform` reserved di form.
 
 ### Security
+- QA ronde 2: N1/N3 rantai realm sync & suspend/resume tidak bisa "Ulangi dari langkah ini"; N2 aktor nonaktif ditolak
+  di layanan billing; N4 tanpa invoice/harga nol (Zod + CHECK 0005); N5 portal hanya akses Odoo none|user; N6 kanal
+  portal butuh baris DB client_admin aktif; N7 rencana realm tanpa `blockers` = tidak bersih; N8 suspend/resume otomatis
+  memakai cek kebalikan aktif + tick melewati tenant terminated; N10 urutan docblock env, filter tanggal /audit = WIB.
 - W6: `/users` Server Action = `users:manage` saja (sebelumnya `users:manage | users:manage_own`); layanan Users menolak
   cakupan `own` dari kanal platform dan cakupan `all` dari kanal portal; portal tidak menerima `clientId`/`cp_role` dari
   form; memberi client_admin dari portal ditolak (`role_not_allowed`); `userId` tenant lain → `not_found` (diaudit

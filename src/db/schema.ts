@@ -265,7 +265,8 @@ export const subscriptions = pgTable(
   (t) => [
     index("subscriptions_client_idx").on(t.clientId),
     index("subscriptions_status_idx").on(t.status),
-    check("subscriptions_price_nonneg", sql`${t.priceAmount} IS NULL OR ${t.priceAmount} >= 0`),
+    // QA N4: tanpa invoice nol di Fase 1 → override NULL atau > 0.
+    check("subscriptions_price_positive", sql`${t.priceAmount} IS NULL OR ${t.priceAmount} > 0`),
     check(
       "subscriptions_price_currency",
       sql`(${t.priceAmount} IS NULL AND ${t.priceCurrency} IS NULL) OR (${t.priceAmount} IS NOT NULL AND ${t.priceCurrency} IS NOT NULL AND ${t.priceCurrency} ~ '^[A-Z]{3}$')`,
@@ -328,6 +329,8 @@ export const invoices = pgTable(
       .on(t.subscriptionId, t.periodStart)
       .where(sql`${t.kind} = 'maintenance' AND ${t.status} <> 'void' AND ${t.periodStart} IS NOT NULL`),
     check("invoices_period_order", sql`${t.periodStart} IS NULL OR (${t.periodEnd} IS NOT NULL AND ${t.periodEnd} > ${t.periodStart})`),
+    // QA N4 (migrasi 0005, keputusan Lead): tidak ada invoice nol di Fase 1 (implementasi maupun maintenance).
+    check("invoices_amount_positive", sql`${t.amount} > 0`),
   ],
 );
 

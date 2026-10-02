@@ -7,7 +7,7 @@
  * aktif — env tanpa route tidak punya file route untuk dirender ulang. Idempotency key `<type>:<slug>:<env>:tenant`
  * (job-contract.ts): job aktif dengan kunci sama dipakai ulang; job final melepas kuncinya.
  */
-import { and, count, eq, gte, inArray } from "drizzle-orm";
+import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
 import { auditLogs, environments, provisionJobs } from "../db/schema";
 import {
   BRIDGE_JOB_TYPES,
@@ -43,7 +43,8 @@ export type TenantStateOutcome =
 
 /** Gagal di dalam transaksi → pemanggil me-rollback transisi (dicoba ulang tick berikutnya). */
 export class TenantStateError extends Error {
-  constructor(readonly reason: "invalid" | "quota" | "duplicate", readonly detail: string | ChainQuotaViolation) {
+  /** `busy` (QA N8): job kebalikan (suspend ↔ resume) masih aktif untuk tenant ini — dicoba lagi nanti. */
+  constructor(readonly reason: "invalid" | "quota" | "duplicate" | "busy", readonly detail: string | ChainQuotaViolation) {
     super(`tenant_state ${reason}: ${detail}`);
   }
 }
@@ -66,6 +67,17 @@ export async function enqueueTenantStateTx(tx: Tx, send: SendFn, input: TenantSt
     )
     .orderBy(environments.kind);
   if (envs.length === 0) return { kind: "skipped", reason: "no_environment" };
+
+  // QA N8: cek kebalikan aktif yang SAMA dengan suspend/resume manual (jobs/tenants.ts setTenantState): kunci advisory
+  // per tenant (kunci yang sama) lalu tolak bila tenant_resume/tenant_suspend kebalikannya masih aktif.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`tenant-state:${input.client.id}`}))`);
+  const opposite: TenantStateType = input.type === "tenant_suspend" ? "tenant_resume" : "tenant_suspend";
+  const busy = await tx
+    .select({ id: provisionJobs.id })
+    .from(provisionJobs)
+    .where(and(eq(provisionJobs.clientId, input.client.id), eq(provisionJobs.type, opposite), inArray(provisionJobs.status, [...ACTIVE])))
+    .limit(1);
+  if (busy[0]) throw new TenantStateError("busy", busy[0].id);
 
   const plans: { envId: string; env: (typeof envs)[number]["kind"]; key: string; reuse: string | null }[] = [];
   for (const e of envs) {

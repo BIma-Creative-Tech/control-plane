@@ -415,6 +415,11 @@ export function nextInvoiceSeq(existing: readonly string[], prefix: string): num
 /** Nominal dari form: angka desimal ≤ 12 digit + ≤ 2 desimal, tanpa pemisah ribuan. */
 export const AMOUNT_REGEX = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?$/;
 
+/** Nominal > 0 (QA N4, keputusan Lead: tidak ada invoice/harga nol di Fase 1). */
+export function isPositiveAmount(v: string | null | undefined): v is string {
+  return typeof v === "string" && AMOUNT_REGEX.test(v) && /[1-9]/.test(v);
+}
+
 /** Kode mata uang ISO 4217 (huruf besar) — override harga langganan. */
 export const CURRENCY_REGEX = /^[A-Z]{3}$/;
 
@@ -431,10 +436,11 @@ export interface PriceSources {
  * (pemanggil melewati penerbitan dan mencatat `price_missing` di audit).
  */
 export function effectivePrice(p: PriceSources): { amount: string; currency: string; source: "subscription" | "plan" } | null {
-  if (p.subscriptionPrice !== null) {
+  if (p.subscriptionPrice !== null && isPositiveAmount(p.subscriptionPrice)) {
     return { amount: p.subscriptionPrice, currency: p.subscriptionCurrency ?? p.planCurrency, source: "subscription" };
   }
-  if (p.planPrice !== null) return { amount: p.planPrice, currency: p.planCurrency, source: "plan" };
+  // Harga plan 0 (CHECK plans hanya ≥ 0) diperlakukan "belum ditetapkan" — tidak ada invoice nol (QA N4).
+  if (p.planPrice !== null && isPositiveAmount(p.planPrice)) return { amount: p.planPrice, currency: p.planCurrency, source: "plan" };
   return null;
 }
 

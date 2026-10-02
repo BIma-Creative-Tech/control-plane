@@ -22,6 +22,7 @@ import { INFRA_JOB_QUEUE_OPTIONS, QUEUE_INFRA_JOB } from "@/jobs/queue";
 import type { Actor, SendFn } from "@/jobs/service";
 import { onboardTenant, requestRealmSync, retryChainFrom, setTenantState } from "@/jobs/tenants";
 import { parseAuditParams } from "@/lib/audit-params";
+import { jakartaDate } from "@/lib/billing";
 import { BRIDGE_JOB_TYPES, LEGACY_JOB_TYPES, emailHash, type JobFile } from "@/lib/job-contract";
 import type { OnboardingInput } from "@/lib/tenant-onboarding";
 import { createBridge, type Bridge } from "@/worker/bridge";
@@ -549,7 +550,7 @@ describe.skipIf(!URL_)("Tenant: onboarding/suspend/retry/realm ⇄ dispatcher pa
     expect(rejected.rows.every((a) => a.result === "rejected" && a.tenant === null)).toBe(true);
     const future = await queryAudit(db, parseAuditParams({ from: "2099-01-01" }));
     expect(future.total).toBe(0);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = jakartaDate(new Date()); // N10: filter tanggal = hari WIB
     expect((await queryAudit(db, parseAuditParams({ from: today, to: today }))).total).toBe(all.total);
     const p2 = await queryAudit(db, parseAuditParams({ page: "2" }));
     expect(p2.total).toBe(all.total);
@@ -591,5 +592,30 @@ describe.skipIf(!URL_)("Tenant: onboarding/suspend/retry/realm ⇄ dispatcher pa
     expect(created[0]).toMatchObject({ result: "success", actor: "user:super-sub", targetId: subs[0]!.id });
     const onboard = (await db.select().from(auditLogs).where(and(eq(auditLogs.action, "tenant.onboard"), eq(auditLogs.clientId, zid))))[0]!;
     expect(onboard.metadata).toMatchObject({ plan_id: await planOf("odoo-shared-s") });
+  });
+
+  it("QA N1/N3: rantai realm sync dan suspend/resume yang gagal TIDAK bisa diulang dari halaman tenant (origin)", async () => {
+    await ageActorRate();
+    behave = (j) => (j.type === "kc_realm_sync" || j.type === "tenant_suspend" ? fail() : defaultBehavior(j));
+    const plan = await requestRealmSync(db, send, { ...svc(), mode: "plan" });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const [pj] = await settleAll(plan.jobIds);
+    expect(pj!.status).toBe("failed");
+    expect(await retryChainFrom(db, send, { ...svc(), jobId: pj!.id })).toEqual({ ok: false, reason: "retry", issue: "origin" });
+
+    const [eps] = await db.select().from(clients).where(eq(clients.slug, "eps-co"));
+    const sus = await setTenantState(db, send, { ...svc(), clientId: eps!.id, action: "suspend", confirm: "eps-co" });
+    expect(sus.ok).toBe(true);
+    if (!sus.ok) return;
+    const rows = await settleAll(sus.jobIds);
+    expect(rows.every((r) => r.status === "failed")).toBe(true);
+    expect(await retryChainFrom(db, send, { ...svc(), jobId: rows[0]!.id })).toEqual({ ok: false, reason: "retry", issue: "origin" });
+    behave = defaultBehavior;
+    // Ulang manual lewat tombol berkonfirmasi slug tetap bisa.
+    const again = await setTenantState(db, send, { ...svc(), clientId: eps!.id, action: "suspend", confirm: "eps-co" });
+    expect(again.ok).toBe(true);
+    const rej = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "chain.retry"), eq(auditLogs.result, "rejected")));
+    expect(rej.filter((a) => (a.metadata as { issue?: string }).issue === "origin").length).toBeGreaterThanOrEqual(3);
   });
 });

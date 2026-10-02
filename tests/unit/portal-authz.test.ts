@@ -92,7 +92,7 @@ const as = (roles: string[] | null) => {
 
 const CALLS: [string, (f: FormData) => Promise<void>, () => FormData, keyof typeof h.services][] = [
   ["portalAddUserAction", portalAddUserAction, () => fd([["email", "sari@acme.co.id"], ["name", "Sari"], [`odoo_${E}`, "user"]]), "portalAddUser"],
-  ["portalChangeAccessAction", portalChangeAccessAction, () => fd([["userId", U], [`odoo_${E}`, "admin"]]), "portalChangeAccess"],
+  ["portalChangeAccessAction", portalChangeAccessAction, () => fd([["userId", U], [`odoo_${E}`, "user"]]), "portalChangeAccess"],
   ["portalDisableUserAction", portalDisableUserAction, () => fd([["userId", U], ["confirm", "on"]]), "portalSetUserEnabled"],
   ["portalEnableUserAction", portalEnableUserAction, () => fd([["userId", U], [`odoo_${E}`, "none"]]), "portalSetUserEnabled"],
   ["portalPasswordResetAction", portalPasswordResetAction, () => fd([["userId", U]]), "portalPasswordReset"],
@@ -218,6 +218,10 @@ describe("Server Action portal dipanggil langsung", () => {
       [portalDisableUserAction, [["userId", U], ["confirm", "on"], ["clientId", C]]],
       [portalPasswordResetAction, [["userId", U], [`odoo_${E}`, "admin"]]],
       [portalAddUserAction, [["email", "x@acme.co.id"], ["email", "y@acme.co.id"]]],
+      // N5: akses Odoo admin tidak pernah lewat portal
+      [portalAddUserAction, [["email", "x@acme.co.id"], [`odoo_${E}`, "admin"]]],
+      [portalChangeAccessAction, [["userId", U], [`odoo_${E}`, "admin"]]],
+      [portalEnableUserAction, [["userId", U], [`odoo_${E}`, "admin"]]],
     ];
     for (const [action, entries] of bad) expect(await redirectOf(action(fd(entries)))).toBe("/portal/users?r=invalid");
     for (const f of Object.values(h.services)) expect(f).not.toHaveBeenCalled();
@@ -248,7 +252,7 @@ describe("authorizeUserMutation — kanal portal (W6)", () => {
   const ACME: TenantRef = { id: C, slug: "acme-co", isPlatform: false, terminated: false };
   const BETA: TenantRef = { id: "22222222-2222-4222-8222-222222222222", slug: "beta-co", isPlatform: false, terminated: false };
   const PLATFORM: TenantRef = { id: "00000000-0000-4000-8000-000000000000", slug: "platform", isPlatform: true, terminated: false };
-  const actor = (roles: Role[], clientId: string | null, sub = "ca-sub"): UserActorContext => ({ sub, roles, userId: "x", clientId, status: "active" });
+  const actor = (roles: Role[], clientId: string | null, sub = "ca-sub"): UserActorContext => ({ sub, roles, userId: "x", clientId, status: "active", role: roles[0] ?? null });
   const target = (o: Partial<TargetUser> = {}): TargetUser => ({ id: U, keycloakSub: "t", email: "t@acme.co.id", role: "client_user", status: "active", clientId: C, ...o });
   const portal = { otherActiveAdmins: 1, channel: "portal" as const };
   const ca = actor(["client_admin"], C);
