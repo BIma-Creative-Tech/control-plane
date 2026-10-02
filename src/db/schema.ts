@@ -62,6 +62,17 @@ export const jobType = pgEnum("job_type", [
   "odoo_sso_provision",
   "odoo_sso_disable",
   "odoo_sso_user",
+  // SaaS Fase 1 (kontrak saas-phase-1-contract.md §1, migrasi 0004) — identitas/tenant lewat dispatcher.
+  "kc_realm_sync",
+  "kc_org_ensure",
+  "kc_user_ensure",
+  "kc_user_set_roles",
+  "kc_user_set_enabled",
+  "kc_user_action_email",
+  "odoo_user_ensure",
+  "odoo_tenant_config",
+  "tenant_suspend",
+  "tenant_resume",
 ]);
 
 /** `dispatched` = file job sudah ditulis ke spool, hasil belum ada (plan 05 §4.3). */
@@ -91,9 +102,20 @@ export const JOB_ERROR_CODES = [
   "spool_error",
   // CP saja (BUG-J5-01, migrasi 0003): RESULT tidak konsisten dengan aksi yang diminta.
   "result_inconsistent",
+  // CP saja (kontrak Fase 1 §2.1, migrasi 0004): job sebelumnya di rantai (after_job_id) gagal/dibatalkan.
+  "chain_aborted",
 ] as const;
 
 export const mailboxStatus = pgEnum("mailbox_status", ["active", "suspended", "deleted"]);
+
+/** ADR 0018 D1 (migrasi 0004): status tenant & model isolasi. */
+export const tenantStatus = pgEnum("tenant_status", ["active", "suspended", "terminated"]);
+export const tenantIsolation = pgEnum("tenant_isolation", ["shared", "dedicated"]);
+/**
+ * ADR 0018 D1 (migrasi 0004): `invited` = dibuat lewat job `kc_user_ensure` (belum pernah login),
+ * `active` = pernah login / diaktifkan ulang, `disabled` = dinonaktifkan lewat `kc_user_set_enabled`.
+ */
+export const userStatus = pgEnum("user_status", ["invited", "active", "disabled"]);
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -113,10 +135,19 @@ export const clients = pgTable(
     updatedAt: updatedAt(),
     /** Terminasi logis; data dihapus setelah grace 30 hari (job terminate). */
     terminatedAt: timestamp("terminated_at", { withTimezone: true }),
+    // --- ADR 0018 D1 (migrasi 0004, aditif). ---
+    status: tenantStatus("status").notNull().default("active"),
+    isolation: tenantIsolation("isolation").notNull().default("shared"),
+    brand: text("brand"),
+    /** id Organization Keycloak (RESULT `org` job kc_org_ensure). */
+    kcOrgId: text("kc_org_id"),
+    /** Tenant internal `platform` (user superadmin/ops) — tepat satu baris (partial unique index). */
+    isPlatform: boolean("is_platform").notNull().default(false),
   },
   (t) => [
     uniqueIndex("clients_slug_uq").on(t.slug),
     check("clients_slug_format", sql`${t.slug} ~ '^[a-z0-9-]{3,30}$'`),
+    uniqueIndex("clients_one_platform_uq").on(t.isPlatform).where(sql`${t.isPlatform}`),
   ],
 );
 
@@ -135,8 +166,19 @@ export const users = pgTable(
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // --- ADR 0018 D1 (migrasi 0004, aditif). Diisi dari RESULT job, bukan dari input form. ---
+    status: userStatus("status").notNull().default("active"),
+    invitedBy: uuid("invited_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("users_keycloak_sub_uq").on(t.keycloakSub), index("users_client_idx").on(t.clientId)],
+  (t) => [
+    uniqueIndex("users_keycloak_sub_uq").on(t.keycloakSub),
+    index("users_client_idx").on(t.clientId),
+    // ADR 0018 D3: ≤ 1 tenant-admin invited/active per tenant.
+    uniqueIndex("users_one_tenant_admin_uq")
+      .on(t.clientId)
+      .where(sql`${t.role} = 'client_admin' AND ${t.status} IN ('invited', 'active')`),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -342,6 +384,13 @@ export const provisionJobs = pgTable(
     parentJobId: uuid("parent_job_id").references((): AnyPgColumn => provisionJobs.id, { onDelete: "set null" }),
     dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
     deadlineAt: timestamp("deadline_at", { withTimezone: true }),
+    // --- Kontrak Fase 1 §2.1 (migrasi 0004, aditif). ---
+    /** `<type>:<slug>:<env>:<target>` — permintaan ganda mengembalikan job yang sama (lihat jobs/chain.ts). */
+    idempotencyKey: text("idempotency_key"),
+    /** Rantai: di-dispatch hanya bila job ini `succeeded`; `failed|cancelled` → job ini `cancelled`/`chain_aborted`. */
+    afterJobId: uuid("after_job_id").references((): AnyPgColumn => provisionJobs.id, { onDelete: "set null" }),
+    /** Grup tampilan "status per langkah". */
+    chainId: uuid("chain_id"),
   },
   (t) => [
     index("provision_jobs_status_idx").on(t.status),
@@ -356,8 +405,11 @@ export const provisionJobs = pgTable(
       .where(sql`${t.status} NOT IN ('succeeded', 'failed', 'cancelled')`),
     check(
       "provision_jobs_error_code_valid",
-      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result', 'spool_error', 'result_inconsistent')`,
+      sql`${t.errorCode} IS NULL OR ${t.errorCode} IN ('rejected_validation', 'rejected_quota', 'disabled', 'blocked_dry_run', 'locked', 'timeout_state_unknown', 'script_exit', 'no_result', 'spool_error', 'result_inconsistent', 'chain_aborted')`,
     ),
+    uniqueIndex("provision_jobs_idempotency_key_uq").on(t.idempotencyKey),
+    index("provision_jobs_after_job_idx").on(t.afterJobId),
+    index("provision_jobs_chain_idx").on(t.chainId),
   ],
 );
 
