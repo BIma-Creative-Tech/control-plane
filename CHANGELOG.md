@@ -9,6 +9,21 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 
 ## [Unreleased]
 
+### Added
+- **SaaS Fase 1 — Users** (kontrak infra `docs/plans/saas-phase-1-contract.md` §2): migrasi `0004_saas_p1_users` (aditif),
+  10 tipe job identitas/tenant di `job-contract.ts` (skema Zod `.strict()`, regex = dispatcher 1.1.0, timeout, RESULT keys
+  `org roles enabled state tenant`, `idempotency_key`), fixture dispatcher f175457. Rantai job (`after_job_id`/`chain_id`,
+  `chain_aborted`), dedupe idempotency, kuota rantai §1.2, allowlist tipe per instance (`INFRA_JOBS_TYPES`).
+- Halaman **`/users`** (superadmin/ops): filter tenant termasuk `platform`, tambah user (role CP + akses Odoo per env),
+  nonaktifkan/aktifkan, ubah role/akses, reset password, status rantai per langkah. Izin `users:view`, `users:manage`,
+  `users:manage_own`, `realm:sync`; otorisasi lintas tenant / satu tenant-admin / tidak mengubah diri sendiri di server.
+- Tenant internal `platform` dibuat idempoten oleh `migrate.mjs`; slug `platform` reserved di form.
+
+### Fixed
+- Temuan "users prod kosong" (`docs/temuan-users-prod-kosong.md`): penyebab = cleanup QA menghapus baris `users` (FK audit
+  `ON DELETE SET NULL`) + tidak ada login CP prod sejak itu. Baris `users` kini juga dibuat dari RESULT `kc_user_ensure`;
+  nonaktif = `status=disabled`, bukan DELETE.
+
 ## [0.8.0] - 2026-10-02
 
 ### Added

@@ -112,6 +112,31 @@ worker collector (tiap INFRA_JOBS_POLL_SECONDS) ─▶ provision_jobs final + en
 
 Tanpa `INFRA_JOBS_SPOOL_DIR/RESULTS_DIR/INSTANCE` worker berjalan seperti sebelumnya (hanya `noop`).
 
+## Users & job identitas (SaaS Fase 1, kontrak infra `docs/plans/saas-phase-1-contract.md`)
+
+- Migrasi `0004_saas_p1_users` (aditif): `job_type` += 10 tipe (`kc_*`, `odoo_user_ensure`, `odoo_tenant_config`,
+  `tenant_suspend|resume`); `clients` += `status`, `isolation`, `brand`, `kc_org_id`, `is_platform` (≤ 1 baris platform);
+  `users` += `status` (`invited|active|disabled`), `invited_by`, `disabled_at` (≤ 1 `client_admin` invited/active per tenant);
+  `provision_jobs` += `idempotency_key` (unik), `after_job_id`, `chain_id`; error_code += `chain_aborted`.
+- Tenant internal `platform` (`is_platform=true`) dibuat idempoten oleh `node dist/db/migrate.mjs` setelah migrasi; slug
+  `platform` ditolak form Tambah client; tenant platform tidak punya environment Odoo.
+- **Allowlist tipe per instance**: env `INFRA_JOBS_TYPES` (web + worker, dipisah koma) = cermin `job_types` di
+  `/etc/infra-jobs/<inst>.conf`. Kosong = 5 tipe plan 05 → halaman `/users` read-only. Staging Fase 1: isi semua tipe.
+- `/users` (`users:view` = superadmin+ops; aksi `users:manage` = superadmin; `users:manage_own` = client_admin, tenant
+  sendiri — dipakai portal kelak): filter tenant (termasuk `platform`), Tambah user (rantai `[kc_org_ensure] →
+  kc_user_ensure → kc_user_set_roles → odoo_user_ensure` per env berakses), Nonaktifkan/Aktifkan, Ubah role/akses Odoo,
+  Kirim reset password; status rantai per langkah. Label role: superadmin=platform-admin, ops=platform-viewer,
+  client_admin=tenant-admin, client_user=tenant-user. Nama user: ASCII saja (non-ASCII ditolak, sama dengan dispatcher).
+- Rantai: hanya kepala yang dikirim ke pg-boss; langkah berikut di-dispatch worker (`advanceChains`) setelah pendahulu
+  `succeeded`; pendahulu `failed|cancelled` → `cancelled`/`chain_aborted` + audit `job.chain_aborted`. Idempotency:
+  `<type>:<slug>:<env>:<email|org|realm|tenant>` — job aktif dengan args sama dipakai ulang, args beda → `duplicate`;
+  job final melepas kuncinya.
+- Rekonsiliasi dari RESULT: `kc_user_ensure` → baris `users` (sub = `kc_user`, `invited`), `kc_user_set_roles` → cache
+  role, `kc_user_set_enabled` → `active|disabled` (+`disabled_at`), `odoo_user_ensure` → `tenant_user_access`,
+  `kc_org_ensure` → `clients.kc_org_id`. Login pertama → `invited → active`.
+- **Baris `users` tidak pernah dihapus** (FK audit `ON DELETE SET NULL` menghapus atribusi) — lihat
+  `docs/temuan-users-prod-kosong.md`.
+
 ### Test integrasi (Postgres sekali pakai — skema di-DROP)
 
 ```bash
