@@ -37,6 +37,10 @@ export const PERMISSIONS = {
   /** Aksi berisiko: odoo_route remove, odoo_sso_disable, rotate_secret, ulang timeout_state_unknown. */
   "jobs:odoo_admin": ["superadmin"],
   "invoices:confirm": ["superadmin", "ops"],
+  /** ADR 0018 (W5): lihat Subscriptions & Invoices. Client role: belum (portal W6). */
+  "billing:view": ["superadmin", "ops"],
+  /** Buat subscription, Go-live, akhiri, terbitkan/void invoice. Tandai lunas = `invoices:confirm`. */
+  "billing:manage": ["superadmin"],
   /**
    * Kontrak Fase 1 §2.2 — `users:manage` "superadmin: semua tenant; ops: baca" dipecah menjadi `users:view`
    * (baca, superadmin+ops) dan `users:manage` (mutasi semua tenant, superadmin). Batas per tenant/role/aktor

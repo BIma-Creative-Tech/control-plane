@@ -60,12 +60,12 @@ describe.skipIf(!URL_)("migrasi 0004 di atas DB 0003 berisi data", () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
-  it("journal drizzle: 5 migrasi tercatat; 0004 tidak diterapkan dua kali", async () => {
+  it("journal drizzle: semua migrasi (0000..0005) tercatat; 0004 tidak diterapkan dua kali", async () => {
     const r = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
-    expect(r.rows[0]!.n).toBe(5);
+    expect(r.rows[0]!.n).toBe(6);
     await migrate(db, { migrationsFolder: "./drizzle" });
     const r2 = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
-    expect(r2.rows[0]!.n).toBe(5);
+    expect(r2.rows[0]!.n).toBe(6);
   });
 
   it("data lama utuh + default kolom baru", async () => {

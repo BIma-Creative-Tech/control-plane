@@ -51,8 +51,38 @@ export const workerEnvSchema = baseEnvSchema
     INFRA_JOBS_POLL_SECONDS: z.coerce.number().int().min(1).max(60).default(5),
     /** Toleransi antrean serial dispatcher sebelum `no_result` (detik, di atas timeout tipe job). */
     INFRA_JOBS_QUEUE_GRACE_SECONDS: z.coerce.number().int().min(60).max(86_400).default(900),
+    /**
+     * ADR 0018 D5: tanggal tick disuntik (YYYY-MM-DD) untuk uji transisi. HANYA dibaca bila INFRA_JOBS_INSTANCE=staging
+     * (lib/billing.ts tickToday); di instance lain diabaikan + peringatan log.
+     */
+    TICK_NOW: z
+      .string()
+      .regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/, "format YYYY-MM-DD")
+      .optional(),
+    /**
+     * ADR 0018 D8 — email pengingat via SMTP submission. SMTP_HOST kosong = email nonaktif (tick tetap jalan, tanpa
+     * kirim). Password HANYA dari file (SMTP_PASSWORD_FILE, secret mount), dibaca saat kirim; tidak pernah dari env.
+     */
+    SMTP_HOST: z
+      .string()
+      .regex(/^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/, "hostname tidak valid")
+      .optional(),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+    SMTP_USER: z.string().regex(/^[A-Za-z0-9._%+@-]{1,254}$/, "user SMTP tidak valid").optional(),
+    SMTP_PASSWORD_FILE: absDir.optional(),
+    /** `off` = SMTP tanpa TLS — hanya diizinkan di instance staging (Mailpit internal, ADR 0018 D8). */
+    SMTP_TLS: z.enum(["required", "off"]).default("required"),
+    SMTP_FROM: z.email().default("noreply@bimacreative.tech"),
+    /** Alamat billing internal (penerima pengingat + laporan cek tenant-admin). */
+    BILLING_EMAIL: z.email().default("billing@bimacreative.tech"),
   })
   .superRefine((env, ctx) => {
+    if ((env.SMTP_USER === undefined) !== (env.SMTP_PASSWORD_FILE === undefined)) {
+      ctx.addIssue({ code: "custom", path: ["SMTP_USER"], message: "SMTP_USER dan SMTP_PASSWORD_FILE wajib diisi bersama" });
+    }
+    if (env.SMTP_TLS === "off" && env.INFRA_JOBS_INSTANCE !== "staging") {
+      ctx.addIssue({ code: "custom", path: ["SMTP_TLS"], message: "SMTP_TLS=off hanya untuk INFRA_JOBS_INSTANCE=staging" });
+    }
     const set = [env.INFRA_JOBS_SPOOL_DIR, env.INFRA_JOBS_RESULTS_DIR, env.INFRA_JOBS_INSTANCE].filter(
       (v) => v !== undefined,
     ).length;

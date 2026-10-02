@@ -150,8 +150,50 @@ Tanpa `INFRA_JOBS_SPOOL_DIR/RESULTS_DIR/INSTANCE` worker berjalan seperti sebelu
 - Rekonsiliasi dari RESULT: `kc_user_ensure` → baris `users` (sub = `kc_user`, `invited`), `kc_user_set_roles` → cache
   role, `kc_user_set_enabled` → `active|disabled` (+`disabled_at`), `odoo_user_ensure` → `tenant_user_access`,
   `kc_org_ensure` → `clients.kc_org_id`. Login pertama → `invited → active`.
-- **Baris `users` tidak pernah dihapus** (FK audit `ON DELETE SET NULL` menghapus atribusi) — lihat
+- **Baris `users` tidak pernah dihapus** — sejak migrasi `0005` FK `audit_logs.actor_user_id` /
+  `provision_jobs.actor_user_id` = `ON DELETE RESTRICT` (DB menolak DELETE user beraudit) — lihat
   `docs/temuan-users-prod-kosong.md`.
+
+## Subscriptions & Invoices (SaaS Fase 1 W5/W7, ADR 0018 infra)
+
+- Migrasi `0005_saas_p1_billing` (aditif): `subscription_status` += `implementation|warranty|past_due` (`pending`/`grace`
+  usang — tidak ditulis kode baru; default kolom DB tetap `pending`, kode selalu mengisi status eksplisit);
+  `subscriptions` += `go_live_at`, `warranty_until` (date WIB), `notes`; `plans` += `service` (`odoo|insight|mail|web`),
+  `price_amount` nullable; `invoices` += `kind` (`implementation|maintenance`, default maintenance), `proof_reference`,
+  `period_start/period_end` (+ unik satu invoice maintenance non-void per (subscription, periode)); `domains` += `purpose`,
+  `dkim_txt`, `last_check`; `environments.tenant_check`; tabel `notification_log`; FK aktor audit/job → RESTRICT.
+- Langkah boot `migrate.mjs`: 7 plan ADR 0018 D7 (`odoo-shared-s|m`, `odoo-dedicated`, `mail-5|20`, `web-profile`,
+  `insight-basic`), harga NULL, bulanan — idempoten, plan yang sudah ada tidak diubah.
+- Tanggal bisnis = kalender Asia/Jakarta; `current_period_start/end` (= starts_at/ends_at) dan `grace_until` disimpan
+  00:00 WIB. Logika murni + tabel transisi: `src/lib/billing.ts` (diuji unit).
+- `/subscriptions` (lihat `billing:view` = superadmin+ops; buat/Go-live/akhiri `billing:manage` = superadmin) dan
+  `/invoices` (terbitkan/void `billing:manage`; tandai lunas `invoices:confirm` = superadmin+ops: tanggal bayar,
+  referensi transfer, referensi bukti — tanpa upload Fase 1). Nomor `INV/YYYY/MM/NNNN` (urut per bulan terbit WIB,
+  advisory lock + unique index). Semua mutasi diaudit. Ringkasan tenant yang bisa disematkan:
+  `src/app/billing/tenant-billing.tsx` (`TenantBillingSummary`) + `src/server/billing-queries.ts`.
+- Lunas invoice maintenance → periode +1 (starts = ends lama), status `active`, invoice periode berikut (bila harga plan
+  ada); dari `suspended` + layanan Odoo → `tenant_resume` per env instance (outbox, transaksi sama).
+- **`subscription_tick`** (worker, pg-boss schedule `15 0 * * *` tz `Asia/Jakarta`, `missed: once`, antrean exclusive):
+  warranty → active (+ invoice maintenance pertama), active → past_due (grace +2 bulan), past_due → suspended
+  (+ `tenant_suspend` per env instance dengan route aktif: prod-inst prod+demo, staging-inst staging; idempotency key
+  `tenant_suspend:<slug>:<env>:tenant`; layanan Odoo saja). implementation/warranty tidak pernah disuspend otomatis.
+  Gagal enqueue (kuota/duplikat) → transisi di-rollback, dicoba tick berikutnya. Cek harian tenant-admin (≥ 1
+  client_admin invited/active per tenant non-platform): audit `tenant.admin_missing` + satu email harian ke billing.
+- Rekonsiliasi RESULT: `tenant_suspend|resume` `state=suspended|active` → `clients.status`; `odoo_tenant_config`
+  `mode` → `environments.tenant_check`.
+- `/suspended` dan `/suspended/<slug>`: publik, statis, tidak membaca DB/sesi/slug (respons identik), CSP sama.
+
+| Env (worker) | Keterangan |
+|---|---|
+| `TICK_NOW` | `YYYY-MM-DD`, **hanya** dibaca bila `INFRA_JOBS_INSTANCE=staging` (di instance lain diabaikan + warn); staging + TICK_NOW → satu tick saat boot |
+| `SMTP_HOST`, `SMTP_PORT` (587) | kosong = email nonaktif (tick tetap jalan) |
+| `SMTP_USER` + `SMTP_PASSWORD_FILE` | berpasangan; password hanya dari file secret (dibaca saat kirim) |
+| `SMTP_TLS` | `required` (default: 465 TLS implisit, lain STARTTLS wajib) / `off` (**hanya** staging, Mailpit) |
+| `SMTP_FROM`, `BILLING_EMAIL` | default `noreply@bimacreative.tech`, `billing@bimacreative.tech` |
+
+Pengingat (teks polos): H-14 sebelum `warranty_until`, H+0/H+14/H+45 setelah `ends_at` — ke tenant-admin (cc billing;
+tanpa admin → billing saja), idempoten per (subscription, jenis, periode) di `notification_log` (gagal → dicoba ulang
+≤ 3 kali; `pending` tidak dikirim ulang). Dependensi baru: `nodemailer 10.0.10` (MIT-0, tanpa dependensi; hanya worker).
 
 ### Test integrasi (Postgres sekali pakai — skema di-DROP)
 
@@ -162,6 +204,11 @@ docker run --rm --network cp-int-test -v "$PWD":/app -w /app \
   -e TEST_DATABASE_URL=postgresql://postgres:testonly@cp-int-pg:5432/cp_test node:24.21.0-alpine npm run test:integration
 docker rm -f cp-int-pg && docker network rm cp-int-test
 ```
+
+Email (opsional, `tests/integration/billing-flow.test.ts`): Mailpit sekali pakai di network yang sama
+(`docker run -d --name cp-int-mailpit --network cp-int-test -e MP_SMTP_AUTH_ACCEPT_ANY=1 -e MP_SMTP_AUTH_ALLOW_INSECURE=1
+axllent/mailpit:v1.31.2`) + `-e TEST_MAILPIT_SMTP=cp-int-mailpit:1025 -e TEST_MAILPIT_API=http://cp-int-mailpit:8025`.
+Tanpa itu, uji email memakai mailer perekam.
 
 ## Auth & otorisasi
 

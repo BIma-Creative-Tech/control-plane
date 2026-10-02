@@ -54,6 +54,12 @@ export const ACTION_RESULT_CODES = [
   "email_unbound",
   "email_platform_role",
   "already_bound",
+  // Subscriptions & Invoices (ADR 0018)
+  "billing_status",
+  "service_exists",
+  "invoice_state",
+  "future_date",
+  "plan_inactive",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -93,4 +99,9 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
     "Email sudah ada sebagai user lama tanpa tenant — ikat dulu lewat aksi \"Ikat ke tenant…\" (khusus platform-admin).",
   email_platform_role: "Email milik user platform (platform-admin/platform-viewer) — tidak bisa dipakai di tenant klien.",
   already_bound: "User sudah terikat ke tenant.",
+  billing_status: "Status langganan tidak mengizinkan aksi ini (lihat tabel transisi ADR 0018 D4).",
+  service_exists: "Tenant sudah punya langganan aktif untuk layanan yang sama.",
+  invoice_state: "Status invoice tidak mengizinkan aksi ini (hanya invoice belum lunas yang bisa di-void/ditandai lunas).",
+  future_date: "Tanggal tidak boleh di masa depan.",
+  plan_inactive: "Plan tidak aktif atau belum punya layanan.",
 };

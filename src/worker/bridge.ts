@@ -17,6 +17,7 @@ import type { Db } from "../db/client";
 import { safeErrorMessage } from "../db/errors";
 import { auditLogs, environments, provisionJobs, users } from "../db/schema";
 import { applyReconcile, planReconcile } from "../jobs/reconcile";
+import { applyTenantReconcile, planTenantReconcile } from "../jobs/tenant-reconcile";
 import { applyUserReconcile, planUserReconcile } from "../jobs/user-reconcile";
 import type { Tx } from "../jobs/service";
 import {
@@ -172,6 +173,10 @@ export function createBridge(opts: BridgeOptions) {
         const plan = planUserReconcile(ujob);
         const extra = await applyUserReconcile(tx, ujob, plan);
         for (const w of [...plan.warnings, ...extra]) logger.warn({ jobId: job.id, type: job.type }, w);
+        // ADR 0018 / kontrak §1.1: tenant_suspend|resume → clients.status, odoo_tenant_config → environments.tenant_check.
+        const tplan = planTenantReconcile(ujob);
+        await applyTenantReconcile(tx, tplan);
+        for (const w of tplan.warnings) logger.warn({ jobId: job.id, type: job.type }, w);
       } else if (job.environmentId && isBridgeJobType(job.type) && job.env) {
         const envRow = await tx
           .select({ dbName: environments.dbName })
