@@ -9,6 +9,8 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-02
+
 ### Changed
 - **Tampilan baru dashboard** (Quotation Tracker, Dashboard SPK, detail SPK, indeks `/dashboard`, nav) mengikuti
   referensi website expomedia.id: tema Onyx monokrom terang/gelap (ikut sistem, hanya di `/dashboard`), font Syne +
