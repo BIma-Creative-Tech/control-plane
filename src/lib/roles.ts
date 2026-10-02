@@ -75,12 +75,12 @@ export function isPlatformStaff(roles: readonly Role[] | undefined): boolean {
 }
 
 /**
- * Halaman awal per role (W6): staf platform → /dashboard; tenant-admin/tenant-user → /portal; tanpa role → /dashboard
- * (halaman itu sendiri menolak/menjelaskan). Murni (diuji unit).
+ * Halaman awal per role (W6, keputusan Lead): staf platform → /dashboard; tenant-admin → /portal; tenant-user TETAP
+ * /dashboard (staf klien memakai dashboard SPK harian — alurnya tidak berubah); tanpa role → /dashboard. Murni.
  */
 export function landingPath(roles: readonly Role[] | undefined): "/dashboard" | "/portal" {
   if (isPlatformStaff(roles)) return "/dashboard";
-  return roles && (roles.includes("client_admin") || roles.includes("client_user")) ? "/portal" : "/dashboard";
+  return roles?.includes("client_admin") ? "/portal" : "/dashboard";
 }
 
 /** Role paling berkuasa (untuk cache `users.role`); tanpa role → client_user (paling rendah). */

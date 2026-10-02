@@ -74,6 +74,7 @@ export const ACTION_RESULT_CODES = [
   "updated",
   "deleted",
   "env_mismatch",
+  "fqdn_platform",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -129,6 +130,8 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   plan_limit: "Batas jumlah user paket langganan tercapai (user aktif + undangan + yang sedang diproses). Hubungi admin platform untuk menaikkan paket.",
   updated: "Perubahan tersimpan.",
   deleted: "Data dihapus.",
+  fqdn_platform:
+    "Domain milik platform (mis. *.bimacreative.tech) tidak boleh didaftarkan sebagai domain tenant — host platform dikelola lewat environment.",
   env_mismatch:
     "Environment tidak cocok: hanya domain odoo/web yang boleh ditautkan, dan environment harus milik tenant yang sama.",
 };

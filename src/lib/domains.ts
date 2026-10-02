@@ -58,6 +58,21 @@ export function parseDomainForm<N extends DomainFormName>(
   return r.success ? { success: true, data: r.data as DomainFormData<N> } : { success: false };
 }
 
+/** Default zona milik platform (env PLATFORM_DOMAINS). */
+export const DEFAULT_PLATFORM_DOMAINS: readonly string[] = ["bimacreative.tech"];
+
+/**
+ * fqdn sama dengan / di bawah domain milik platform (keputusan Lead): host platform dikelola lewat environments,
+ * bukan data domain tenant → ditolak `fqdn_platform`. Murni (perbandingan label, bukan substring).
+ */
+export function isPlatformFqdn(fqdn: string, platformDomains: readonly string[]): boolean {
+  const f = fqdn.toLowerCase().replace(/\.$/, "");
+  return platformDomains.some((p) => {
+    const d = p.toLowerCase().replace(/\.$/, "");
+    return f === d || f.endsWith(`.${d}`);
+  });
+}
+
 /** Aturan tautan environment (murni): hanya odoo/web, dan environment harus milik tenant domain. */
 export function envLinkAllowed(purpose: DomainPurpose, env: { clientId: string } | null, clientId: string): boolean {
   if (env === null) return true;
@@ -70,6 +85,7 @@ export function envLinkAllowed(purpose: DomainPurpose, env: { clientId: string }
 export const MAIL_MX_HOST = "mail.bimacreative.tech.";
 export const MAIL_SPF = "v=spf1 include:_spf.bimacreative.tech -all";
 export const DKIM_SELECTOR = "mail";
+export const SSO_NO_DNS_NOTE = "Tidak perlu record DNS (dipakai untuk pencocokan domain organisasi)";
 
 export interface DnsRecord {
   type: "A" | "MX" | "TXT";
@@ -94,7 +110,7 @@ export interface DnsChecklist {
  * - odoo/web/insight: `A <fqdn> <PLATFORM_PUBLIC_IPV4>` (tanpa AAAA);
  * - mail: `MX 10 mail.bimacreative.tech.`, SPF, DKIM selector `mail` (nilai dari data domain atau "menunggu DKIM"),
  *   DMARC `p=none` (naikkan ke quarantine setelah 2 minggu bersih);
- * - sso: belum ditetapkan (Fase berikutnya).
+ * - sso: tanpa record (keputusan Lead — dipakai untuk pencocokan domain organisasi).
  */
 export function dnsChecklist(d: { fqdn: string; purpose: DomainPurpose | null; dkimTxt: string | null }, platformIpv4: string | null): DnsChecklist {
   const fq = d.fqdn;
@@ -125,7 +141,9 @@ export function dnsChecklist(d: { fqdn: string; purpose: DomainPurpose | null; d
           "DMARC dimulai p=none; naikkan ke p=quarantine setelah 2 minggu laporan bersih.",
         ],
       };
+    case "sso":
+      return { records: [], notes: [SSO_NO_DNS_NOTE] };
     default:
-      return { records: [], notes: ["Checklist DNS untuk kegunaan ini belum ditetapkan (Fase berikutnya)."] };
+      return { records: [], notes: ["Kegunaan domain belum diisi — checklist DNS tidak bisa dibuat."] };
   }
 }

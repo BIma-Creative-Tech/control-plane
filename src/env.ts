@@ -147,6 +147,20 @@ export const webEnvSchema = baseEnvSchema
         .refine((ip) => !isNonPublicIpv4(ip), "harus IPv4 publik (bukan privat/loopback/link-local/CGNAT)")
         .optional(),
     ),
+    /**
+     * W5 Domains: zona milik platform (koma), fqdn sama/di bawahnya ditolak sebagai domain tenant (`fqdn_platform`).
+     * Default `bimacreative.tech`.
+     */
+    PLATFORM_DOMAINS: z
+      .string()
+      .default("bimacreative.tech")
+      .transform((v) =>
+        v
+          .split(",")
+          .map((x) => x.trim().toLowerCase().replace(/\.$/, ""))
+          .filter((x) => x !== ""),
+      )
+      .pipe(z.array(z.string().regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "domain tidak valid")).min(1, "minimal satu domain")),
     DASHBOARD_ODOO_URLS: z
       .string()
       .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")

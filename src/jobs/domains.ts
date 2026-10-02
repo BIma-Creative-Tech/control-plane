@@ -9,7 +9,7 @@ import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
 import { auditLogs, clients, domains, environments, users } from "../db/schema";
-import { envLinkAllowed, type DomainPurpose } from "../lib/domains";
+import { DEFAULT_PLATFORM_DOMAINS, envLinkAllowed, isPlatformFqdn, type DomainPurpose } from "../lib/domains";
 import type { ActionResultCode } from "../lib/job-list-params";
 import { can } from "../lib/roles";
 import type { Actor, RequestMeta, Tx } from "./service";
@@ -17,6 +17,8 @@ import type { Actor, RequestMeta, Tx } from "./service";
 export interface DomainServiceInput {
   actor: Actor;
   meta: RequestMeta;
+  /** Zona milik platform (env PLATFORM_DOMAINS); default `bimacreative.tech`. */
+  platformDomains?: readonly string[];
 }
 
 export type DomainFailure =
@@ -25,6 +27,7 @@ export type DomainFailure =
   | { reason: "tenant_inactive" }
   | { reason: "exists" }
   | { reason: "env_mismatch" }
+  | { reason: "fqdn_platform" }
   | { reason: "confirm" }
   | { reason: "error"; message: string };
 
@@ -119,6 +122,8 @@ export async function createDomain(
     ctx.clientId = c.id;
     ctx.slug = c.slug;
     if (c.isPlatform || c.status === "terminated" || c.terminatedAt !== null) throw new Abort({ reason: "tenant_inactive" });
+    // Keputusan Lead: fqdn sama/di bawah zona platform → ditolak (host platform dikelola lewat environments).
+    if (isPlatformFqdn(p.fqdn, input.platformDomains ?? DEFAULT_PLATFORM_DOMAINS)) throw new Abort({ reason: "fqdn_platform" });
     const envId = await checkEnv(tx, p.environmentId, p.purpose, c.id);
     const row = (
       await tx

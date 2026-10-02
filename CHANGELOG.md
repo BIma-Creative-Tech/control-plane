@@ -13,11 +13,13 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 - **SaaS Fase 1 W5 — Domains**: CRUD domain per tenant di halaman tenant (superadmin, izin `domains:manage`, audit),
   tautan environment odoo/web milik tenant yang sama, DKIM untuk mail, status `pending_dns`, token verifikasi acak
   server; checklist DNS yang digenerate (A tanpa AAAA ke `PLATFORM_PUBLIC_IPV4`; MX/SPF/DKIM/DMARC untuk mail) di
-  halaman tenant dan `/portal/domains`. Env web baru `PLATFORM_PUBLIC_IPV4` (opsional). Verifikasi otomatis = Fase 2.
+  halaman tenant dan `/portal/domains`; sso tanpa record. fqdn di bawah zona platform ditolak `fqdn_platform`. Env web
+  baru `PLATFORM_PUBLIC_IPV4` (opsional) dan `PLATFORM_DOMAINS` (default `bimacreative.tech`). Verifikasi otomatis = Fase 2.
 - **SaaS Fase 1 W6 — Portal tenant**: `/portal` (Ringkasan read-only: environment, langganan, invoice terbuka),
   `/portal/users` (tenant-admin: tambah tenant-user, nonaktif/aktif, reset password, akses Odoo per env; batas user plan
   `plans.max_users` dengan kunci per tenant), `/portal/domains` (read-only). Izin baru `portal:view`, `portal:admin`;
-  `users:manage_own` aktif untuk client_admin HANYA lewat kanal portal; halaman awal per role (`landingPath`).
+  `users:manage_own` aktif untuk client_admin HANYA lewat kanal portal; halaman awal: tenant-admin → `/portal`,
+  tenant-user tetap `/dashboard` (`landingPath`).
 - **SaaS Fase 1 — integrasi** (`feat/saas-p1` = users + billing + tenants): halaman tenant memakai `TenantBillingSummary`
   dan kolom `environments.tenant_check`; form "Tenant baru" + plan Odoo opsional (langganan `implementation` di
   transaksi yang sama); override harga per langganan (`subscriptions.price_amount/price_currency`, disunting di migrasi

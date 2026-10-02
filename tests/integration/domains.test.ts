@@ -66,6 +66,18 @@ describe.skipIf(!URL_)("Domains W5 (Postgres nyata)", () => {
     expect(JSON.stringify(a.map((x) => x.metadata))).not.toContain(d.verificationToken);
   });
 
+  it("fqdn milik platform (sama/di bawah PLATFORM_DOMAINS) → fqdn_platform, diaudit, tanpa baris", async () => {
+    const n0 = (await db.select().from(domains)).length;
+    const FP = { ok: false, reason: "fqdn_platform", slug: "acme-co" };
+    expect(await createDomain(db, svc(SUPER), { clientId: acmeId, fqdn: "bimacreative.tech", purpose: "web" })).toEqual(FP);
+    expect(await createDomain(db, svc(SUPER), { clientId: acmeId, fqdn: "acme-co.erp.bimacreative.tech", purpose: "odoo", environmentId: envAcme })).toEqual(FP);
+    // Daftar dari env (PLATFORM_DOMAINS) dipakai bila diberikan.
+    expect(await createDomain(db, { ...svc(SUPER), platformDomains: ["platform2.id"] }, { clientId: acmeId, fqdn: "x.platform2.id", purpose: "web" })).toEqual(FP);
+    expect((await db.select().from(domains)).length).toBe(n0);
+    const rej = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "domain.create"), eq(auditLogs.result, "rejected")));
+    expect(rej.filter((x) => (x.metadata as { reason?: string }).reason === "fqdn_platform")).toHaveLength(3);
+  });
+
   it("tautan environment: env tenant lain / purpose selain odoo|web / env tak ada → env_mismatch tanpa baris", async () => {
     const n0 = (await db.select().from(domains)).length;
     const EM = { ok: false, reason: "env_mismatch", slug: "acme-co" };

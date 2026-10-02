@@ -247,8 +247,9 @@ Tanpa itu, uji email memakai mailer perekam.
 
 ## Portal tenant (SaaS Fase 1 W6, ADR 0018 D9)
 
-- Halaman awal per role: staf (superadmin/ops) → `/dashboard`; tenant-admin/tenant-user → `/portal` (`/` dan login
-  mengarahkan lewat `landingPath`). `/dashboard` (SPK) tetap bisa dibuka role tenant (`dashboard:view`).
+- Halaman awal per role (keputusan Lead): tenant-admin → `/portal`; staf (superadmin/ops) dan tenant-user → `/dashboard`
+  (alur dashboard SPK staf klien tidak berubah). `/` dan login mengarahkan lewat `landingPath`; `/portal` menampilkan
+  tautan ke `/dashboard`.
 - Cakupan tenant SELALU `users.client_id` baris users sesi (dicari by `sub`, `decidePortalScope`) — tidak pernah dari
   URL/form/klaim. Baris disabled → `/forbidden`; belum terikat / tenant platform → pesan tanpa data.
 - `/portal` Ringkasan (`portal:view` = client_admin + client_user, read-only): environment + status, langganan
@@ -282,8 +283,11 @@ Tanpa itu, uji email memakai mailer perekam.
   - mail: `MX 10 mail.bimacreative.tech.`, `TXT @ "v=spf1 include:_spf.bimacreative.tech -all"`,
     `TXT mail._domainkey <dkim_txt | menunggu DKIM>`, `TXT _dmarc "v=DMARC1; p=none; adkim=s; aspf=s;
     rua=mailto:dmarc@<fqdn>"` (naikkan ke quarantine setelah 2 minggu bersih);
-  - sso: belum ditetapkan. Verifikasi otomatis (`dns_verify`): Fase 2.
-- Env web `PLATFORM_PUBLIC_IPV4` (opsional, IPv4 publik; privat/loopback/link-local/CGNAT ditolak saat boot).
+  - sso: "Tidak perlu record DNS (dipakai untuk pencocokan domain organisasi)". Verifikasi otomatis (`dns_verify`): Fase 2.
+- fqdn sama dengan / di bawah zona platform (env `PLATFORM_DOMAINS`, koma, default `bimacreative.tech`) ditolak
+  `fqdn_platform` — host platform dikelola lewat environments.
+- Env web `PLATFORM_PUBLIC_IPV4` (opsional, IPv4 publik; privat/loopback/link-local/CGNAT ditolak saat boot) dan
+  `PLATFORM_DOMAINS` (default `bimacreative.tech`).
 
 ## Auth & otorisasi
 

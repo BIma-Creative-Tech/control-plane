@@ -8,6 +8,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
+import { getWebEnv } from "@/env";
 import { createDomain, deleteDomain, domainOutcomeCode, updateDomain, type DomainOutcome, type DomainServiceInput } from "@/jobs/domains";
 import { requirePermission } from "@/lib/authz";
 import { parseDomainForm, type DomainFormData, type DomainFormName } from "@/lib/domains";
@@ -38,7 +39,7 @@ async function handle<N extends DomainFormName>(
   if (!actor) back(backSlug, "reauth");
   let outcome: DomainOutcome;
   try {
-    outcome = await call({ actor, meta: await requestMeta() }, parsed.data);
+    outcome = await call({ actor, meta: await requestMeta(), platformDomains: getWebEnv().PLATFORM_DOMAINS }, parsed.data);
   } catch (err) {
     logger.error({ err: err instanceof Error ? err.name : "error", form }, "aksi domain gagal");
     back(backSlug, "error");

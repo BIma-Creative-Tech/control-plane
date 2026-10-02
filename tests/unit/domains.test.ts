@@ -31,6 +31,10 @@ vi.mock("@/server/context", () => ({
   actorFromSession: h.actorFromSession,
   requestMeta: vi.fn(async () => ({ ip: null, requestId: null })),
 }));
+vi.mock("@/env", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@/env")>();
+  return { ...orig, getWebEnv: () => ({ PLATFORM_DOMAINS: ["bimacreative.tech", "platform2.id"] }) };
+});
 vi.mock("@/jobs/domains", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/jobs/domains")>();
   return { ...orig, ...h.services };
@@ -39,7 +43,7 @@ vi.mock("@/jobs/domains", async (importOriginal) => {
 import { createDomainAction, deleteDomainAction, updateDomainAction } from "@/app/clients/domain-actions";
 import { parseEnv, webEnvSchema } from "@/env";
 import * as domainService from "@/jobs/domains";
-import { dnsChecklist, envLinkAllowed, parseDomainForm } from "@/lib/domains";
+import { dnsChecklist, envLinkAllowed, isPlatformFqdn, parseDomainForm } from "@/lib/domains";
 import { ACTION_RESULT_CODES } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
 
@@ -88,8 +92,11 @@ describe("checklist DNS (brief Fase 1)", () => {
     const k = dnsChecklist({ fqdn: "acme.co.id", purpose: "mail", dkimTxt: "v=DKIM1; k=rsa; p=MIIBIjAN" }, null);
     expect(k.records[2]).toEqual({ type: "TXT", host: "mail._domainkey", name: "mail._domainkey.acme.co.id", value: '"v=DKIM1; k=rsa; p=MIIBIjAN"' });
   });
-  it("sso / purpose kosong: tanpa record, catatan Fase berikutnya", () => {
-    expect(dnsChecklist({ fqdn: "login.acme.co.id", purpose: "sso", dkimTxt: null }, "31.97.50.221").records).toEqual([]);
+  it("sso: tanpa record + teks keputusan Lead; purpose kosong: tanpa record", () => {
+    expect(dnsChecklist({ fqdn: "login.acme.co.id", purpose: "sso", dkimTxt: null }, "31.97.50.221")).toEqual({
+      records: [],
+      notes: ["Tidak perlu record DNS (dipakai untuk pencocokan domain organisasi)"],
+    });
     expect(dnsChecklist({ fqdn: "x.acme.co.id", purpose: null, dkimTxt: null }, "31.97.50.221").records).toEqual([]);
   });
 });
@@ -121,6 +128,15 @@ describe("form domain (.strict)", () => {
   });
 });
 
+describe("domain milik platform (fqdn_platform)", () => {
+  it("sama dengan / di bawah zona platform → true; mirip-tapi-beda → false", () => {
+    const P = ["bimacreative.tech"];
+    for (const f of ["bimacreative.tech", "erp.bimacreative.tech", "a.b.bimacreative.tech", "BIMACREATIVE.TECH."]) expect(isPlatformFqdn(f, P), f).toBe(true);
+    for (const f of ["notbimacreative.tech", "bimacreative.tech.evil.com", "bimacreative.technology", "acme.co.id"]) expect(isPlatformFqdn(f, P), f).toBe(false);
+    expect(isPlatformFqdn("x.platform2.id", ["bimacreative.tech", "platform2.id"])).toBe(true);
+  });
+});
+
 describe("env PLATFORM_PUBLIC_IPV4", () => {
   const valid = {
     NODE_ENV: "production",
@@ -135,6 +151,13 @@ describe("env PLATFORM_PUBLIC_IPV4", () => {
     expect(parseEnv(webEnvSchema, valid).PLATFORM_PUBLIC_IPV4).toBeUndefined();
     expect(parseEnv(webEnvSchema, { ...valid, PLATFORM_PUBLIC_IPV4: "" }).PLATFORM_PUBLIC_IPV4).toBeUndefined();
     expect(parseEnv(webEnvSchema, { ...valid, PLATFORM_PUBLIC_IPV4: "31.97.50.221" }).PLATFORM_PUBLIC_IPV4).toBe("31.97.50.221");
+  });
+  it("PLATFORM_DOMAINS: default bimacreative.tech; daftar koma dinormalisasi; tak valid/kosong → ditolak", () => {
+    expect(parseEnv(webEnvSchema, valid).PLATFORM_DOMAINS).toEqual(["bimacreative.tech"]);
+    expect(parseEnv(webEnvSchema, { ...valid, PLATFORM_DOMAINS: " BimaCreative.tech. , platform2.id " }).PLATFORM_DOMAINS).toEqual(["bimacreative.tech", "platform2.id"]);
+    for (const v of ["", ",", "bad_domain", "*.bimacreative.tech", "localhost"]) {
+      expect(() => parseEnv(webEnvSchema, { ...valid, PLATFORM_DOMAINS: v }), v).toThrow(/PLATFORM_DOMAINS/);
+    }
   });
   it("privat/loopback/link-local/CGNAT/IPv6/bukan IP → ditolak", () => {
     for (const ip of ["10.0.0.1", "172.20.0.5", "192.168.1.1", "127.0.0.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "224.0.0.1", "::1", "2a02:4780::1", "31.97.50", "abc"]) {
@@ -170,6 +193,8 @@ describe("Server Action Domains dipanggil langsung", () => {
     h.session = { user: { id: "x" }, roles: ["superadmin"] };
     expect(await redirectOf(action(form()))).toMatch(/^\/clients\/acme-co\?r=(created|updated|deleted)#domains$/);
     expect(h.services[svc]).toHaveBeenCalledTimes(1);
+    // Zona platform dari env PLATFORM_DOMAINS diteruskan ke layanan (cek fqdn_platform).
+    expect((h.services[svc].mock.calls[0]![1] as { platformDomains: string[] }).platformDomains).toEqual(["bimacreative.tech", "platform2.id"]);
   });
   it("Origin asing → origin; field asing → invalid (layanan tidak dipanggil); kode hasil ter-whitelist", async () => {
     h.session = { user: { id: "x" }, roles: ["superadmin"] };
@@ -180,7 +205,7 @@ describe("Server Action Domains dipanggil langsung", () => {
     );
     expect(await redirectOf(createDomainAction(fd({ back: "../evil", clientId: C, fqdn: "a.co.id", purpose: "x" })))).toBe("/clients?r=invalid");
     for (const f of Object.values(h.services)) expect(f).not.toHaveBeenCalled();
-    for (const reason of ["forbidden", "not_found", "tenant_inactive", "exists", "env_mismatch", "confirm"] as const) {
+    for (const reason of ["forbidden", "not_found", "tenant_inactive", "exists", "env_mismatch", "confirm", "fqdn_platform"] as const) {
       expect(ACTION_RESULT_CODES).toContain(domainService.domainOutcomeCode({ ok: false, reason }, "create"));
     }
   });

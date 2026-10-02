@@ -47,6 +47,11 @@ export default async function PortalPage() {
           <span className="font-mono text-sm text-slate-500">({t.slug})</span>
           <StatusBadge value={t.status} />
         </div>
+        <p className="text-sm">
+          <Link href="/dashboard" className="inline-flex items-center gap-1 rounded border px-3 py-1 font-medium hover:bg-slate-100">
+            Buka Dashboard (SPK &amp; Quotation) →
+          </Link>
+        </p>
         {t.status === "suspended" ? (
           <p role="status" className="rounded bg-red-50 p-3 text-sm text-red-700">
             Layanan Odoo tenant ini sedang ditangguhkan karena tagihan lewat masa tenggang. Data tetap utuh; layanan aktif kembali

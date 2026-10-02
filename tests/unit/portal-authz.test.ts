@@ -109,11 +109,12 @@ describe("izin portal & halaman awal", () => {
       expect(can([r], "users:manage_own")).toBe(false);
     }
   });
-  it("landingPath: staf → /dashboard, tenant → /portal (staf + role tenant → /dashboard)", () => {
+  it("landingPath (keputusan Lead): tenant-admin → /portal; staf & tenant-user → /dashboard (alur SPK tidak berubah)", () => {
     expect(landingPath(["superadmin"])).toBe("/dashboard");
     expect(landingPath(["ops"])).toBe("/dashboard");
     expect(landingPath(["client_admin"])).toBe("/portal");
-    expect(landingPath(["client_user"])).toBe("/portal");
+    expect(landingPath(["client_user"])).toBe("/dashboard");
+    expect(landingPath(["client_admin", "client_user"])).toBe("/portal");
     expect(landingPath(["ops", "client_admin"])).toBe("/dashboard");
     expect(landingPath([])).toBe("/dashboard");
     expect(landingPath(undefined)).toBe("/dashboard");
@@ -131,6 +132,10 @@ describe("inventaris gerbang halaman & Server Action (URL langsung / POST action
   const files = walk(appDir);
   const route = (f: string) => "/" + path.relative(appDir, path.dirname(f)).split(path.sep).join("/");
   const PUBLIC_PAGES = new Set(["/", "/login", "/forbidden", "/suspended", "/suspended/[slug]"]);
+
+  it("/portal menampilkan tautan ke /dashboard (keputusan Lead)", () => {
+    expect(readFileSync(path.join(appDir, "portal", "page.tsx"), "utf8")).toMatch(/href="\/dashboard"/);
+  });
 
   it("setiap page.tsx non-publik punya gerbang izin; role tenant hanya lolos di /portal* dan /dashboard*", () => {
     const pages = files.filter((f) => f.endsWith("page.tsx"));
