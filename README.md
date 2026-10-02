@@ -158,7 +158,8 @@ Tanpa `INFRA_JOBS_SPOOL_DIR/RESULTS_DIR/INSTANCE` worker berjalan seperti sebelu
 
 - Migrasi `0005_saas_p1_billing` (aditif): `subscription_status` += `implementation|warranty|past_due` (`pending`/`grace`
   usang — tidak ditulis kode baru; default kolom DB tetap `pending`, kode selalu mengisi status eksplisit);
-  `subscriptions` += `go_live_at`, `warranty_until` (date WIB), `notes`; `plans` += `service` (`odoo|insight|mail|web`),
+  `subscriptions` += `go_live_at`, `warranty_until` (date WIB), `notes`, `price_amount` + `price_currency` (override harga
+  per langganan, NULL = harga plan; CHECK ≥ 0 dan mata uang wajib bersama harga); `plans` += `service` (`odoo|insight|mail|web`),
   `price_amount` nullable; `invoices` += `kind` (`implementation|maintenance`, default maintenance), `proof_reference`,
   `period_start/period_end` (+ unik satu invoice maintenance non-void per (subscription, periode)); `domains` += `purpose`,
   `dkim_txt`, `last_check`; `environments.tenant_check`; tabel `notification_log`; FK aktor audit/job → RESTRICT.
@@ -171,14 +172,19 @@ Tanpa `INFRA_JOBS_SPOOL_DIR/RESULTS_DIR/INSTANCE` worker berjalan seperti sebelu
   referensi transfer, referensi bukti — tanpa upload Fase 1). Nomor `INV/YYYY/MM/NNNN` (urut per bulan terbit WIB,
   advisory lock + unique index). Semua mutasi diaudit. Ringkasan tenant yang bisa disematkan:
   `src/app/billing/tenant-billing.tsx` (`TenantBillingSummary`) + `src/server/billing-queries.ts`.
-- Lunas invoice maintenance → periode +1 (starts = ends lama), status `active`, invoice periode berikut (bila harga plan
-  ada); dari `suspended` + layanan Odoo → `tenant_resume` per env instance (outbox, transaksi sama).
+- **Harga invoice maintenance otomatis** (keputusan Lead integrasi): override langganan (`subscriptions.price_amount`,
+  diisi saat buat langganan atau "Ubah harga…" di `/subscriptions`, superadmin, audit `subscription.price`) → selain itu
+  harga plan → keduanya NULL: tidak diterbitkan, audit `price_missing` (`lib/billing.ts` `effectivePrice`).
+- Lunas invoice maintenance → periode +1 (starts = ends lama), status `active`, invoice periode berikut (bila ada
+  harga efektif); dari `suspended` + layanan Odoo → `tenant_resume` per env instance (outbox, transaksi sama).
 - **`subscription_tick`** (worker, pg-boss schedule `15 0 * * *` tz `Asia/Jakarta`, `missed: once`, antrean exclusive):
   warranty → active (+ invoice maintenance pertama), active → past_due (grace +2 bulan), past_due → suspended
   (+ `tenant_suspend` per env instance dengan route aktif: prod-inst prod+demo, staging-inst staging; idempotency key
   `tenant_suspend:<slug>:<env>:tenant`; layanan Odoo saja). implementation/warranty tidak pernah disuspend otomatis.
   Gagal enqueue (kuota/duplikat) → transisi di-rollback, dicoba tick berikutnya. Cek harian tenant-admin (≥ 1
-  client_admin invited/active per tenant non-platform): audit `tenant.admin_missing` + satu email harian ke billing.
+  client_admin invited/active per tenant non-platform): audit `tenant.admin_missing` harian; email ke billing **hanya bila
+  himpunan tenant tanpa admin berubah** dibanding notifikasi terakhir (sidik sha256 id terurut di kunci
+  `notification_log` `admin_check:<tanggal>:<sidik>`; himpunan kembali kosong → penanda `…:none` tanpa email).
 - Rekonsiliasi RESULT: `tenant_suspend|resume` `state=suspended|active` → `clients.status`; `odoo_tenant_config`
   `mode` → `environments.tenant_check`.
 - `/suspended` dan `/suspended/<slug>`: publik, statis, tidak membaca DB/sesi/slug (respons identik), CSP sama.
@@ -218,17 +224,21 @@ Tanpa itu, uji email memakai mailer perekam.
   SATU transaksi: INSERT `clients` + `environments` (logika = "Tambah environment") + audit `tenant.create` + SATU rantai:
   `kc_org_ensure` → per env `odoo_db_provision → odoo_route → odoo_sso_provision → odoo_tenant_config(compat)` →
   `kc_user_ensure(invite)` → per env `kc_user_set_roles(client_admin, odoo=admin)` → per env `odoo_user_ensure(admin)`.
-  Slug/DB/host terpakai, email F1, kuota → ditolak utuh (tanpa baris tersisa), diaudit.
+  Slug/DB/host terpakai, email F1, kuota → ditolak utuh (tanpa baris tersisa), diaudit. **Plan Odoo opsional** (plan
+  aktif layanan `odoo`, butuh juga `billing:manage`): langganan `implementation` dibuat di transaksi yang sama
+  (`createSubscriptionTx`, audit `subscription.create`); plan tidak ada/nonaktif/bukan odoo → `plan_inactive`, ditolak utuh.
 - **Rantai + tipe lama**: `odoo_db_provision|odoo_route|odoo_sso_provision` boleh di rantai; `environment_id` diturunkan
   server dari (client, env) → ikut `provision_jobs_one_active_uq`; job aktif (environment, type) args sama dipakai ulang,
   args beda → `duplicate`. Aksi berisiko butuh `jobs:odoo_admin`; `odoo_sso_user|odoo_sso_disable` tidak boleh di rantai.
   Host SSO ⊆ route (rantai/DB) dicek saat enqueue DAN ulang oleh worker saat dispatch (`host_not_in_route`). Maks 20
   langkah; kuota rantai += `odoo_db_provision` 3/hari.
-- **`/clients/<slug>`**: status tenant, environment (db/route/sso/`tenant_check` dari job `odoo_tenant_config` terakhir),
+- **`/clients/<slug>`**: status tenant, environment (db/route/sso/`tenant_check` = kolom `environments.tenant_check` dari
+  RESULT `mode` job `odoo_tenant_config`),
   user tenant (link `/users?tenant=`), rantai + 10 job terakhir, **Suspend/Resume** (superadmin, ketik slug →
   `tenant_suspend|tenant_resume` per env instance ini; kebalikan aktif → `state_busy`), **"Ulangi dari langkah ini"**
   (superadmin; hanya rantai `tenant.*`/`realm.*`/`chain.retry`; ditolak bila user target kini `disabled` atau akun aktor
-  sendiri), slot billing (`billing-slot.tsx`, diisi branch billing). `clients.status` TIDAK diubah di sini.
+  sendiri), ringkasan langganan & invoice terbuka (`TenantBillingSummary`, `billing:view`). `clients.status` TIDAK diubah
+  di sini.
 - **`/audit`** (superadmin+ops, `audit:view`): filter aktor (prefix sub), tenant, aksi (prefix, `starts_with`), hasil,
   rentang tanggal UTC, 50/halaman. Email tidak pernah tampil (tanpa join `users.email`; metadata disamarkan).
 - **`/realm`** (superadmin, `realm:sync`): "Rencana sync realm" (`kc_realm_sync` dry-run, slug `platform`, env realm

@@ -3,7 +3,7 @@
  * Field di luar skema, field berulang, atau File → ditolak. Teks bebas: tanpa karakter kontrol, panjang terbatas.
  */
 import { z } from "zod";
-import { AMOUNT_REGEX, isIsoDate } from "./billing";
+import { AMOUNT_REGEX, CURRENCY_REGEX, isIsoDate } from "./billing";
 import { UUID_REGEX } from "./job-contract";
 import { formToObject } from "./job-forms";
 
@@ -17,6 +17,14 @@ const line = (min: number, max: number) =>
     .min(min)
     .max(max)
     .regex(/^[^\u0000-\u001f\u007f]*$/);
+/** Nominal opsional: "" = tidak diisi. */
+const optionalAmount = z
+  .string()
+  .trim()
+  .transform((v) => (v === "" ? undefined : v))
+  .pipe(z.string().regex(AMOUNT_REGEX).optional())
+  .optional();
+const currency = z.string().trim().toUpperCase().regex(CURRENCY_REGEX);
 const optionalUuid = z
   .string()
   .transform((v) => (v === "" ? undefined : v))
@@ -35,8 +43,13 @@ export const billingFormSchemas = {
         .regex(/^[^\u0000-\u0009\u000b-\u001f\u007f]*$/)
         .transform((v) => (v === "" ? undefined : v))
         .optional(),
+      /** Override harga per langganan (opsional; kosong = harga plan). */
+      price_amount: optionalAmount,
+      price_currency: currency.optional(),
     })
     .strict(),
+  /** Ubah override harga (superadmin): kosong = hapus override (kembali ke harga plan). */
+  setSubscriptionPrice: z.object({ subscriptionId: uuid, price_amount: optionalAmount, price_currency: currency.default("IDR") }).strict(),
   goLive: z.object({ subscriptionId: uuid, goLiveAt: isoDate }).strict(),
   terminateSubscription: z.object({ subscriptionId: uuid, confirm: z.literal("on") }).strict(),
   issueInvoice: z

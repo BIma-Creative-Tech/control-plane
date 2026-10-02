@@ -37,6 +37,8 @@ ALTER TABLE "plans" ADD COLUMN "service" "plan_service";--> statement-breakpoint
 ALTER TABLE "subscriptions" ADD COLUMN "go_live_at" date;--> statement-breakpoint
 ALTER TABLE "subscriptions" ADD COLUMN "warranty_until" date;--> statement-breakpoint
 ALTER TABLE "subscriptions" ADD COLUMN "notes" text;--> statement-breakpoint
+ALTER TABLE "subscriptions" ADD COLUMN "price_amount" numeric(14, 2);--> statement-breakpoint
+ALTER TABLE "subscriptions" ADD COLUMN "price_currency" char(3);--> statement-breakpoint
 ALTER TABLE "notification_log" ADD CONSTRAINT "notification_log_subscription_id_subscriptions_id_fk" FOREIGN KEY ("subscription_id") REFERENCES "public"."subscriptions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "notification_log" ADD CONSTRAINT "notification_log_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "notification_log_key_uq" ON "notification_log" USING btree ("key");--> statement-breakpoint
@@ -45,4 +47,6 @@ ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_actor_user_id_users_id_fk" F
 ALTER TABLE "provision_jobs" ADD CONSTRAINT "provision_jobs_actor_user_id_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "invoices_maintenance_period_uq" ON "invoices" USING btree ("subscription_id","period_start") WHERE "invoices"."kind" = 'maintenance' AND "invoices"."status" <> 'void' AND "invoices"."period_start" IS NOT NULL;--> statement-breakpoint
 ALTER TABLE "environments" ADD CONSTRAINT "environments_tenant_check_valid" CHECK ("environments"."tenant_check" IS NULL OR "environments"."tenant_check" IN ('off', 'compat', 'strict'));--> statement-breakpoint
-ALTER TABLE "invoices" ADD CONSTRAINT "invoices_period_order" CHECK ("invoices"."period_start" IS NULL OR ("invoices"."period_end" IS NOT NULL AND "invoices"."period_end" > "invoices"."period_start"));
+ALTER TABLE "invoices" ADD CONSTRAINT "invoices_period_order" CHECK ("invoices"."period_start" IS NULL OR ("invoices"."period_end" IS NOT NULL AND "invoices"."period_end" > "invoices"."period_start"));--> statement-breakpoint
+ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_price_nonneg" CHECK ("subscriptions"."price_amount" IS NULL OR "subscriptions"."price_amount" >= 0);--> statement-breakpoint
+ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_price_currency" CHECK (("subscriptions"."price_amount" IS NULL AND "subscriptions"."price_currency" IS NULL) OR ("subscriptions"."price_amount" IS NOT NULL AND "subscriptions"."price_currency" IS NOT NULL AND "subscriptions"."price_currency" ~ '^[A-Z]{3}$'));

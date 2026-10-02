@@ -116,8 +116,8 @@ describe.skipIf(!URL_)("migrasi 0005 (ADR 0018)", () => {
     });
 
     it("data lama utuh + default/NULL kolom baru", async () => {
-      const s = await db.execute(sql`SELECT status::text, go_live_at, warranty_until, notes FROM subscriptions`);
-      expect(s.rows).toEqual([{ status: "pending", go_live_at: null, warranty_until: null, notes: null }]);
+      const s = await db.execute(sql`SELECT status::text, go_live_at, warranty_until, notes, price_amount, price_currency FROM subscriptions`);
+      expect(s.rows).toEqual([{ status: "pending", go_live_at: null, warranty_until: null, notes: null, price_amount: null, price_currency: null }]);
       const i = await db.execute(sql`SELECT number, kind::text, proof_reference, period_start, period_end, amount FROM invoices`);
       expect(i.rows).toEqual([{ number: "LEGACY-1", kind: "maintenance", proof_reference: null, period_start: null, period_end: null, amount: "100000.00" }]);
       const p = await db.execute(sql`SELECT code, service, price_amount FROM plans`);
@@ -141,6 +141,19 @@ describe.skipIf(!URL_)("migrasi 0005 (ADR 0018)", () => {
                        VALUES ('X-2', 'aaaaaaaa-0000-4000-8000-000000000001', 1, now(), '2026-10-01', '2026-10-01')`),
       ).rejects.toThrow();
       await expect(db.execute(sql`INSERT INTO domains (client_id, fqdn, verification_token, purpose) VALUES ('aaaaaaaa-0000-4000-8000-000000000001', 'x.example', 't', 'ftp')`)).rejects.toThrow();
+    });
+
+    it("override harga langganan (keputusan Lead): nullable, ≥ 0, mata uang wajib bersama harga", async () => {
+      const upd = (amount: string | null, cur: string | null) =>
+        db.execute(sql`UPDATE subscriptions SET price_amount = ${amount}::numeric, price_currency = ${cur} WHERE id = 'ffffffff-0000-4000-8000-000000000001'`);
+      await upd("2500000.50", "IDR");
+      const r = await db.execute(sql`SELECT price_amount, price_currency FROM subscriptions`);
+      expect(r.rows).toEqual([{ price_amount: "2500000.50", price_currency: "IDR" }]);
+      expect((await pgError(upd("-1", "IDR"))).constraint).toBe("subscriptions_price_nonneg");
+      expect((await pgError(upd("10", null))).constraint).toBe("subscriptions_price_currency");
+      expect((await pgError(upd(null, "IDR"))).constraint).toBe("subscriptions_price_currency");
+      expect((await pgError(upd("10", "idr"))).constraint).toBe("subscriptions_price_currency");
+      await upd(null, null);
     });
 
     it("satu invoice maintenance non-void per (subscription, periode)", async () => {

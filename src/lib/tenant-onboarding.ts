@@ -71,6 +71,11 @@ export interface OnboardingInput {
   adminEmail: string;
   adminName: string;
   envs: OnboardingEnv[];
+  /**
+   * Plan Odoo opsional (integrasi Fase 1): bila dipilih, langganan `implementation` dibuat di transaksi yang sama
+   * (billing/service.ts createSubscriptionTx; plan harus aktif dan layanan `odoo`, diverifikasi ulang di server).
+   */
+  planId: string | null;
 }
 
 export type OnboardingFormIssue = "invalid" | "slug_reserved" | "name_invalid" | "host_invalid";
@@ -98,6 +103,12 @@ const common = {
     .optional(),
   admin_email: z.string().trim().toLowerCase().max(EMAIL_MAX).regex(EMAIL_REGEX),
   admin_name: z.string().trim().min(1).max(NAME_MAX * 2),
+  plan_id: z
+    .string()
+    .trim()
+    .transform((v) => (v === "" ? undefined : v))
+    .pipe(z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/).optional())
+    .optional(),
 };
 
 /** Field per instance: prod-inst → prod (+ demo opsional dengan host wajib); staging-inst → staging. */
@@ -145,7 +156,7 @@ export function parseOnboardingForm(
 
   return {
     success: true,
-    data: { slug: d.slug, name: d.name, brand: d.brand ?? null, adminEmail: d.admin_email, adminName, envs },
+    data: { slug: d.slug, name: d.name, brand: d.brand ?? null, adminEmail: d.admin_email, adminName, envs, planId: d.plan_id ?? null },
   };
 }
 

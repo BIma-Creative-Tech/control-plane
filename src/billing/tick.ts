@@ -7,7 +7,8 @@
  *    (+ tenant_suspend per environment instance ini, layanan Odoo saja; outbox di transaksi yang sama — gagal enqueue
  *    = transisi di-rollback dan dicoba tick berikutnya).
  * 2. Pengingat email idempoten per (subscription, jenis, periode) lewat notification_log.
- * 3. Cek tenant-admin: tenant non-platform aktif tanpa client_admin invited/active → audit + satu email harian ke billing.
+ * 3. Cek tenant-admin: tenant non-platform aktif tanpa client_admin invited/active → audit harian; email ke billing HANYA
+ *    bila himpunan tenant itu berubah dibanding notifikasi terakhir (sidik di kunci notification_log).
  */
 import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Logger } from "pino";
@@ -16,10 +17,13 @@ import { safeErrorMessage } from "../db/errors";
 import { auditLogs, clients, invoices, notificationLog, plans, subscriptions, users } from "../db/schema";
 import {
   adminCheckKey,
+  adminNotifyDecision,
+  adminSetFingerprint,
   composeAdminReport,
   composeReminder,
   dateToTimestamp,
   dueReminder,
+  fingerprintFromAdminKey,
   planTransitions,
   reminderKey,
   tenantsWithoutAdmin,
@@ -60,6 +64,8 @@ export interface TickReport {
   errors: number;
   reminders: { sent: number; skipped: number; failed: number };
   tenantsWithoutAdmin: number;
+  /** Keputusan email cek tenant-admin hari ini (`skipped` = SMTP nonaktif). */
+  adminCheck: "email" | "mark" | "none" | "skipped";
 }
 
 async function audit(
@@ -86,18 +92,20 @@ async function applyTransition(d: TickDeps, tx: Tx, s: LockedSubscription, t: Tr
         .where(eq(subscriptions.id, s.id));
       md.starts_at = t.startsAt;
       md.ends_at = t.endsAt;
-      if (s.planPrice === null) {
-        // Harga plan belum ditetapkan (ADR 0018 D7) — billing menerbitkan manual di /invoices.
+      if (s.price === null) {
+        // Harga langganan (override) DAN harga plan belum ditetapkan (ADR 0018 D7) — dilewati, dicatat di audit
+        // transisi; billing menerbitkan manual di /invoices.
         md.invoice = "price_missing";
       } else {
+        md.price_source = s.price.source;
         const r = await issueInvoiceTx(
           tx,
           {
             clientId: s.clientId,
             subscriptionId: s.id,
             kind: "maintenance",
-            amount: s.planPrice,
-            currency: s.planCurrency,
+            amount: s.price.amount,
+            currency: s.price.currency,
             dueAt: t.invoicePeriod.end,
             period: t.invoicePeriod,
           },
@@ -346,9 +354,30 @@ async function processAdminCheck(d: TickDeps, report: TickReport): Promise<void>
       metadata: { today: d.today, rule: "adr0018_d3" },
     });
   }
-  if (missing.length > 0) {
+  // Keputusan Lead (integrasi Fase 1): email ke billing HANYA bila himpunan berubah dibanding notifikasi terakhir.
+  // Notifikasi terakhir = baris `admin_check` terbaru berstatus sent (gagal dicoba ulang lewat sendOnce per kunci hari itu).
+  if (!d.mailer) return;
+  const fp = adminSetFingerprint(missing.map((m) => m.id));
+  const last = (
+    await d.db
+      .select({ key: notificationLog.key })
+      .from(notificationLog)
+      .where(and(eq(notificationLog.kind, "admin_check"), eq(notificationLog.status, "sent")))
+      .orderBy(desc(notificationLog.createdAt), desc(notificationLog.key))
+      .limit(1)
+  )[0];
+  const decision = adminNotifyDecision(fp, last ? fingerprintFromAdminKey(last.key) : null);
+  report.adminCheck = decision;
+  if (decision === "email") {
     const msg = composeAdminReport(d.today, missing.map((m) => m.slug).sort());
-    await sendOnce(d, { key: adminCheckKey(d.today), kind: "admin_check", subscriptionId: null, clientId: null, to: [d.billingEmail], cc: [], ...msg });
+    await sendOnce(d, { key: adminCheckKey(d.today, fp), kind: "admin_check", subscriptionId: null, clientId: null, to: [d.billingEmail], cc: [], ...msg });
+  } else if (decision === "mark") {
+    // Himpunan kembali kosong: penanda tanpa email (recipient_count 0) — bila tenant yang sama kehilangan admin lagi,
+    // itu perubahan dan billing dikabari lagi.
+    await d.db
+      .insert(notificationLog)
+      .values({ key: adminCheckKey(d.today, fp), kind: "admin_check", status: "sent", attempts: 0, recipientCount: 0, sentAt: d.now })
+      .onConflictDoNothing({ target: notificationLog.key });
   }
 }
 
@@ -362,6 +391,7 @@ export async function runSubscriptionTick(d: TickDeps): Promise<TickReport> {
     errors: 0,
     reminders: { sent: 0, skipped: 0, failed: 0 },
     tenantsWithoutAdmin: 0,
+    adminCheck: "skipped",
   };
   await processTransitions(d, report);
   await processReminders(d, report);

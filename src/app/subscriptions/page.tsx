@@ -8,7 +8,7 @@ import { listBillingTenants, listPlans, listSubscriptions } from "@/server/billi
 import { BillingBadge, btn, btnDanger, input } from "../billing/components";
 import { ResultBanner } from "../jobs/components";
 import { Nav } from "../nav";
-import { createSubscriptionAction, goLiveAction, terminateSubscriptionAction } from "./actions";
+import { createSubscriptionAction, goLiveAction, setSubscriptionPriceAction, terminateSubscriptionAction } from "./actions";
 
 /**
  * Subscriptions (ADR 0018 D4/D7, W5). Lihat: superadmin/ops (`billing:view`); buat/Go-live/akhiri: superadmin
@@ -64,6 +64,7 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
             <tr>
               <th className="p-2">Tenant</th>
               <th className="p-2">Plan</th>
+              <th className="p-2">Harga / periode</th>
               <th className="p-2">Status</th>
               <th className="p-2">Go-live</th>
               <th className="p-2">Garansi s.d.</th>
@@ -75,7 +76,7 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-2 text-slate-500">
+                <td colSpan={9} className="p-2 text-slate-500">
                   Belum ada langganan.
                 </td>
               </tr>
@@ -89,6 +90,20 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
                   </td>
                   <td className="p-2">
                     <span className="font-mono">{s.planCode}</span> <span className="text-xs text-slate-500">({s.service ?? "?"})</span>
+                  </td>
+                  <td className="p-2 whitespace-nowrap">
+                    {s.subPriceAmount !== null ? (
+                      <>
+                        {formatAmount(s.subPriceAmount, s.subPriceCurrency ?? s.currency)}{" "}
+                        <span className="text-xs text-slate-500">(override)</span>
+                      </>
+                    ) : s.priceAmount !== null ? (
+                      <>
+                        {formatAmount(s.priceAmount, s.currency)} <span className="text-xs text-slate-500">(plan)</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-500">belum ditetapkan</span>
+                    )}
                   </td>
                   <td className="p-2">
                     <BillingBadge value={s.status} />
@@ -108,6 +123,28 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
                         </button>
                         <span className="w-full text-xs text-slate-500">Garansi 2 bulan sejak tanggal go-live.</span>
                       </form>
+                    ) : null}
+                    {canManage && s.status !== "terminated" ? (
+                      <details>
+                        <summary className="cursor-pointer text-xs underline">Ubah harga…</summary>
+                        <form action={setSubscriptionPriceAction} className="mt-2 flex flex-wrap items-center gap-1">
+                          <input type="hidden" name="back" value={tenantParam} />
+                          <input type="hidden" name="subscriptionId" value={s.id} />
+                          <input
+                            name="price_amount"
+                            defaultValue={s.subPriceAmount ?? ""}
+                            inputMode="decimal"
+                            pattern="(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?"
+                            placeholder="kosong = harga plan"
+                            className={`${input} w-40`}
+                          />
+                          <input name="price_currency" defaultValue={s.subPriceCurrency ?? s.currency} maxLength={3} pattern="[A-Z]{3}" className={`${input} w-16`} />
+                          <button type="submit" className={btn}>
+                            Simpan
+                          </button>
+                          <span className="w-full text-xs text-slate-500">Berlaku untuk invoice maintenance berikutnya.</span>
+                        </form>
+                      </details>
                     ) : null}
                     {canManage && s.status !== "terminated" ? (
                       <details>
@@ -149,6 +186,14 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
                     </option>
                   ))}
               </select>
+              <input
+                name="price_amount"
+                inputMode="decimal"
+                pattern="(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?"
+                placeholder="harga override (opsional)"
+                className={`${input} w-48`}
+              />
+              <input name="price_currency" defaultValue="IDR" maxLength={3} pattern="[A-Z]{3}" className={`${input} w-16`} />
               <input name="notes" maxLength={1000} placeholder="catatan (opsional)" className={`${input} min-w-64`} />
               <button type="submit" className={btn}>
                 Buat (status {SUBSCRIPTION_STATUS_LABELS.implementation})
@@ -190,7 +235,8 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
             </tbody>
           </table>
           <p className="text-xs text-slate-500">
-            Harga plan NULL: invoice maintenance otomatis tidak diterbitkan (dicatat di audit) — terbitkan manual di Invoices.
+            Invoice maintenance otomatis memakai harga override langganan, bila kosong harga plan. Keduanya NULL: tidak
+            diterbitkan (dicatat di audit) — terbitkan manual di Invoices.
           </p>
         </section>
       </main>

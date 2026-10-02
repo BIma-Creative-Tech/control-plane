@@ -36,6 +36,7 @@ import {
   type TenantStateAction,
 } from "../lib/tenant-onboarding";
 import { emailBindingConflict, orderChain, type EmailBindingConflict, type TenantRef } from "../lib/user-admin";
+import { BillingAbort, createSubscriptionTx } from "../billing/service";
 import { ChainAbort, enqueueChain, type ChainFailure, type ChainInput } from "./chain";
 import type { Actor, RequestMeta, SendFn, Tx } from "./service";
 
@@ -111,14 +112,17 @@ async function usersByEmail(db: Db, email: string) {
 // Onboarding
 // ---------------------------------------------------------------------------
 /**
- * Tenant baru: SATU transaksi = INSERT clients + environments + audit `tenant.create` (prelude) + rantai job +
+ * Tenant baru: SATU transaksi = INSERT clients + environments + audit `tenant.create` (+ langganan `implementation`
+ * bila plan dipilih) (prelude) + rantai job +
  * audit `tenant.onboard` + pesan pg-boss kepala rantai. Ditolak (slug/DB/host terpakai, kuota, email F1) → tidak ada
  * baris yang tertinggal.
  */
 export async function onboardTenant(db: Db, send: SendFn, input: TenantServiceInput & { form: OnboardingInput }): Promise<TenantActionOutcome> {
   const f = input.form;
-  const md = { slug: f.slug, envs: f.envs.map((e) => e.kind), email_hash: emailHash(f.adminEmail) };
+  const md = { slug: f.slug, envs: f.envs.map((e) => e.kind), email_hash: emailHash(f.adminEmail), ...(f.planId ? { plan_id: f.planId } : {}) };
   if (!(await gate(db, input, "clients:manage", "tenant.onboard", null, md))) return { ok: false, reason: "forbidden" };
+  // Langganan saat onboarding = aksi billing → izin billing:manage juga (superadmin).
+  if (f.planId && !(await gate(db, input, "billing:manage", "tenant.onboard", null, md))) return { ok: false, reason: "forbidden" };
   if (!typesEnabled(input.allowedTypes, ONBOARDING_TYPES)) return { ok: false, reason: "disabled" };
   if (f.envs.length === 0 || f.envs.some((e) => !envAllowedForInstance(input.instance, e.kind))) {
     return { ok: false, reason: "precondition", detail: "no_env" };
@@ -171,6 +175,15 @@ export async function onboardTenant(db: Db, send: SendFn, input: TenantServiceIn
         hosts,
       },
     });
+    // Integrasi Fase 1: plan Odoo opsional → langganan `implementation` di transaksi yang sama (audit subscription.create).
+    if (f.planId) {
+      try {
+        await createSubscriptionTx(tx, input, { clientId: tenantId, planId: f.planId, requireService: "odoo" });
+      } catch (err) {
+        if (err instanceof BillingAbort) throw new ChainAbort({ reason: "precondition", detail: "plan_inactive" });
+        throw err;
+      }
+    }
   };
 
   const out = await enqueueChain(db, send, {
@@ -462,6 +475,7 @@ export function tenantOutcomeCode(o: TenantActionOutcome): ActionResultCode {
         case "state_busy":
         case "plan_required":
         case "no_env":
+        case "plan_inactive":
           return o.detail;
         default:
           return "precondition";

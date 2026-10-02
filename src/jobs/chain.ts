@@ -98,7 +98,15 @@ export type ChainFailure =
   | { reason: "precondition"; detail: ChainPreconditionDetail; step?: number }
   | { reason: "error"; message: string };
 
-export type ChainPreconditionDetail = "env_missing" | "host_not_in_route" | "host_taken" | "state_busy" | "plan_required" | "no_env";
+export type ChainPreconditionDetail =
+  | "env_missing"
+  | "host_not_in_route"
+  | "host_taken"
+  | "state_busy"
+  | "plan_required"
+  | "no_env"
+  /** Onboarding: plan langganan tidak ada/tidak aktif/bukan layanan odoo (createSubscriptionTx di prelude). */
+  | "plan_inactive";
 
 export type ChainOutcome =
   | { ok: true; chainId: string; jobIds: string[]; reused: number }

@@ -41,27 +41,6 @@ export async function listUsersOfTenant(db: Db, clientId: string) {
     .limit(200);
 }
 
-/**
- * Status `tenant_check` per env = job `odoo_tenant_config` terakhir (tidak ada kolom di environments — migrasi bukan
- * cakupan W5): sukses → RESULT `mode` (fallback args), aktif → status job, gagal → `failed`.
- */
-export async function tenantCheckByEnv(db: Db, clientId: string) {
-  const rows = await db
-    .select({ env: provisionJobs.env, status: provisionJobs.status, result: provisionJobs.result, payload: provisionJobs.payload, dryRun: provisionJobs.dryRun, id: provisionJobs.id })
-    .from(provisionJobs)
-    .where(and(eq(provisionJobs.clientId, clientId), eq(provisionJobs.type, "odoo_tenant_config"), eq(provisionJobs.dryRun, false)))
-    .orderBy(desc(provisionJobs.createdAt))
-    .limit(30);
-  const out = new Map<string, { label: string; status: string; jobId: string }>();
-  for (const r of rows) {
-    if (!r.env || out.has(r.env)) continue;
-    const want = ((r.payload as { args?: { tenant_check?: unknown } }).args?.tenant_check ?? "?") as string;
-    const label = r.status === "succeeded" ? (r.result?.mode ?? want) : `${want} (${r.status})`;
-    out.set(r.env, { label, status: r.status, jobId: r.id });
-  }
-  return out;
-}
-
 export type ChainView = { chainId: string; createdAt: Date; actor: string; origin: string | null; steps: (ChainStepRow & { dryRun: boolean; result: Record<string, string> | null })[] };
 
 /** Rantai job terbaru satu client (SEMUA tipe: onboarding, user, suspend/resume, realm) — status per langkah. */

@@ -26,6 +26,7 @@ export async function listEnvironmentsForClient(clientId: string) {
       dbStatus: environments.dbStatus,
       routeStatus: environments.routeStatus,
       ssoStatus: environments.ssoStatus,
+      tenantCheck: environments.tenantCheck,
     })
     .from(environments)
     .where(eq(environments.clientId, clientId))

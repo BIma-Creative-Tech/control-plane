@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
     createSubscription: vi.fn(),
     goLiveSubscription: vi.fn(),
     terminateSubscription: vi.fn(),
+    setSubscriptionPrice: vi.fn(),
     issueInvoice: vi.fn(),
     voidInvoice: vi.fn(),
     markInvoicePaid: vi.fn(),
@@ -49,7 +50,7 @@ vi.mock("@/billing/service", async (importOriginal) => {
 });
 
 import { issueInvoiceAction, markInvoicePaidAction, voidInvoiceAction } from "@/app/invoices/actions";
-import { createSubscriptionAction, goLiveAction, terminateSubscriptionAction } from "@/app/subscriptions/actions";
+import { createSubscriptionAction, goLiveAction, setSubscriptionPriceAction, terminateSubscriptionAction } from "@/app/subscriptions/actions";
 import * as billingService from "@/billing/service";
 import { billingFormSchemas, parseBillingForm } from "@/lib/billing-forms";
 import { ACTION_RESULT_CODES } from "@/lib/job-list-params";
@@ -68,6 +69,12 @@ const MANAGE: Call[] = [
   ["createSubscriptionAction", createSubscriptionAction, () => fd([["clientId", C], ["planId", ID]]), "createSubscription"],
   ["goLiveAction", goLiveAction, () => fd([["subscriptionId", ID], ["goLiveAt", "2026-10-01"]]), "goLiveSubscription"],
   ["terminateSubscriptionAction", terminateSubscriptionAction, () => fd([["subscriptionId", ID], ["confirm", "on"]]), "terminateSubscription"],
+  [
+    "setSubscriptionPriceAction",
+    setSubscriptionPriceAction,
+    () => fd([["subscriptionId", ID], ["price_amount", "2500000"], ["price_currency", "IDR"]]),
+    "setSubscriptionPrice",
+  ],
   [
     "issueInvoiceAction",
     issueInvoiceAction,
@@ -188,6 +195,9 @@ describe("layanan billing menolak ulang tanpa izin (sebelum menyentuh DB)", () =
     expect(await real.createSubscription(db, base(["ops"]), { clientId: C, planId: ID })).toEqual({ ok: false, reason: "forbidden" });
     expect(await real.goLiveSubscription(db, base(["ops"]), { subscriptionId: ID, goLiveAt: "2026-10-01" })).toEqual({ ok: false, reason: "forbidden" });
     expect(await real.terminateSubscription(db, base(["ops"]), { subscriptionId: ID })).toEqual({ ok: false, reason: "forbidden" });
+    for (const roles of [["ops"], ["client_admin"], ["client_user"]]) {
+      expect(await real.setSubscriptionPrice(db, base(roles), { subscriptionId: ID, priceAmount: "1", priceCurrency: "IDR" })).toEqual({ ok: false, reason: "forbidden" });
+    }
     expect(
       await real.issueInvoice(db, base(["ops"]), { clientId: C, kind: "implementation", amount: "1", dueAt: "2026-10-01" }),
     ).toEqual({ ok: false, reason: "forbidden" });

@@ -17,6 +17,8 @@
  * implementation/warranty TIDAK PERNAH disuspend otomatis. `pending`/`grace` USANG: tidak ada transisi.
  */
 
+import { createHash } from "node:crypto";
+
 // ---------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------
@@ -350,8 +352,35 @@ export function reminderKey(subscriptionId: string, r: DueReminder): string {
   return `reminder:${subscriptionId}:${r.kind}:${r.period}`;
 }
 
-export function adminCheckKey(today: IsoDate): string {
-  return `admin_check:${today}`;
+/** Sidik himpunan tenant tanpa admin (16 hex sha256 id terurut); himpunan kosong = `none`. */
+export function adminSetFingerprint(clientIds: readonly string[]): string {
+  if (clientIds.length === 0) return "none";
+  return createHash("sha256").update([...new Set(clientIds)].sort().join(","), "utf8").digest("hex").slice(0, 16);
+}
+
+/**
+ * Kunci notification_log cek tenant-admin: `admin_check:<tanggal>:<sidik>` (keputusan Lead integrasi Fase 1 — email ke
+ * billing HANYA bila himpunan tenant tanpa admin berubah dibanding notifikasi terakhir; audit tetap harian).
+ */
+export function adminCheckKey(today: IsoDate, fingerprint: string): string {
+  return `admin_check:${today}:${fingerprint}`;
+}
+
+/** Sidik dari kunci notifikasi terakhir (null = kunci format lama/tidak dikenal). */
+export function fingerprintFromAdminKey(key: string): string | null {
+  const m = /^admin_check:[0-9]{4}-[0-9]{2}-[0-9]{2}:([0-9a-f]{16}|none)$/.exec(key);
+  return m ? m[1]! : null;
+}
+
+/**
+ * Keputusan cek tenant-admin (murni): `email` = kirim laporan ke billing; `mark` = catat himpunan kosong (tanpa
+ * email) agar munculnya kembali tenant yang sama dianggap perubahan; `none` = himpunan sama dengan notifikasi
+ * terakhir. Tanpa notifikasi sebelumnya = sidik `none`.
+ */
+export function adminNotifyDecision(currentFingerprint: string, lastFingerprint: string | null): "email" | "mark" | "none" {
+  const last = lastFingerprint ?? "none";
+  if (currentFingerprint === last) return "none";
+  return currentFingerprint === "none" ? "mark" : "email";
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +414,29 @@ export function nextInvoiceSeq(existing: readonly string[], prefix: string): num
 // ---------------------------------------------------------------------------
 /** Nominal dari form: angka desimal ≤ 12 digit + ≤ 2 desimal, tanpa pemisah ribuan. */
 export const AMOUNT_REGEX = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?$/;
+
+/** Kode mata uang ISO 4217 (huruf besar) — override harga langganan. */
+export const CURRENCY_REGEX = /^[A-Z]{3}$/;
+
+export interface PriceSources {
+  /** Override per langganan (subscriptions.price_amount/price_currency) — keputusan Lead integrasi Fase 1. */
+  subscriptionPrice: string | null;
+  subscriptionCurrency: string | null;
+  planPrice: string | null;
+  planCurrency: string;
+}
+
+/**
+ * Harga invoice maintenance otomatis: override langganan bila ada, selain itu harga plan; keduanya NULL → null
+ * (pemanggil melewati penerbitan dan mencatat `price_missing` di audit).
+ */
+export function effectivePrice(p: PriceSources): { amount: string; currency: string; source: "subscription" | "plan" } | null {
+  if (p.subscriptionPrice !== null) {
+    return { amount: p.subscriptionPrice, currency: p.subscriptionCurrency ?? p.planCurrency, source: "subscription" };
+  }
+  if (p.planPrice !== null) return { amount: p.planPrice, currency: p.planCurrency, source: "plan" };
+  return null;
+}
 
 export function formatAmount(amount: string | null, currency = "IDR"): string {
   if (amount === null) return "—";

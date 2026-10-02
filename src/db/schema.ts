@@ -254,8 +254,23 @@ export const subscriptions = pgTable(
     goLiveAt: date("go_live_at", { mode: "string" }),
     warrantyUntil: date("warranty_until", { mode: "string" }),
     notes: text("notes"),
+    /**
+     * Keputusan Lead (integrasi Fase 1): harga per langganan (override harga plan, superadmin). NULL = pakai
+     * `plans.price_amount`; keduanya NULL → invoice maintenance otomatis dilewati + diaudit (lib/billing.ts effectivePrice).
+     */
+    priceAmount: numeric("price_amount", { precision: 14, scale: 2 }),
+    /** Mata uang override — wajib terisi bersama `price_amount` (CHECK), NULL bila tanpa override. */
+    priceCurrency: char("price_currency", { length: 3 }),
   },
-  (t) => [index("subscriptions_client_idx").on(t.clientId), index("subscriptions_status_idx").on(t.status)],
+  (t) => [
+    index("subscriptions_client_idx").on(t.clientId),
+    index("subscriptions_status_idx").on(t.status),
+    check("subscriptions_price_nonneg", sql`${t.priceAmount} IS NULL OR ${t.priceAmount} >= 0`),
+    check(
+      "subscriptions_price_currency",
+      sql`(${t.priceAmount} IS NULL AND ${t.priceCurrency} IS NULL) OR (${t.priceAmount} IS NOT NULL AND ${t.priceCurrency} IS NOT NULL AND ${t.priceCurrency} ~ '^[A-Z]{3}$')`,
+    ),
+  ],
 );
 
 /**

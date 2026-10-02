@@ -11,6 +11,7 @@ import { isUniqueViolation, safeErrorMessage } from "../db/errors";
 import { auditLogs, clients, invoices, plans, subscriptions } from "../db/schema";
 import {
   dateToTimestamp,
+  effectivePrice,
   formatInvoiceNumber,
   invoicePrefix,
   isAfter,
@@ -61,6 +62,12 @@ class Abort extends Error {
   }
 }
 
+/** Dilempar helper `*Tx` (mis. createSubscriptionTx dari onboarding tenant) — pemanggil memetakan ke penolakannya. */
+export { Abort as BillingAbort };
+
+/** Bagian input yang dibutuhkan audit (helper transaksi yang dipanggil dari luar layanan ini). */
+export type BillingAuditInput = Pick<BillingServiceInput, "actor" | "meta">;
+
 interface AuditTarget {
   action: string;
   targetType: "subscription" | "invoice";
@@ -91,7 +98,7 @@ async function auditRejected(db: Db, input: BillingServiceInput, t: AuditTarget,
   }
 }
 
-async function auditOk(tx: Tx, input: BillingServiceInput, t: AuditTarget, metadata: Record<string, unknown>): Promise<void> {
+async function auditOk(tx: Tx, input: BillingAuditInput, t: AuditTarget, metadata: Record<string, unknown>): Promise<void> {
   await tx.insert(auditLogs).values({
     actorUserId: input.actor.userId,
     actor: actorLabel(input.actor),
@@ -223,6 +230,8 @@ export async function lockSubscription(tx: Tx, subscriptionId: string) {
         planService: plans.service,
         planPrice: plans.priceAmount,
         planCurrency: plans.currency,
+        subPrice: subscriptions.priceAmount,
+        subCurrency: subscriptions.priceCurrency,
         periodMonths: plans.billingPeriodMonths,
         slug: clients.slug,
         isPlatform: clients.isPlatform,
@@ -238,6 +247,8 @@ export async function lockSubscription(tx: Tx, subscriptionId: string) {
   return {
     ...row,
     status: row.status as SubscriptionStatus,
+    /** Harga invoice maintenance otomatis (override langganan → harga plan → null). */
+    price: effectivePrice({ subscriptionPrice: row.subPrice, subscriptionCurrency: row.subCurrency, planPrice: row.planPrice, planCurrency: row.planCurrency }),
     snapshot: {
       status: row.status as SubscriptionStatus,
       warrantyUntil: row.warrantyUntil,
@@ -254,42 +265,98 @@ export type LockedSubscription = NonNullable<Awaited<ReturnType<typeof lockSubsc
 // ---------------------------------------------------------------------------
 // Aksi platform-admin
 // ---------------------------------------------------------------------------
-export async function createSubscription(
+export interface CreateSubscriptionParams {
+  clientId: string;
+  planId: string;
+  notes?: string | undefined;
+  /** Override harga per langganan (superadmin); keduanya diisi atau keduanya kosong. */
+  priceAmount?: string | undefined;
+  priceCurrency?: string | undefined;
+  /** Onboarding tenant: plan wajib layanan ini (mis. `odoo`). */
+  requireService?: "odoo" | "insight" | "mail" | "web";
+}
+
+/**
+ * Buat langganan berstatus `implementation` di transaksi `tx` (dipakai createSubscription dan onboarding tenant —
+ * tenant baru + langganan dalam SATU transaksi). Pemanggil sudah memeriksa izin `billing:manage`. Menolak dengan
+ * melempar `BillingAbort`.
+ */
+export async function createSubscriptionTx(tx: Tx, input: BillingAuditInput, p: CreateSubscriptionParams): Promise<{ id: string }> {
+  const t: AuditTarget = { action: "subscription.create", targetType: "subscription", targetId: null, clientId: p.clientId };
+  const client = (
+    await tx
+      .select({ id: clients.id, isPlatform: clients.isPlatform, status: clients.status, terminatedAt: clients.terminatedAt })
+      .from(clients)
+      .where(eq(clients.id, p.clientId))
+      .for("update")
+      .limit(1)
+  )[0];
+  if (!client) throw new Abort({ reason: "not_found" });
+  if (!tenantActive(client)) throw new Abort({ reason: "tenant_inactive" });
+  const plan = (await tx.select().from(plans).where(eq(plans.id, p.planId)).limit(1))[0];
+  if (!plan) throw new Abort({ reason: "not_found" });
+  if (!plan.isActive || !plan.service) throw new Abort({ reason: "plan_inactive" });
+  if (p.requireService && plan.service !== p.requireService) throw new Abort({ reason: "plan_inactive" });
+  if ((p.priceAmount === undefined) !== (p.priceCurrency === undefined)) throw new Abort({ reason: "invalid" });
+  // Satu langganan non-terminated per layanan per tenant (klien terkunci FOR UPDATE di atas → tanpa balapan).
+  const dup = await tx
+    .select({ id: subscriptions.id })
+    .from(subscriptions)
+    .innerJoin(plans, eq(plans.id, subscriptions.planId))
+    .where(and(eq(subscriptions.clientId, client.id), eq(plans.service, plan.service), ne(subscriptions.status, "terminated")))
+    .limit(1);
+  if (dup.length > 0) throw new Abort({ reason: "service_exists" });
+  const row = (
+    await tx
+      .insert(subscriptions)
+      .values({
+        clientId: client.id,
+        planId: plan.id,
+        status: "implementation",
+        notes: p.notes ?? null,
+        priceAmount: p.priceAmount ?? null,
+        priceCurrency: p.priceAmount !== undefined ? (p.priceCurrency ?? null) : null,
+      })
+      .returning({ id: subscriptions.id })
+  )[0];
+  if (!row) throw new Error("insert subscriptions tanpa id");
+  await auditOk(tx, input, { ...t, targetId: row.id }, {
+    to: "implementation",
+    plan_code: plan.code,
+    service: plan.service,
+    ...(p.priceAmount !== undefined ? { price_amount: p.priceAmount, price_currency: p.priceCurrency } : {}),
+  });
+  return { id: row.id };
+}
+
+export async function createSubscription(db: Db, input: BillingServiceInput, p: CreateSubscriptionParams): Promise<BillingOutcome> {
+  return run(db, input, "billing:manage", { action: "subscription.create", targetType: "subscription", targetId: null, clientId: p.clientId }, (tx) =>
+    createSubscriptionTx(tx, input, p),
+  );
+}
+
+/**
+ * Ubah/hapus override harga langganan (superadmin, `billing:manage`). `priceAmount` null = kembali ke harga plan.
+ * Berlaku untuk invoice maintenance BERIKUTNYA (invoice yang sudah terbit tidak diubah). Langganan terminated ditolak.
+ */
+export async function setSubscriptionPrice(
   db: Db,
   input: BillingServiceInput,
-  p: { clientId: string; planId: string; notes?: string | undefined },
+  p: { subscriptionId: string; priceAmount: string | null; priceCurrency: string },
 ): Promise<BillingOutcome> {
-  return run(db, input, "billing:manage", { action: "subscription.create", targetType: "subscription", targetId: null, clientId: p.clientId }, async (tx, t) => {
-    const client = (
-      await tx
-        .select({ id: clients.id, isPlatform: clients.isPlatform, status: clients.status, terminatedAt: clients.terminatedAt })
-        .from(clients)
-        .where(eq(clients.id, p.clientId))
-        .for("update")
-        .limit(1)
-    )[0];
-    if (!client) throw new Abort({ reason: "not_found" });
-    if (!tenantActive(client)) throw new Abort({ reason: "tenant_inactive" });
-    const plan = (await tx.select().from(plans).where(eq(plans.id, p.planId)).limit(1))[0];
-    if (!plan) throw new Abort({ reason: "not_found" });
-    if (!plan.isActive || !plan.service) throw new Abort({ reason: "plan_inactive" });
-    // Satu langganan non-terminated per layanan per tenant (klien terkunci FOR UPDATE di atas → tanpa balapan).
-    const dup = await tx
-      .select({ id: subscriptions.id })
-      .from(subscriptions)
-      .innerJoin(plans, eq(plans.id, subscriptions.planId))
-      .where(and(eq(subscriptions.clientId, client.id), eq(plans.service, plan.service), ne(subscriptions.status, "terminated")))
-      .limit(1);
-    if (dup.length > 0) throw new Abort({ reason: "service_exists" });
-    const row = (
-      await tx
-        .insert(subscriptions)
-        .values({ clientId: client.id, planId: plan.id, status: "implementation", notes: p.notes ?? null })
-        .returning({ id: subscriptions.id })
-    )[0];
-    if (!row) throw new Error("insert subscriptions tanpa id");
-    await auditOk(tx, input, { ...t, targetId: row.id }, { to: "implementation", plan_code: plan.code, service: plan.service });
-    return { id: row.id };
+  return run(db, input, "billing:manage", { action: "subscription.price", targetType: "subscription", targetId: p.subscriptionId, clientId: null }, async (tx, t) => {
+    const s = await lockSubscription(tx, p.subscriptionId);
+    if (!s) throw new Abort({ reason: "not_found" });
+    t.clientId = s.clientId;
+    if (s.status === "terminated") throw new Abort({ reason: "billing_status" });
+    const next = p.priceAmount === null ? { priceAmount: null, priceCurrency: null } : { priceAmount: p.priceAmount, priceCurrency: p.priceCurrency };
+    await tx.update(subscriptions).set({ ...next, updatedAt: sql`now()` }).where(eq(subscriptions.id, s.id));
+    await auditOk(tx, input, t, {
+      from: { price_amount: s.subPrice, price_currency: s.subCurrency },
+      to: { price_amount: next.priceAmount, price_currency: next.priceCurrency },
+      plan_price: s.planPrice,
+    });
+    return { id: s.id };
   });
 }
 
@@ -357,7 +424,7 @@ export async function issueInvoice(
     }
     const r = await issueInvoiceTx(
       tx,
-      { clientId: client.id, subscriptionId: s?.id ?? null, kind: p.kind, amount: p.amount, currency: s?.planCurrency ?? "IDR", dueAt: p.dueAt, period },
+      { clientId: client.id, subscriptionId: s?.id ?? null, kind: p.kind, amount: p.amount, currency: s ? (s.price?.currency ?? s.planCurrency) : "IDR", dueAt: p.dueAt, period },
       now,
     );
     if (r === "exists") throw new Abort({ reason: "exists" });
@@ -455,21 +522,22 @@ export async function markInvoicePaid(
         .where(eq(subscriptions.id, s.id));
       md.subscription_id = s.id;
       md.transition = { from: plan.from, to: "active", starts_at: plan.startsAt, ends_at: plan.endsAt };
-      if (s.planPrice !== null) {
+      if (s.price !== null) {
         const next = await issueInvoiceTx(
           tx,
           {
             clientId: s.clientId,
             subscriptionId: s.id,
             kind: "maintenance",
-            amount: s.planPrice,
-            currency: s.planCurrency,
+            amount: s.price.amount,
+            currency: s.price.currency,
             dueAt: plan.nextInvoicePeriod.end,
             period: plan.nextInvoicePeriod,
           },
           now,
         );
         md.next_invoice = next === "exists" ? "exists" : next.number;
+        md.price_source = s.price.source;
       } else {
         md.next_invoice = "price_missing";
       }

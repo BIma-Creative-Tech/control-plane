@@ -269,7 +269,8 @@ describe("pengingat (H-14 garansi; H+0/H+14/H+45 setelah ends_at)", () => {
     const k = reminderKey("8d6c7a1e-1111-4222-8333-444455556666", { kind: "due_h14", period: "2027-01-03" });
     expect(k).toBe("reminder:8d6c7a1e-1111-4222-8333-444455556666:due_h14:2027-01-03");
     expect(k).toMatch(/^[a-z0-9_:./-]{3,200}$/);
-    expect(adminCheckKey("2026-10-03")).toMatch(/^[a-z0-9_:./-]{3,200}$/);
+    expect(adminCheckKey("2026-10-03", "0123456789abcdef")).toMatch(/^[a-z0-9_:./-]{3,200}$/);
+    expect(adminCheckKey("2026-10-03", "none")).toBe("admin_check:2026-10-03:none");
   });
 });
 

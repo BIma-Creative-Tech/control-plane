@@ -10,6 +10,11 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **SaaS Fase 1 — integrasi** (`feat/saas-p1` = users + billing + tenants): halaman tenant memakai `TenantBillingSummary`
+  dan kolom `environments.tenant_check`; form "Tenant baru" + plan Odoo opsional (langganan `implementation` di
+  transaksi yang sama); override harga per langganan (`subscriptions.price_amount/price_currency`, disunting di migrasi
+  0005 yang belum rilis) dipakai invoice maintenance otomatis (fallback harga plan; keduanya NULL → dilewati + audit);
+  email cek tenant-admin hanya saat himpunan tenant tanpa admin berubah (audit tetap harian).
 - **SaaS Fase 1 — Subscriptions & Invoices** (ADR 0018 infra, W5/W7): migrasi `0005_saas_p1_billing` (aditif: status
   `implementation|warranty|past_due`, kolom go-live/garansi, `plans.service` + harga nullable, `invoices.kind` + periode +
   referensi bukti, `domains.purpose|dkim_txt|last_check`, `environments.tenant_check`, `notification_log`); seed 7 plan
@@ -22,7 +27,7 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
   onboarding `kc_org_ensure → odoo_db_provision → odoo_route → odoo_sso_provision → odoo_tenant_config(compat) →
   kc_user_ensure → kc_user_set_roles → odoo_user_ensure`), rantai mendukung tipe lama terikat environment
   (`environment_id` server-side, indeks satu-aktif, dedupe), langkah dry-run, `prelude` transaksional; halaman tenant
-  (status, `tenant_check`, user, rantai + "Ulangi dari langkah ini", Suspend/Resume override, slot billing); **`/audit`**
+  (status, `tenant_check`, user, rantai + "Ulangi dari langkah ini", Suspend/Resume override, ringkasan billing); **`/audit`**
   (izin baru `audit:view`); **`/realm`** (`kc_realm_sync` rencana/terapkan + approve prod, daftar user tanpa tenant).
 - **SaaS Fase 1 — Users** (kontrak infra `docs/plans/saas-phase-1-contract.md` §2): migrasi `0004_saas_p1_users` (aditif),
   10 tipe job identitas/tenant di `job-contract.ts` (skema Zod `.strict()`, regex = dispatcher 1.1.0, timeout, RESULT keys

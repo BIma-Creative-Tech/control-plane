@@ -47,6 +47,8 @@ export async function listSubscriptions(clientId: string | null) {
       service: plans.service,
       priceAmount: plans.priceAmount,
       currency: plans.currency,
+      subPriceAmount: subscriptions.priceAmount,
+      subPriceCurrency: subscriptions.priceCurrency,
       goLiveAt: subscriptions.goLiveAt,
       warrantyUntil: subscriptions.warrantyUntil,
       startsAt: subscriptions.currentPeriodStart,

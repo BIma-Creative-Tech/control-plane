@@ -18,6 +18,7 @@ import {
   goLiveSubscription,
   issueInvoice,
   markInvoicePaid,
+  setSubscriptionPrice,
   terminateSubscription,
   voidInvoice,
   type BillingServiceInput,
@@ -435,18 +436,41 @@ describe.skipIf(!URL_)("Billing: siklus langganan ⇄ tick ⇄ dispatcher palsu 
     expect(await terminateSubscription(db, svc(SUPER), { subscriptionId: mailSub })).toEqual({ ok: false, reason: "billing_status" });
   });
 
-  it("cek tenant-admin harian: audit per tenant + satu email laporan per hari", async () => {
-    const before = sent.filter((m) => /tanpa tenant-admin/.test(m.subject)).length;
-    const r = await runSubscriptionTick(tickDeps("2027-03-08"));
-    expect(r.tenantsWithoutAdmin).toBe(1);
-    await runSubscriptionTick(tickDeps("2027-03-08"));
-    const reports = sent.filter((m) => /tanpa tenant-admin/.test(m.subject));
-    expect(reports.length).toBe(before + 1);
-    expect(reports.at(-1)!.to).toEqual([BILLING]);
-    expect(reports.at(-1)!.text).toContain("- beta-co");
-    expect(reports.at(-1)!.text).not.toContain("acme-co");
-    const a = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "tenant.admin_missing"), eq(auditLogs.clientId, acmeId)));
-    expect(a).toHaveLength(0);
+  it("cek tenant-admin: audit harian; email ke billing HANYA saat himpunan berubah (keputusan Lead)", async () => {
+    const reports = () => sent.filter((m) => /tanpa tenant-admin/.test(m.subject));
+    const auditsBeta = async () =>
+      (await db.select().from(auditLogs).where(and(eq(auditLogs.action, "tenant.admin_missing"), eq(auditLogs.clientId, betaId)))).length;
+    // Himpunan {beta-co} sejak 2026-11-16 → satu laporan saja sepanjang tick-tick sebelumnya (dulu: satu per hari).
+    expect(reports()).toHaveLength(1);
+    const a0 = await auditsBeta();
+    let r = await runSubscriptionTick(tickDeps("2027-03-08"));
+    expect(r).toMatchObject({ tenantsWithoutAdmin: 1, adminCheck: "none" });
+    expect(reports()).toHaveLength(1);
+    expect(await auditsBeta()).toBe(a0 + 1); // audit tetap harian
+    // Tenant baru tanpa admin → himpunan berubah → email (hari yang sama pun).
+    const [g] = await db.insert(clients).values({ slug: "gamma-co", name: "Gamma" }).returning();
+    r = await runSubscriptionTick(tickDeps("2027-03-08"));
+    expect(r).toMatchObject({ tenantsWithoutAdmin: 2, adminCheck: "email" });
+    expect(reports()).toHaveLength(2);
+    expect(reports().at(-1)!.to).toEqual([BILLING]);
+    expect(reports().at(-1)!.text).toContain("- beta-co");
+    expect(reports().at(-1)!.text).toContain("- gamma-co");
+    expect(reports().at(-1)!.text).not.toContain("acme-co");
+    r = await runSubscriptionTick(tickDeps("2027-03-09"));
+    expect(r.adminCheck).toBe("none");
+    expect(reports()).toHaveLength(2);
+    // gamma-co dapat admin → himpunan kembali {beta-co} (berbeda dari notifikasi terakhir) → email.
+    await db.insert(users).values({ keycloakSub: "gamma-admin", email: "a@gamma.co.id", role: "client_admin", status: "invited", clientId: g!.id });
+    r = await runSubscriptionTick(tickDeps("2027-03-09"));
+    expect(r).toMatchObject({ tenantsWithoutAdmin: 1, adminCheck: "email" });
+    expect(reports()).toHaveLength(3);
+    expect(reports().at(-1)!.text).not.toContain("gamma-co");
+    // SMTP nonaktif: audit tetap, tanpa baris notification_log.
+    const nLog = (await db.select().from(notificationLog)).length;
+    r = await runSubscriptionTick(tickDeps("2027-03-09", { mailer: null }));
+    expect(r.adminCheck).toBe("skipped");
+    expect((await db.select().from(notificationLog)).length).toBe(nLog);
+    expect(await db.select().from(auditLogs).where(and(eq(auditLogs.action, "tenant.admin_missing"), eq(auditLogs.clientId, acmeId)))).toHaveLength(0);
     const log = await db.select().from(notificationLog);
     expect(log.every((l) => l.status === "sent")).toBe(true);
     expect(new Set(log.map((l) => l.key)).size).toBe(log.length);
@@ -479,6 +503,9 @@ describe.skipIf(!URL_)("Billing: siklus langganan ⇄ tick ⇄ dispatcher palsu 
     const row = (await db.select().from(notificationLog).where(eq(notificationLog.status, "failed")))[0]!;
     expect(row).toMatchObject({ attempts: 3, lastError: "ECONNECTION", kind: "due_h45" });
     expect(calls).toBe(3);
+    // Himpunan tenant tanpa admin kini kosong → penanda `none` tanpa email (recipient_count 0).
+    const mark = (await db.select().from(notificationLog).where(eq(notificationLog.key, "admin_check:2027-03-09:none")))[0]!;
+    expect(mark).toMatchObject({ kind: "admin_check", status: "sent", recipientCount: 0 });
   });
 
   it("worker: schedule 00:15 Asia/Jakarta; TICK_NOW hanya staging", async () => {
@@ -494,5 +521,55 @@ describe.skipIf(!URL_)("Billing: siklus langganan ⇄ tick ⇄ dispatcher palsu 
     expect((await staging(new Date("2026-10-03T03:00:00Z"))).today).toBe("2027-03-10");
     const prod = createTickRunner({ db, boss: workerBoss, env: { ...base, INFRA_JOBS_INSTANCE: "prod", TICK_NOW: "2027-03-10" }, logger: quiet, mailer: null });
     expect((await prod(new Date("2026-10-03T03:00:00Z"))).today).toBe("2026-10-03");
+  });
+
+  it("override harga langganan: invoice maintenance otomatis memakai override → harga plan → dilewati + audit price_missing", async () => {
+    const shared = (await db.select().from(plans).where(eq(plans.code, "odoo-shared-s")))[0]!;
+    expect(shared.priceAmount).toBeNull();
+    const [d] = await db.insert(clients).values({ slug: "delta-co", name: "Delta" }).returning();
+    const deltaId = d!.id;
+    const created = await createSubscription(db, svc(SUPER), { clientId: deltaId, planId: shared.id, priceAmount: "2750000.50", priceCurrency: "IDR" });
+    expect(created.ok).toBe(true);
+    const dsub = (created as { id: string }).id;
+    expect(await sub(dsub)).toMatchObject({ status: "implementation", priceAmount: "2750000.50", priceCurrency: "IDR" });
+    // ops tidak boleh; superadmin ubah override; langganan terminated ditolak (diuji di bawah)
+    expect(await setSubscriptionPrice(db, svc(OPS), { subscriptionId: dsub, priceAmount: "1", priceCurrency: "IDR" })).toEqual({ ok: false, reason: "forbidden" });
+    expect((await setSubscriptionPrice(db, svc(SUPER), { subscriptionId: dsub, priceAmount: "3000000", priceCurrency: "IDR" })).ok).toBe(true);
+    const pa = (await db.select().from(auditLogs).where(and(eq(auditLogs.action, "subscription.price"), eq(auditLogs.targetId, dsub))))!;
+    expect(pa.map((x) => x.result).sort()).toEqual(["rejected", "success"]);
+    expect(pa.find((x) => x.result === "success")!.metadata).toMatchObject({
+      from: { price_amount: "2750000.50", price_currency: "IDR" },
+      to: { price_amount: "3000000", price_currency: "IDR" },
+      plan_price: null,
+    });
+
+    expect((await goLiveSubscription(db, svc(SUPER, at("2027-04-02")), { subscriptionId: dsub, goLiveAt: "2027-04-01" })).ok).toBe(true);
+    await runSubscriptionTick(tickDeps("2027-06-02", { mailer: null }));
+    expect((await sub(dsub)).status).toBe("active");
+    const inv1 = (await db.select().from(invoices).where(eq(invoices.subscriptionId, dsub)))[0]!;
+    expect(inv1).toMatchObject({ kind: "maintenance", amount: "3000000.00", currency: "IDR", periodStart: "2027-06-01", periodEnd: "2027-07-01" });
+    const t1 = (await db.select().from(auditLogs).where(and(eq(auditLogs.action, "subscription.transition"), eq(auditLogs.targetId, dsub))))[0]!;
+    expect(t1.metadata).toMatchObject({ to: "active", price_source: "subscription", invoice: inv1.number });
+
+    // Override dihapus + harga plan NULL → lunas: periode diperpanjang, invoice berikutnya DILEWATI (price_missing).
+    expect((await setSubscriptionPrice(db, svc(SUPER), { subscriptionId: dsub, priceAmount: null, priceCurrency: "IDR" })).ok).toBe(true);
+    expect(await sub(dsub)).toMatchObject({ priceAmount: null, priceCurrency: null });
+    const paid = await markInvoicePaid(db, svc(OPS, at("2027-06-05")), { invoiceId: inv1.id, paidAt: "2027-06-05", paymentReference: "BCA 9", proofReference: "mutasi" });
+    expect(paid.ok).toBe(true);
+    expect(await db.select().from(invoices).where(eq(invoices.subscriptionId, dsub))).toHaveLength(1);
+    const pd = (await db.select().from(auditLogs).where(and(eq(auditLogs.action, "invoice.paid"), eq(auditLogs.targetId, inv1.id))))[0]!;
+    expect(pd.metadata).toMatchObject({ next_invoice: "price_missing" });
+
+    // Harga plan diisi kemudian → dipakai bila tanpa override (tick warranty → active pada langganan baru).
+    await db.update(plans).set({ priceAmount: "900000" }).where(eq(plans.id, shared.id));
+    const [e] = await db.insert(clients).values({ slug: "eps-co", name: "Eps" }).returning();
+    const esub = ((await createSubscription(db, svc(SUPER), { clientId: e!.id, planId: shared.id })) as { id: string }).id;
+    await goLiveSubscription(db, svc(SUPER, at("2027-04-02")), { subscriptionId: esub, goLiveAt: "2027-04-01" });
+    await runSubscriptionTick(tickDeps("2027-06-02", { mailer: null }));
+    expect((await db.select().from(invoices).where(eq(invoices.subscriptionId, esub)))[0]).toMatchObject({ amount: "900000.00", currency: "IDR" });
+    await db.update(plans).set({ priceAmount: null }).where(eq(plans.id, shared.id));
+
+    expect((await terminateSubscription(db, svc(SUPER), { subscriptionId: dsub })).ok).toBe(true);
+    expect(await setSubscriptionPrice(db, svc(SUPER), { subscriptionId: dsub, priceAmount: "1", priceCurrency: "IDR" })).toEqual({ ok: false, reason: "billing_status" });
   });
 });

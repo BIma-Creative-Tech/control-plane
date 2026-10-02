@@ -13,9 +13,10 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { PgBoss, fromDrizzle } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "@/db/client";
+import { ensureInitialPlans } from "@/db/plans";
 import { ensurePlatformTenant } from "@/db/platform";
-import { auditLogs, clients, environments, provisionJobs, tenantUserAccess, users } from "@/db/schema";
-import { listClientChains, listRealmSyncJobs, listUnboundUsers, queryAudit, tenantCheckByEnv } from "@/db/tenant-queries";
+import { auditLogs, clients, environments, plans, provisionJobs, subscriptions, tenantUserAccess, users } from "@/db/schema";
+import { listClientChains, listRealmSyncJobs, listUnboundUsers, queryAudit } from "@/db/tenant-queries";
 import { enqueueChain } from "@/jobs/chain";
 import { INFRA_JOB_QUEUE_OPTIONS, QUEUE_INFRA_JOB } from "@/jobs/queue";
 import type { Actor, SendFn } from "@/jobs/service";
@@ -136,6 +137,7 @@ describe.skipIf(!URL_)("Tenant: onboarding/suspend/retry/realm ⇄ dispatcher pa
     adminEmail: `admin@${slug}.co.id`,
     adminName: "Admin Tenant",
     envs: [{ kind: "prod", host: `${slug}.erp.bimacreative.tech` }],
+    planId: null,
     ...patch,
   });
 
@@ -246,9 +248,8 @@ describe.skipIf(!URL_)("Tenant: onboarding/suspend/retry/realm ⇄ dispatcher pa
     const tua = await db.select().from(tenantUserAccess).where(eq(tenantUserAccess.email, "admin@acme-co.co.id"));
     expect(tua).toHaveLength(2);
     expect(tua.every((t) => t.isTenantAdmin && t.status === "active")).toBe(true);
-    const tc = await tenantCheckByEnv(db, acmeId);
-    expect(tc.get("prod")?.label).toBe("compat");
-    expect(tc.get("demo")?.label).toBe("compat");
+    // Migrasi 0005: RESULT mode odoo_tenant_config → environments.tenant_check (rekonsiliasi worker).
+    expect(envAfter.map((e) => e.tenantCheck)).toEqual(["compat", "compat"]);
     const chains = await listClientChains(db, acmeId);
     expect(chains).toHaveLength(1);
     expect(chains[0]!.steps.map((s) => s.id)).toEqual(r.jobIds);
@@ -555,5 +556,40 @@ describe.skipIf(!URL_)("Tenant: onboarding/suspend/retry/realm ⇄ dispatcher pa
     expect(p2.rows[0]?.id).not.toBe(all.rows[0]?.id);
     // Wildcard LIKE tidak berlaku (starts_with): "%" ditolak parser, "_" tidak cocok sembarang karakter.
     expect((await queryAudit(db, parseAuditParams({ action: "tenant_" }))).total).toBe(0);
+  });
+
+  it("onboarding + plan Odoo: langganan implementation di transaksi yang sama; plan non-odoo/tidak aktif/ops → ditolak utuh", async () => {
+    await ensureInitialPlans(db);
+    await ageDbProvisions();
+    await ageActorRate();
+    const planOf = async (code: string) => (await db.select().from(plans).where(eq(plans.code, code)))[0]!.id;
+    const count = async () => ({ c: (await db.select().from(clients)).length, s: (await db.select().from(subscriptions)).length, j: (await db.select().from(provisionJobs)).length });
+    const c0 = await count();
+    // Plan layanan mail → plan_inactive; tenant/env/job/langganan tidak tersisa.
+    expect(await onboardTenant(db, send, { ...svc(), form: form("zeta-co", { planId: await planOf("mail-5") }) })).toEqual({
+      ok: false,
+      reason: "precondition",
+      detail: "plan_inactive",
+    });
+    // Plan tidak ada (uuid acak) dan plan nonaktif → plan_inactive.
+    expect(await onboardTenant(db, send, { ...svc(), form: form("zeta-co", { planId: "0b0b0b0b-0000-4000-8000-000000000000" }) })).toMatchObject({ detail: "plan_inactive" });
+    await db.update(plans).set({ isActive: false }).where(eq(plans.code, "odoo-shared-m"));
+    expect(await onboardTenant(db, send, { ...svc(), form: form("zeta-co", { planId: await planOf("odoo-shared-m") }) })).toMatchObject({ detail: "plan_inactive" });
+    await db.update(plans).set({ isActive: true }).where(eq(plans.code, "odoo-shared-m"));
+    expect(await count()).toEqual(c0);
+    // ops: clients:manage tidak ada → forbidden sebelum apa pun.
+    expect(await onboardTenant(db, send, { ...svc(), actor: OPS, form: form("zeta-co", { planId: await planOf("odoo-shared-s") }) })).toEqual({ ok: false, reason: "forbidden" });
+
+    const r = await onboardTenant(db, send, { ...svc(), form: form("zeta-co", { planId: await planOf("odoo-shared-s") }) });
+    expect(r.ok).toBe(true);
+    const zid = (r as { clientId: string }).clientId;
+    const subs = await db.select().from(subscriptions).where(eq(subscriptions.clientId, zid));
+    expect(subs).toHaveLength(1);
+    expect(subs[0]).toMatchObject({ status: "implementation", planId: await planOf("odoo-shared-s"), priceAmount: null });
+    const created = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "subscription.create"), eq(auditLogs.clientId, zid)));
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ result: "success", actor: "user:super-sub", targetId: subs[0]!.id });
+    const onboard = (await db.select().from(auditLogs).where(and(eq(auditLogs.action, "tenant.onboard"), eq(auditLogs.clientId, zid))))[0]!;
+    expect(onboard.metadata).toMatchObject({ plan_id: await planOf("odoo-shared-s") });
   });
 });

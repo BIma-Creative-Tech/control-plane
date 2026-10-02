@@ -6,6 +6,7 @@ import { instanceJobTypes, type Instance } from "@/lib/job-contract";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
 import { ONBOARDING_TYPES, typesEnabled } from "@/lib/tenant-onboarding";
+import { listPlans } from "@/server/billing-queries";
 import { ResultBanner, StatusBadge } from "../jobs/components";
 import { Nav } from "../nav";
 import { createClientAction, onboardTenantAction } from "./actions";
@@ -17,7 +18,7 @@ const input = "rounded border px-2 py-1";
  * "Tenant baru" (SaaS Fase 1 W5) — satu form: data tenant + admin + environment instance ini. Server mengulang semua
  * validasi (parseOnboardingForm + layanan onboardTenant); field yang tidak relevan untuk instance ditolak.
  */
-function OnboardingForm({ instance }: { instance: Instance }) {
+function OnboardingForm({ instance, plans }: { instance: Instance; plans: { id: string; code: string; name: string }[] }) {
   return (
     <form action={onboardTenantAction} className="mt-4 space-y-3 rounded border bg-white p-4 text-sm">
       <h2 className="font-semibold">Tenant baru</h2>
@@ -30,6 +31,22 @@ function OnboardingForm({ instance }: { instance: Instance }) {
         <input name="admin_email" type="email" required maxLength={254} placeholder="email tenant-admin" className={input} />
         <input name="admin_name" required maxLength={100} placeholder="nama admin (ASCII)" className={input} />
       </div>
+      {plans.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <label>
+            Plan Odoo{" "}
+            <select name="plan_id" defaultValue="" className={input}>
+              <option value="">— tanpa langganan (atur nanti di Subscriptions) —</option>
+              {plans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.code} — {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="text-xs text-slate-500">Bila dipilih: langganan berstatus implementasi dibuat di transaksi yang sama.</span>
+        </div>
+      ) : null}
       {instance === "prod" ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono">prod</span>
@@ -67,6 +84,11 @@ export default async function ClientsPage(props: PageProps<"/clients">) {
   const instance = env.INFRA_JOBS_INSTANCE;
   const canManage = can(session.roles, "clients:manage");
   const onboardingOn = canManage && instance !== undefined && typesEnabled(instanceJobTypes(env.INFRA_JOBS_TYPES), ONBOARDING_TYPES);
+  // Plan aktif layanan odoo — hanya untuk pemegang billing:manage (layanan memeriksa ulang).
+  const odooPlans =
+    onboardingOn && can(session.roles, "billing:manage")
+      ? (await listPlans()).filter((p) => p.isActive && p.service === "odoo").map((p) => ({ id: p.id, code: p.code, name: p.name }))
+      : [];
 
   return (
     <>
@@ -125,7 +147,7 @@ export default async function ClientsPage(props: PageProps<"/clients">) {
         <p className="mt-2 text-xs text-slate-500">
           Total {total} · halaman {params.page} · {PAGE_SIZE}/halaman
         </p>
-        {onboardingOn && instance ? <OnboardingForm instance={instance} /> : null}
+        {onboardingOn && instance ? <OnboardingForm instance={instance} plans={odooPlans} /> : null}
         {canManage && !onboardingOn ? (
           <p role="status" className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-800">
             &quot;Tenant baru&quot; nonaktif di instance ini ({instance ?? "INFRA_JOBS_INSTANCE kosong"}): tipe job onboarding belum

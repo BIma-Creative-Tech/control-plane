@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/db";
-import { getTenantBySlug, listClientChains, listUsersOfTenant, tenantCheckByEnv } from "@/db/tenant-queries";
+import { getTenantBySlug, listClientChains, listUsersOfTenant } from "@/db/tenant-queries";
 import { getWebEnv } from "@/env";
 import { requirePermission } from "@/lib/authz";
 import { INSTANCE_ENVS, UUID_REGEX, envAllowedForInstance, instanceJobTypes } from "@/lib/job-contract";
@@ -14,7 +14,7 @@ import { JobTable, ResultBanner, StatusBadge } from "../../jobs/components";
 import { Nav } from "../../nav";
 import { createEnvironmentAction, tenantStateAction } from "../actions";
 import { ChainList } from "../chain-list";
-import { BillingSlot } from "./billing-slot";
+import { TenantBillingSummary } from "../../billing/tenant-billing";
 
 const input = "rounded border px-2 py-1 text-sm";
 const btnDanger = "rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50";
@@ -22,7 +22,8 @@ const btn = "rounded border px-3 py-1 text-sm hover:bg-slate-100";
 
 /**
  * Detail tenant (W5): status, environment (db/route/sso/tenant_check), user tenant, rantai & job terakhir, Suspend/
- * Resume override (superadmin, ketik slug), slot billing. Lihat: superadmin+ops (`jobs:view`); mutasi: superadmin.
+ * Resume override (superadmin, ketik slug), ringkasan langganan & invoice. Lihat: superadmin+ops (`jobs:view`);
+ * mutasi: superadmin.
  */
 export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
   const session = await requirePermission("jobs:view");
@@ -39,9 +40,8 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
   const kinds = instance ? INSTANCE_ENVS[instance] : (["prod", "demo", "staging"] as const);
   const canManage = can(session.roles, "clients:manage");
 
-  const [envs, tcheck, tenantUsers, jobs, chains] = await Promise.all([
+  const [envs, tenantUsers, jobs, chains] = await Promise.all([
     listEnvironmentsForClient(client.id),
-    tenantCheckByEnv(db, client.id),
     listUsersOfTenant(db, client.id),
     listJobs({ client: client.slug, page: 1 }, 10),
     listClientChains(db, client.id, 10),
@@ -111,7 +111,6 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
                 </tr>
               ) : (
                 envs.map((e) => {
-                  const tc = tcheck.get(e.kind);
                   return (
                     <tr key={e.id} className="border-t">
                       <td className="p-2 font-mono">
@@ -129,15 +128,8 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
                       <td className="p-2">
                         <StatusBadge value={e.ssoStatus} />
                       </td>
-                      <td className="p-2 font-mono">
-                        {tc ? (
-                          <Link href={`/jobs/${tc.jobId}`} className="underline">
-                            {tc.label}
-                          </Link>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
+                      {/* Migrasi 0005: environments.tenant_check dari RESULT `mode` odoo_tenant_config (rekonsiliasi worker). */}
+                      <td className="p-2 font-mono">{e.tenantCheck ?? "—"}</td>
                     </tr>
                   );
                 })
@@ -184,8 +176,8 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
           </section>
         ) : null}
 
-        {/* SLOT BILLING — panel subscription/invoice dari branch billing (lihat billing-slot.tsx). */}
-        {!client.isPlatform ? <BillingSlot clientId={client.id} canManage={canManage} /> : null}
+        {/* Ringkasan langganan & invoice (ADR 0018) — aksi di /subscriptions dan /invoices. */}
+        {!client.isPlatform ? <TenantBillingSummary session={session} clientId={client.id} slug={client.slug} /> : null}
 
         <section className="space-y-2">
           <div className="flex items-center gap-3">

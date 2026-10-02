@@ -1979,6 +1979,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "price_amount": {
+          "name": "price_amount",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_currency": {
+          "name": "price_currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2044,7 +2056,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "subscriptions_price_nonneg": {
+          "name": "subscriptions_price_nonneg",
+          "value": "\"subscriptions\".\"price_amount\" IS NULL OR \"subscriptions\".\"price_amount\" >= 0"
+        },
+        "subscriptions_price_currency": {
+          "name": "subscriptions_price_currency",
+          "value": "(\"subscriptions\".\"price_amount\" IS NULL AND \"subscriptions\".\"price_currency\" IS NULL) OR (\"subscriptions\".\"price_amount\" IS NOT NULL AND \"subscriptions\".\"price_currency\" IS NOT NULL AND \"subscriptions\".\"price_currency\" ~ '^[A-Z]{3}$')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.tenant_user_access": {

@@ -213,6 +213,7 @@ describe("form onboarding (slug, host per aturan HOST)", () => {
         adminEmail: "admin@acme.co.id",
         adminName: "Budi Santoso",
         envs: [{ kind: "prod", host: "acme-co.erp.bimacreative.tech" }],
+        planId: null,
       },
     });
   });
