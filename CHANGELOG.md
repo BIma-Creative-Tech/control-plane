@@ -9,6 +9,12 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 
 ## [Unreleased]
 
+### Added
+- **Isu link dokumen** (plan infra 18, modul Odoo `custom_doc_trace`): badge "n isu link" di daftar Dashboard SPK dan
+  header detail SPK, panel "Isu link dokumen" di detail SPK (aturan dalam bahasa Indonesia, dokumen + tautan ke Odoo,
+  status terbuka / diperbaiki otomatis). Sumber `mart.mart_spk.issue_count` dan `mart.mart_spk_issue`; toleran data
+  mart lama: kolom dibaca lewat `to_jsonb`, tabel dicek `to_regclass` (tidak ada → tanpa badge/panel).
+
 ## [0.6.0] - 2026-10-02
 
 ### Changed

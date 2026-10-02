@@ -10,6 +10,7 @@ import { Nav } from "../../nav";
 import {
   Badge, DashboardTabs, EmptyRow, INPUT, LINK, MockupBadge, PageHeader, Pagination, Panel, ROW, StatCard, TD, TH, rise,
 } from "../ui";
+import { IssueBadge } from "./[soId]/issues";
 import { Progress, StageBar, ValueBar, stageFill } from "./bars";
 
 /**
@@ -152,6 +153,7 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
                           {TRACK_LABEL[r.quotationState === "terkirim" ? "terkirim" : "penawaran"]}
                         </Badge>
                       ) : null}
+                      <IssueBadge count={r.issueCount} className="ml-1.5" />
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Icon name="calendar" className="size-3.5" />{r.legacyRef ? `No lama ${r.legacyRef} · ` : ""}{tanggal(r.dateOrder)}
                       </div>

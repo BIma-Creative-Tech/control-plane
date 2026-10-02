@@ -7,11 +7,13 @@ import {
   ACTIVITY_LABEL, PAYMENT_STATE_LABEL, TRACK_LABEL, rupiah, scmTone, stageTone, tanggal,
   tanggalJam, trackTone,
 } from "@/lib/format";
+import { odooUrlFor } from "@/lib/odoo-links";
 import { parseSpkListParams } from "@/lib/spk-params";
 import { accessFor, getSpkDetail } from "@/server/spk-dashboard";
 import { Nav } from "../../../nav";
 import { Badge, EmptyRow, MockupBadge, Panel, ROW, TD, TH, rise } from "../../ui";
 import { Progress, TrackStepper } from "../bars";
+import { IssueBadge, IssuesPanel } from "./issues";
 import { Procurement } from "./procurement";
 
 /** Detail satu SPK: tahap per lokasi, status terakhir, kegiatan lapangan & kru; nilai hanya untuk yang berhak. */
@@ -62,6 +64,7 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
               <div className="flex gap-1.5">
                 <Badge tone={trackTone(d.track)}>{TRACK_LABEL[d.track] ?? d.track}</Badge>
                 <Badge tone={stageTone(s.stage)}>{s.stage}</Badge>
+                <IssueBadge count={s.issueCount} />
               </div>
               <Progress value={s.progress} />
             </div>
@@ -159,6 +162,8 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
             </Panel>
           ) : null}
         </div>
+
+        <IssuesPanel issues={d.issues} odooUrl={odooUrlFor(access.client)} />
 
         <Procurement client={access.client} soId={soId} scm={d.scm} products={d.products}
           vendorPayments={d.vendorPayments} canSeeValue={access.canSeeValue} />
