@@ -6,9 +6,11 @@ import "server-only";
  * - `track`: tahap Quotation Tracker dengan penawaran terkirim dipisah ('terkirim'), selain itu = `tracker_stage`.
  * `quotation_state` dibaca lewat `to_jsonb(m)` agar query tetap jalan pada data mart lama yang belum punya kolom itu
  * (semua penawaran lalu dianggap 'dibuat'). Teks tetap, tanpa input user → aman digabung ke SQL.
+ * - `issues`: jumlah isu link dokumen terbuka (plan 18, `issue_count`); mart lama tanpa kolom itu → 0.
  */
 const Q_STATE = `CASE WHEN m.status = 'penawaran' THEN coalesce(to_jsonb(m) ->> 'quotation_state', 'dibuat') END`;
 
 export const MART_SPK = `(SELECT m.*, ${Q_STATE} AS q_state,
-    CASE WHEN m.tracker_stage = 'penawaran' AND ${Q_STATE} = 'terkirim' THEN 'terkirim' ELSE m.tracker_stage END AS track
+    CASE WHEN m.tracker_stage = 'penawaran' AND ${Q_STATE} = 'terkirim' THEN 'terkirim' ELSE m.tracker_stage END AS track,
+    coalesce((to_jsonb(m) ->> 'issue_count')::int, 0) AS issues
   FROM mart.mart_spk m) s`;

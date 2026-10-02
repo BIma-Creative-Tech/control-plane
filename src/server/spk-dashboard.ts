@@ -1,6 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { withMart } from "@/db/datamart";
+import type { DocTraceIssue } from "@/lib/doc-trace";
 import type { ScmDoc, VendorPayment } from "@/lib/scm";
 import type { SpkListParams } from "@/lib/spk-params";
 import { MART_SPK } from "@/server/mart-spk";
@@ -83,6 +84,8 @@ export type SpkRow = {
   lastStatus: string | null;
   lastStatusAt: Date | null;
   crewHours: number;
+  /** Isu link dokumen terbuka (plan 18). */
+  issueCount: number;
   value?: number;
   invoiced?: number;
   paid?: number;
@@ -119,6 +122,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
     lastStatus: (x.last_status as string) ?? null,
     lastStatusAt: (x.last_status_at as Date) ?? null,
     crewHours: Number(x.crew_hours),
+    issueCount: Number(x.issues ?? 0),
   };
   if (withValue) {
     row.value = Number(x.value);
@@ -131,7 +135,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
 }
 
 const BASE_COLS = `so_id, spk_no, legacy_ref, status, q_state, date_order, customer, brand, ae, locations, stage, stage_seq,
-  progress_pct, last_status, last_status_at, crew_hours`;
+  progress_pct, last_status, last_status_at, crew_hours, issues`;
 const VALUE_COLS = `, value, invoiced, paid, due, is_mockup`;
 
 export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkListParams): Promise<SpkDashboard> {
@@ -256,6 +260,8 @@ export type SpkDetail = {
   products: Record<string, string>;
   /** Pembayaran ke vendor per tagihan — hanya untuk yang berhak melihat nilai. */
   vendorPayments?: VendorPayment[];
+  /** Isu link dokumen (plan 18): terbuka + diperbaiki otomatis 30 hari terakhir; [] bila mart belum punya tabelnya. */
+  issues: DocTraceIssue[];
   /** Pembayaran per invoice — hanya untuk yang berhak melihat nilai. */
   payments?: {
     paymentId: number;
@@ -304,6 +310,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
       [env, soId],
     );
     const vpays = withValue ? await queryVendorPayments(c, env, soId) : null;
+    const issues = await queryIssues(c, env, soId);
     const pays = withValue
       ? await c.query(
           `SELECT payment_id, payment_no, date, journal, memo, invoice_no, amount FROM mart.mart_spk_payment
@@ -349,6 +356,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
       })),
       scm,
       products: Object.fromEntries(prods.rows.map((x) => [`${x.kind}:${x.doc_id}`, String(x.products)])),
+      issues,
       ...(vpays ? { vendorPayments: vpays } : {}),
       ...(pays
         ? {
@@ -386,6 +394,33 @@ async function queryScm(c: PoolClient, env: string, soId: number, withValue: boo
     ...(withValue
       ? { amount: x.amount === null ? null : Number(x.amount), amountPaid: x.amount_paid === null ? null : Number(x.amount_paid) }
       : {}),
+  }));
+}
+
+/**
+ * Isu link dokumen SPK (mart_spk_issue, plan 18). Tabel belum ada (data mart lama / tenant tanpa custom_doc_trace)
+ * → []. Tanpa nominal; akses = detail SPK (RLS client + pemeriksaan SPK di pemanggil).
+ */
+async function queryIssues(c: PoolClient, env: string, soId: number): Promise<DocTraceIssue[]> {
+  const has = await c.query(`SELECT to_regclass('mart.mart_spk_issue') IS NOT NULL AS ok`);
+  if (!has.rows[0]?.ok) return [];
+  const r = await c.query(
+    `SELECT issue_id, rule_code, severity, res_model, res_id, doc_no, state, message, first_seen, last_seen, fixed_at
+       FROM mart.mart_spk_issue WHERE env = $1 AND so_id = $2 ORDER BY last_seen DESC NULLS LAST, issue_id DESC LIMIT 100`,
+    [env, soId],
+  );
+  return r.rows.map((x) => ({
+    issueId: Number(x.issue_id),
+    ruleCode: String(x.rule_code),
+    severity: String(x.severity),
+    resModel: String(x.res_model),
+    resId: Number(x.res_id),
+    docNo: x.doc_no ?? null,
+    state: String(x.state),
+    message: x.message ?? null,
+    firstSeen: x.first_seen ?? null,
+    lastSeen: x.last_seen ?? null,
+    fixedAt: x.fixed_at ?? null,
   }));
 }
 
