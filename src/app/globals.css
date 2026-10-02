@@ -1,1 +1,88 @@
 @import "tailwindcss";
+
+/*
+ * Tema "Onyx" monokrom — selaras website expomedia.id (Syne + Manrope, iconsax, gaya 21st.dev).
+ * Terang/gelap mengikuti sistem (prefers-color-scheme) di dalam `.theme-auto`. Warna status (tahap, jatuh tempo) tetap memakai palet
+ * Tailwind ber-varian dark. Kontras teks ≥ 4.5:1 di kedua tema (muted-foreground di atas card & background).
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-heading-face), var(--font-body), ui-sans-serif, system-ui, sans-serif;
+
+  --animate-rise: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-grow-x: grow-x 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+:root {
+  color-scheme: light;
+  --background: #f5f5f4;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --muted: #efefef;
+  --muted-foreground: #525252;
+  --border: #e5e5e5;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --ring: #111111;
+}
+
+/*
+ * Gelap hanya di dalam `.theme-auto` (src/app/dashboard/layout.tsx): halaman lain (clients, jobs, login) masih
+ * memakai bg-white/slate statis sehingga tetap terang.
+ */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(.theme-auto, .theme-auto *) {
+      @slot;
+    }
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .theme-auto {
+    color-scheme: dark;
+    --background: #171618;
+    --foreground: #f5f5f5;
+    --card: #1f1e20;
+    --muted: #2c2b2d;
+    --muted-foreground: #b4b4b4;
+    --border: #3a393b;
+    --primary: #f5f5f5;
+    --primary-foreground: #0a0a0a;
+    --ring: #d4d4d4;
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+  button, a, select, summary {
+    @apply cursor-pointer;
+  }
+}

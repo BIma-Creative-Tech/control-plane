@@ -1,7 +1,9 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { withMart } from "@/db/datamart";
+import type { ScmDoc, VendorPayment } from "@/lib/scm";
 import type { SpkListParams } from "@/lib/spk-params";
+import { MART_SPK } from "@/server/mart-spk";
 
 /**
  * Query dashboard SPK (ADR 0016). Semua SQL konstanta + parameter posisi; kolom nilai (Rp) hanya DIPILIH bila
@@ -51,7 +53,7 @@ const FILTER = `
   AND ($2::text = '' OR spk_no ILIKE '%' || $2 || '%' OR legacy_ref ILIKE '%' || $2 || '%'
        OR customer ILIKE '%' || $2 || '%' OR brand ILIKE '%' || $2 || '%' OR ae ILIKE '%' || $2 || '%')
   AND ($3::text = '' OR stage = $3)
-  AND ($4::text = '' OR status = $4)
+  AND ($4::text = '' OR status = $4 OR q_state = $4)
   AND ($5::text = '' OR ae_login = $5)`;
 
 // Urutan hanya dari daftar tetap (bukan input bebas) → aman digabung ke SQL.
@@ -68,6 +70,8 @@ export type SpkRow = {
   spkNo: string;
   legacyRef: string | null;
   status: string;
+  /** Penawaran: 'dibuat' | 'terkirim'; SPK/batal: null. */
+  quotationState: string | null;
   dateOrder: Date | null;
   customer: string | null;
   brand: string | null;
@@ -90,7 +94,7 @@ export type SpkDashboard = {
   rows: SpkRow[];
   total: number;
   refreshedAt: Date | null;
-  kpi: { spk: number; quotations: number; locations: number; done: number; waitingBast: number; inProgress: number };
+  kpi: { spk: number; quotations: number; quotationsSent: number; locations: number; done: number; waitingBast: number; inProgress: number };
   stages: { stage: string; seq: number; count: number }[];
   value?: { total: number; invoiced: number; paid: number; due: number; isMockup: boolean };
   valueByCustomer?: { customer: string; value: number }[];
@@ -103,6 +107,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
     spkNo: String(x.spk_no),
     legacyRef: (x.legacy_ref as string) ?? null,
     status: String(x.status),
+    quotationState: (x.q_state as string) ?? null,
     dateOrder: (x.date_order as Date) ?? null,
     customer: (x.customer as string) ?? null,
     brand: (x.brand as string) ?? null,
@@ -125,7 +130,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
   return row;
 }
 
-const BASE_COLS = `so_id, spk_no, legacy_ref, status, date_order, customer, brand, ae, locations, stage, stage_seq,
+const BASE_COLS = `so_id, spk_no, legacy_ref, status, q_state, date_order, customer, brand, ae, locations, stage, stage_seq,
   progress_pct, last_status, last_status_at, crew_hours`;
 const VALUE_COLS = `, value, invoiced, paid, due, is_mockup`;
 
@@ -138,28 +143,29 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
     const sort = !withValue && p.sort === "value_desc" ? "date_desc" : p.sort;
     const cols = BASE_COLS + (withValue ? VALUE_COLS : "");
     const list = await c.query(
-      `SELECT ${cols} FROM mart.mart_spk WHERE ${FILTER} ORDER BY ${ORDER_BY[sort]} LIMIT $6 OFFSET $7`,
+      `SELECT ${cols} FROM ${MART_SPK} WHERE ${FILTER} ORDER BY ${ORDER_BY[sort]} LIMIT $6 OFFSET $7`,
       [...args, p.pageSize, (p.page - 1) * p.pageSize],
     );
     const agg = await c.query(
       `SELECT count(*)::int AS total,
               count(*) FILTER (WHERE status = 'spk')::int AS spk,
               count(*) FILTER (WHERE status = 'penawaran')::int AS quotations,
+              count(*) FILTER (WHERE q_state = 'terkirim')::int AS quotations_sent,
               coalesce(sum(locations) FILTER (WHERE status = 'spk'), 0)::int AS locations,
               count(*) FILTER (WHERE status = 'spk' AND stage IN ('BAST', 'Selesai'))::int AS done,
               count(*) FILTER (WHERE status = 'spk' AND stage = 'Laporan')::int AS waiting_bast,
               count(*) FILTER (WHERE status = 'spk' AND stage NOT IN ('BAST', 'Selesai', 'Laporan'))::int AS in_progress,
               max(refreshed_at) AS refreshed_at
-         FROM mart.mart_spk WHERE ${FILTER}`,
+         FROM ${MART_SPK} WHERE ${FILTER}`,
       args,
     );
     const stages = await c.query(
-      `SELECT stage, min(stage_seq)::int AS seq, count(*)::int AS count FROM mart.mart_spk
+      `SELECT stage, min(stage_seq)::int AS seq, count(*)::int AS count FROM ${MART_SPK}
         WHERE ${FILTER} AND status = 'spk' GROUP BY stage ORDER BY 2`,
       args,
     );
     const customers = await c.query(
-      `SELECT DISTINCT customer FROM mart.mart_spk WHERE env = $1 AND customer IS NOT NULL
+      `SELECT DISTINCT customer FROM ${MART_SPK} WHERE env = $1 AND customer IS NOT NULL
          AND ($2::text = '' OR ae_login = $2) ORDER BY 1`,
       [env, aeLogin],
     );
@@ -171,6 +177,7 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
       kpi: {
         spk: a.spk,
         quotations: a.quotations,
+        quotationsSent: a.quotations_sent,
         locations: a.locations,
         done: a.done,
         waitingBast: a.waiting_bast,
@@ -183,11 +190,11 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
       const v = await c.query(
         `SELECT coalesce(sum(value), 0) AS total, coalesce(sum(invoiced), 0) AS invoiced, coalesce(sum(paid), 0) AS paid,
                 coalesce(sum(due), 0) AS due, coalesce(bool_or(is_mockup), false) AS is_mockup
-           FROM mart.mart_spk WHERE ${FILTER} AND status = 'spk'`,
+           FROM ${MART_SPK} WHERE ${FILTER} AND status = 'spk'`,
         args,
       );
       const byCustomer = await c.query(
-        `SELECT coalesce(customer, '-') AS customer, sum(value) AS value FROM mart.mart_spk
+        `SELECT coalesce(customer, '-') AS customer, sum(value) AS value FROM ${MART_SPK}
           WHERE ${FILTER} AND status = 'spk' GROUP BY 1 ORDER BY 2 DESC LIMIT 8`,
         args,
       );
@@ -207,7 +214,7 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
 
 export type SpkDetail = {
   spk: SpkRow & { quotationName: string | null };
-  /** Tahap Quotation Tracker (mart_spk.tracker_stage). */
+  /** Tahap Quotation Tracker (mart_spk.tracker_stage; penawaran terkirim = 'terkirim', lihat mart-spk.ts). */
   track: string;
   locations: {
     taskId: number;
@@ -244,17 +251,11 @@ export type SpkDetail = {
     residual?: number;
   }[];
   /** Supply chain (plan infra 16): PO, penerimaan, MO, surat jalan, tagihan vendor; nominal hanya bila canSeeValue. */
-  scm: {
-    kind: string;
-    docId: number;
-    docNo: string;
-    state: string;
-    date: Date | null;
-    party: string | null;
-    detail: string | null;
-    amount?: number | null;
-    amountPaid?: number | null;
-  }[];
+  scm: ScmDoc[];
+  /** Ringkasan produk per dokumen PO & MO (hasil): doc_id → "Produk A, Produk B". */
+  products: Record<string, string>;
+  /** Pembayaran ke vendor per tagihan — hanya untuk yang berhak melihat nilai. */
+  vendorPayments?: VendorPayment[];
   /** Pembayaran per invoice — hanya untuk yang berhak melihat nilai. */
   payments?: {
     paymentId: number;
@@ -272,7 +273,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
   const aeLogin = aeOnly(access) ? access.login : "";
   return withMart({ sub, client: access.client }, async (c, env) => {
     const head = await c.query(
-      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""}, quotation_name, tracker_stage FROM mart.mart_spk
+      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""}, quotation_name, track FROM ${MART_SPK}
         WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
       [env, soId, aeLogin],
     );
@@ -294,12 +295,15 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
          FROM mart.mart_spk_invoice WHERE env = $1 AND so_id = $2 ORDER BY invoice_date NULLS LAST, invoice_id`,
       [env, soId],
     );
-    const scm = await c.query(
-      `SELECT kind, doc_id, doc_no, state, doc_date, party, detail${withValue ? ", amount, amount_paid" : ""}
-         FROM mart.mart_spk_scm WHERE env = $1 AND so_id = $2
-        ORDER BY array_position(ARRAY['po','receipt','bill','mo','delivery'], kind), doc_date NULLS LAST, doc_id`,
+    const scm = await queryScm(c, env, soId, withValue);
+    const prods = await c.query(
+      `SELECT kind, doc_id, string_agg(product, ', ' ORDER BY sequence NULLS LAST, line_id) AS products
+         FROM mart.mart_spk_scm_line
+        WHERE env = $1 AND so_id = $2 AND (kind = 'po' OR (kind = 'mo' AND role = 'hasil')) AND product IS NOT NULL
+        GROUP BY kind, doc_id`,
       [env, soId],
     );
+    const vpays = withValue ? await queryVendorPayments(c, env, soId) : null;
     const pays = withValue
       ? await c.query(
           `SELECT payment_id, payment_no, date, journal, memo, invoice_no, amount FROM mart.mart_spk_payment
@@ -310,7 +314,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
     const h = head.rows[0];
     return {
       spk: { ...mapRow(h, withValue), quotationName: h.quotation_name ?? null },
-      track: String(h.tracker_stage),
+      track: String(h.track),
       locations: locs.rows.map((x) => ({
         taskId: Number(x.task_id),
         location: x.location,
@@ -343,18 +347,9 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
         isOverdue: x.is_overdue === true,
         ...(withValue ? { amountTotal: Number(x.amount_total), residual: Number(x.amount_residual) } : {}),
       })),
-      scm: scm.rows.map((x) => ({
-        kind: String(x.kind),
-        docId: Number(x.doc_id),
-        docNo: String(x.doc_no),
-        state: String(x.state),
-        date: x.doc_date ?? null,
-        party: x.party ?? null,
-        detail: x.detail ?? null,
-        ...(withValue
-          ? { amount: x.amount === null ? null : Number(x.amount), amountPaid: x.amount_paid === null ? null : Number(x.amount_paid) }
-          : {}),
-      })),
+      scm,
+      products: Object.fromEntries(prods.rows.map((x) => [`${x.kind}:${x.doc_id}`, String(x.products)])),
+      ...(vpays ? { vendorPayments: vpays } : {}),
       ...(pays
         ? {
             payments: pays.rows.map((x) => ({
@@ -368,6 +363,137 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
             })),
           }
         : {}),
+    };
+  });
+}
+
+async function queryScm(c: PoolClient, env: string, soId: number, withValue: boolean): Promise<ScmDoc[]> {
+  const r = await c.query(
+    `SELECT kind, doc_id, doc_no, state, doc_date, party, detail, po_id${withValue ? ", amount, amount_paid" : ""}
+       FROM mart.mart_spk_scm WHERE env = $1 AND so_id = $2
+      ORDER BY array_position(ARRAY['po','receipt','bill','mo','delivery'], kind), doc_date NULLS LAST, doc_id`,
+    [env, soId],
+  );
+  return r.rows.map((x) => ({
+    kind: String(x.kind),
+    docId: Number(x.doc_id),
+    docNo: String(x.doc_no),
+    state: String(x.state),
+    date: x.doc_date ?? null,
+    party: x.party ?? null,
+    detail: x.detail ?? null,
+    poId: x.po_id === null ? null : Number(x.po_id),
+    ...(withValue
+      ? { amount: x.amount === null ? null : Number(x.amount), amountPaid: x.amount_paid === null ? null : Number(x.amount_paid) }
+      : {}),
+  }));
+}
+
+/** Pembayaran ke vendor (mart_spk_vendor_payment) — HANYA dipanggil bila canSeeValue. */
+async function queryVendorPayments(c: PoolClient, env: string, soId: number): Promise<VendorPayment[]> {
+  const r = await c.query(
+    `SELECT po_id, bill_id, bill_no, payment_id, payment_no, state, date, journal, memo, amount
+       FROM mart.mart_spk_vendor_payment WHERE env = $1 AND so_id = $2 ORDER BY date NULLS LAST, payment_id`,
+    [env, soId],
+  );
+  return r.rows.map((x) => ({
+    poId: Number(x.po_id),
+    billId: Number(x.bill_id),
+    billNo: String(x.bill_no),
+    paymentId: Number(x.payment_id),
+    paymentNo: x.payment_no ?? null,
+    state: String(x.state),
+    date: x.date ?? null,
+    journal: x.journal ?? null,
+    memo: x.memo ?? null,
+    amount: Number(x.amount),
+  }));
+}
+
+export type ScmLine = {
+  lineId: number;
+  role: string | null;
+  code: string | null;
+  product: string | null;
+  description: string | null;
+  qty: number | null;
+  qtyDone: number | null;
+  qtyBilled: number | null;
+  uom: string | null;
+  amount?: number | null;
+};
+
+export type ScmDocument = {
+  spkNo: string;
+  customer: string | null;
+  /** Semua dokumen SCM SPK ini (untuk alur PO → GR → tagihan → pembayaran). */
+  scm: ScmDoc[];
+  vendorPayments?: VendorPayment[];
+  /** Dokumen yang dibuka (null untuk kind 'payment'). */
+  doc: ScmDoc | null;
+  /** Untuk kind 'payment': alokasi pembayaran per tagihan. */
+  payment?: VendorPayment[];
+  lines: ScmLine[];
+};
+
+/**
+ * Detail satu dokumen SCM milik SPK `soId`. Akses = sama dengan detail SPK (RLS client + AE murni hanya SPK miliknya);
+ * dokumen harus milik SPK ini (cegah membuka dokumen SPK lain lewat URL). Pembayaran vendor & nominal hanya bila
+ * canSeeValue — kind 'payment' tanpa hak → null (404).
+ */
+export async function getScmDocument(
+  sub: string, access: ClientAccess, soId: number, kind: string, docId: number,
+): Promise<ScmDocument | null> {
+  const withValue = access.canSeeValue;
+  if (kind === "payment" && !withValue) return null;
+  const aeLogin = aeOnly(access) ? access.login : "";
+  return withMart({ sub, client: access.client }, async (c, env) => {
+    const head = await c.query(
+      `SELECT spk_no, customer FROM ${MART_SPK} WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
+      [env, soId, aeLogin],
+    );
+    if (head.rowCount === 0) return null;
+    const scm = await queryScm(c, env, soId, withValue);
+    const vendorPayments = withValue ? await queryVendorPayments(c, env, soId) : undefined;
+    let doc: ScmDoc | null = null;
+    let payment: VendorPayment[] | undefined;
+    if (kind === "payment") {
+      payment = vendorPayments?.filter((p) => p.paymentId === docId);
+      if (!payment?.length) return null;
+    } else {
+      doc = scm.find((d) => d.kind === kind && d.docId === docId) ?? null;
+      if (!doc) return null;
+    }
+    const lines = doc
+      ? await c.query(
+          `SELECT line_id, role, default_code, product, description, qty, qty_done, qty_billed, uom
+                  ${withValue ? ", amount" : ""}
+             FROM mart.mart_spk_scm_line WHERE env = $1 AND so_id = $2 AND kind = $3 AND doc_id = $4
+            ORDER BY role NULLS FIRST, sequence NULLS LAST, line_id`,
+          [env, soId, kind, docId],
+        )
+      : { rows: [] };
+    const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    const h = head.rows[0];
+    return {
+      spkNo: String(h.spk_no),
+      customer: h.customer ?? null,
+      scm,
+      ...(vendorPayments ? { vendorPayments } : {}),
+      doc,
+      ...(payment ? { payment } : {}),
+      lines: lines.rows.map((x) => ({
+        lineId: Number(x.line_id),
+        role: x.role ?? null,
+        code: x.default_code ?? null,
+        product: x.product ?? null,
+        description: x.description ?? null,
+        qty: num(x.qty),
+        qtyDone: num(x.qty_done),
+        qtyBilled: num(x.qty_billed),
+        uom: x.uom ?? null,
+        ...(withValue ? { amount: num(x.amount) } : {}),
+      })),
     };
   });
 }

@@ -1,11 +1,12 @@
 import "server-only";
 import { withMart } from "@/db/datamart";
 import type { TrackStage, TrackerParams } from "@/lib/spk-params";
+import { MART_SPK } from "@/server/mart-spk";
 import { aeOnly, type ClientAccess } from "@/server/spk-dashboard";
 
 /**
  * Quotation Tracker (plan infra 15/16): satu baris per Penawaran/SPK dari `mart.mart_spk` dengan tahap terjauh
- * (`tracker_stage`) Penawaran → SPK → Produksi → Ditagih → Lunas, plus ringkasan absensi kru (timesheet),
+ * (`tracker_stage`; penawaran dibuat/terkirim dipisah, lihat `mart-spk.ts`) Penawaran → SPK → Produksi → Ditagih → Lunas, plus ringkasan absensi kru (timesheet),
  * supply chain (PO, produksi/MO, surat jalan), penagihan dan pembayaran. Funnel diawali lead CRM (`mart.mart_lead`).
  * Aturan akses sama dengan dashboard SPK: kolom Rp hanya DIPILIH bila `canSeeValue`, AE murni hanya melihat
  * miliknya, isolasi client = RLS.
@@ -17,12 +18,12 @@ const FILTER = `
        OR legacy_ref ILIKE '%' || $2 || '%' OR customer ILIKE '%' || $2 || '%' OR brand ILIKE '%' || $2 || '%'
        OR ae ILIKE '%' || $2 || '%')
   AND ($3::text = '' OR ae_login = $3)`;
-const TRACK_FILTER = `AND (($4::text = '' AND tracker_stage <> 'batal') OR tracker_stage = $4)`;
+const TRACK_FILTER = `AND (($4::text = '' AND track <> 'batal') OR track = $4)`;
 
 const ORDER_BY: Record<TrackerParams["sort"], string> = {
   date_desc: "date_order DESC NULLS LAST, so_id DESC",
   date_asc: "date_order ASC NULLS LAST, so_id ASC",
-  stage_asc: "array_position(ARRAY['penawaran','spk','produksi','ditagih','lunas','batal'], tracker_stage), date_order DESC NULLS LAST",
+  stage_asc: "array_position(ARRAY['penawaran','terkirim','spk','produksi','ditagih','lunas','batal'], track), date_order DESC NULLS LAST",
   last_desc: "last_status_at DESC NULLS LAST, so_id DESC",
   value_desc: "value DESC NULLS LAST, so_id DESC",
 };
@@ -83,12 +84,12 @@ export type QuotationTracker = {
   cancelled: number;
   crewHours: number;
   value?: {
-    quoted: number; spk: number; invoiced: number; paid: number; due: number; overdue: number; isMockup: boolean;
+    quoted: number; quotedSent: number; spk: number; invoiced: number; paid: number; due: number; overdue: number; isMockup: boolean;
     pipeline: number; materialCost: number; vendorDue: number;
   };
 };
 
-const BASE_COLS = `so_id, spk_no, quotation_name, tracker_stage, date_order, customer, brand, ae, locations, stage,
+const BASE_COLS = `so_id, spk_no, quotation_name, track, date_order, customer, brand, ae, locations, stage,
   progress_pct, crew_hours, crew_people, invoice_count, next_due_date, payment_count, last_payment_date,
   po_count, mo_count, mo_done, delivery_count, delivery_done`;
 const VALUE_COLS = `, value, invoiced, paid, due, overdue, is_mockup, material_cost`;
@@ -103,7 +104,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): TrackerRow {
     soId: Number(x.so_id),
     spkNo: String(x.spk_no),
     quotationName: (x.quotation_name as string) ?? null,
-    track: x.tracker_stage as TrackStage,
+    track: x.track as TrackStage,
     dateOrder: (x.date_order as Date) ?? null,
     customer: (x.customer as string) ?? null,
     brand: (x.brand as string) ?? null,
@@ -145,29 +146,30 @@ export async function getQuotationTracker(sub: string, access: ClientAccess, p: 
     const withTrack = [...args, p.track];
     const sort = !withValue && p.sort === "value_desc" ? "date_desc" : p.sort;
     const list = await c.query(
-      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""} FROM mart.mart_spk
+      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""} FROM ${MART_SPK}
         WHERE ${FILTER} ${TRACK_FILTER} ORDER BY ${ORDER_BY[sort]} LIMIT $5 OFFSET $6`,
       [...withTrack, p.pageSize, (p.page - 1) * p.pageSize],
     );
     // Funnel tidak ikut filter tahap (agar semua langkah tetap terlihat), hanya pencarian & lingkup AE.
     const agg = await c.query(
-      `SELECT count(*) FILTER (WHERE ($4::text = '' AND tracker_stage <> 'batal') OR tracker_stage = $4)::int AS total,
-              count(*) FILTER (WHERE tracker_stage <> 'batal')::int AS quotations,
-              count(*) FILTER (WHERE tracker_stage IN ('spk','produksi','ditagih','lunas'))::int AS spk,
-              count(*) FILTER (WHERE tracker_stage <> 'batal' AND po_count > 0)::int AS pengadaan,
-              count(*) FILTER (WHERE tracker_stage IN ('produksi','ditagih','lunas'))::int AS produksi,
-              count(*) FILTER (WHERE tracker_stage <> 'batal' AND delivery_done > 0)::int AS dikirim,
-              count(*) FILTER (WHERE tracker_stage <> 'batal' AND crew_hours > 0)::int AS absensi,
-              count(*) FILTER (WHERE tracker_stage IN ('ditagih','lunas'))::int AS ditagih,
-              count(*) FILTER (WHERE tracker_stage = 'lunas')::int AS lunas,
-              count(*) FILTER (WHERE tracker_stage = 'penawaran')::int AS cur_penawaran,
-              count(*) FILTER (WHERE tracker_stage = 'spk')::int AS cur_spk,
-              count(*) FILTER (WHERE tracker_stage = 'produksi')::int AS cur_produksi,
-              count(*) FILTER (WHERE tracker_stage = 'ditagih')::int AS cur_ditagih,
-              count(*) FILTER (WHERE tracker_stage = 'batal')::int AS batal,
-              coalesce(sum(crew_hours) FILTER (WHERE tracker_stage <> 'batal'), 0) AS crew_hours,
+      `SELECT count(*) FILTER (WHERE ($4::text = '' AND track <> 'batal') OR track = $4)::int AS total,
+              count(*) FILTER (WHERE track <> 'batal')::int AS quotations,
+              count(*) FILTER (WHERE track IN ('spk','produksi','ditagih','lunas'))::int AS spk,
+              count(*) FILTER (WHERE track <> 'batal' AND po_count > 0)::int AS pengadaan,
+              count(*) FILTER (WHERE track IN ('produksi','ditagih','lunas'))::int AS produksi,
+              count(*) FILTER (WHERE track <> 'batal' AND delivery_done > 0)::int AS dikirim,
+              count(*) FILTER (WHERE track <> 'batal' AND crew_hours > 0)::int AS absensi,
+              count(*) FILTER (WHERE track IN ('ditagih','lunas'))::int AS ditagih,
+              count(*) FILTER (WHERE track = 'lunas')::int AS lunas,
+              count(*) FILTER (WHERE track = 'penawaran')::int AS cur_penawaran,
+              count(*) FILTER (WHERE track = 'terkirim')::int AS cur_terkirim,
+              count(*) FILTER (WHERE track = 'spk')::int AS cur_spk,
+              count(*) FILTER (WHERE track = 'produksi')::int AS cur_produksi,
+              count(*) FILTER (WHERE track = 'ditagih')::int AS cur_ditagih,
+              count(*) FILTER (WHERE track = 'batal')::int AS batal,
+              coalesce(sum(crew_hours) FILTER (WHERE track <> 'batal'), 0) AS crew_hours,
               max(refreshed_at) AS refreshed_at
-         FROM mart.mart_spk WHERE ${FILTER}`,
+         FROM ${MART_SPK} WHERE ${FILTER}`,
       withTrack,
     );
     // Lead CRM: semua lead/opportunity aktif atau menang/kalah (tanpa arsip); "berhenti di sini" = belum ada penawaran.
@@ -188,7 +190,9 @@ export async function getQuotationTracker(sub: string, access: ClientAccess, p: 
     const l = leadAgg.rows[0];
     const funnel: FunnelStep[] = [
       { key: "lead", label: "Lead CRM", reached: Math.max(l.leads, a.quotations), current: l.open_no_quote },
-      { key: "penawaran", label: "Penawaran", reached: a.quotations, current: a.cur_penawaran },
+      { key: "penawaran", label: "Penawaran dibuat", reached: a.quotations, current: a.cur_penawaran },
+      // Terkirim = semua yang sudah lewat draft (SPK yang dikonfirmasi tanpa "Mark as Sent" tetap terhitung).
+      { key: "terkirim", label: "Penawaran terkirim", reached: a.quotations - a.cur_penawaran, current: a.cur_terkirim },
       { key: "spk", label: "SPK", reached: a.spk, current: a.cur_spk },
       { key: "pengadaan", label: "Pengadaan (PO)", reached: a.pengadaan, current: 0 },
       { key: "produksi", label: "Produksi", reached: a.produksi, current: a.cur_produksi },
@@ -217,19 +221,21 @@ export async function getQuotationTracker(sub: string, access: ClientAccess, p: 
     };
     if (withValue) {
       const v = await c.query(
-        `SELECT coalesce(sum(value) FILTER (WHERE tracker_stage = 'penawaran'), 0) AS quoted,
-                coalesce(sum(value) FILTER (WHERE tracker_stage IN ('spk','produksi','ditagih','lunas')), 0) AS spk,
+        `SELECT coalesce(sum(value) FILTER (WHERE track IN ('penawaran','terkirim')), 0) AS quoted,
+                coalesce(sum(value) FILTER (WHERE track = 'terkirim'), 0) AS quoted_sent,
+                coalesce(sum(value) FILTER (WHERE track IN ('spk','produksi','ditagih','lunas')), 0) AS spk,
                 coalesce(sum(invoiced), 0) AS invoiced, coalesce(sum(paid), 0) AS paid,
                 coalesce(sum(due), 0) AS due, coalesce(sum(overdue), 0) AS overdue,
                 coalesce(bool_or(is_mockup), false) AS is_mockup,
                 coalesce(sum(material_cost), 0) AS material_cost,
                 coalesce(sum(vendor_billed - vendor_paid), 0) AS vendor_due
-           FROM mart.mart_spk WHERE ${FILTER} AND tracker_stage <> 'batal'`,
+           FROM ${MART_SPK} WHERE ${FILTER} AND track <> 'batal'`,
         args,
       );
       const x = v.rows[0];
       result.value = {
         quoted: Number(x.quoted),
+        quotedSent: Number(x.quoted_sent),
         spk: Number(x.spk),
         invoiced: Number(x.invoiced),
         paid: Number(x.paid),
@@ -244,6 +250,7 @@ export async function getQuotationTracker(sub: string, access: ClientAccess, p: 
         lead: result.value.pipeline,
         pengadaan: result.value.materialCost,
         penawaran: result.value.quoted + result.value.spk,
+        terkirim: result.value.quotedSent + result.value.spk,
         spk: result.value.spk,
         ditagih: result.value.invoiced,
         lunas: result.value.paid,

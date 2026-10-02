@@ -7,6 +7,35 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), dan p
 Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`) — **TEMPORARY** sampai GHCR/CI deploy
 (infra `docs/03-operations/control-plane.md`).
 
+## [Unreleased]
+
+### Changed
+- **Tampilan baru dashboard** (Quotation Tracker, Dashboard SPK, detail SPK, indeks `/dashboard`, nav) mengikuti
+  referensi website expomedia.id: tema Onyx monokrom terang/gelap (ikut sistem, hanya di `/dashboard`), font Syne +
+  Manrope (`next/font`, self-hosted), ikon Iconsax dirender server sebagai SVG (`npm run icons` →
+  `src/generated/iconsax-icons.json`; tanpa `dangerouslySetInnerHTML`/atribut `style`), kartu & bento ala 21st.dev,
+  angka KPI hitung naik (Motion, satu client component; reduced motion dihormati), animasi masuk & bar tumbuh via
+  keyframe CSS. Funnel bergaya stepper ber-ikon, nilai dikelompokkan Penjualan / Penagihan / Supply chain, tab
+  Quotation Tracker ↔ Dashboard SPK, stepper Penawaran → Lunas di detail SPK. Data, query, dan hak akses tidak berubah.
+- Teks kesegaran data Dashboard SPK: "otomatis ±2 menit" (sebelumnya masih "tiap 30 menit").
+
+### Added
+- **Penawaran dibuat vs terkirim**: funnel Quotation Tracker memisah "Penawaran dibuat" (draft) dan "Penawaran
+  terkirim" (Odoo `sent`: tombol Send / "Mark Quotation as Sent"; SPK dihitung sudah melewati langkah ini), filter
+  tahap `track=terkirim`, badge & stepper Penawaran → Terkirim → SPK di daftar dan detail SPK; Dashboard SPK: filter
+  status Penawaran dibuat/terkirim, badge di No SPK, jumlah terkirim di kartu Penawaran. Memakai kolom data mart
+  `mart_spk.quotation_state` (infra branch `feat/datamart-quotation-sent`); data mart lama tanpa kolom itu tetap
+  jalan (semua penawaran = dibuat, `src/server/mart-spk.ts`).
+- **Detail SPK — pengadaan per PO**: satu baris per PO dengan kolom Keterangan (produk, vendor, status terakhir),
+  No PO, No GR, Tagihan vendor, Pembayaran ke vendor (nomor & alokasi hanya untuk hak nilai) dan Nilai; MO → surat jalan
+  di baris ringkas. Butuh data mart infra `8b16f04` (`mart_spk_scm.po_id`, `mart_spk_vendor_payment`,
+  `mart_spk_scm_line`).
+- **Halaman detail dokumen** `/dashboard/spk/[soId]/dokumen/[kind]/[docId]` (PO, GR, tagihan vendor, pembayaran ke
+  vendor, MO, surat jalan): alur dokumen PO → GR → Tagihan → Pembayaran (atau MO → Surat jalan) dengan tautan, baris
+  barang (qty pesan/terima/tagih atau rencana/selesai, hasil & komponen MO). Dokumen wajib milik SPK tsb (akses sama
+  dengan detail SPK); pembayaran & nominal hanya untuk hak nilai (tanpa hak → 404).
+- Dependensi `motion` 13.4.3 (MIT) dan devDependency `iconsax` 0.1.1 (MIT) — versi sama dengan web-expomedia.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added
