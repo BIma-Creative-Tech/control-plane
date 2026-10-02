@@ -1,12 +1,14 @@
 /**
  * Terapkan migrasi Drizzle (./drizzle) ke DATABASE_URL. Dibundel ke dist/db/migrate.mjs.
- * Pemakaian di container: `node dist/db/migrate.mjs` (lihat README §Migrasi).
+ * Pemakaian di container: `node dist/db/migrate.mjs` (lihat README §Migrasi). Setelah migrasi: pastikan tenant
+ * internal `platform` ada (idempoten).
  * API: node_modules/drizzle-orm/node-postgres/migrator.d.ts → migrate(db, { migrationsFolder }).
  */
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { getWorkerEnv } from "../env";
 import { logger } from "../lib/logger";
 import { createDb } from "./client";
+import { ensurePlatformTenant } from "./platform";
 
 async function main(): Promise<void> {
   const env = getWorkerEnv();
@@ -15,6 +17,9 @@ async function main(): Promise<void> {
   try {
     await migrate(db, { migrationsFolder });
     logger.info({ migrationsFolder }, "migrasi selesai");
+    // Langkah boot idempoten (kontrak Fase 1 §0.1): tenant internal `platform`.
+    const p = await ensurePlatformTenant(db);
+    logger.info({ created: p.created }, "tenant platform siap");
   } finally {
     await pool.end();
   }

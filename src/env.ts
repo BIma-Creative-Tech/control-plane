@@ -24,6 +24,15 @@ const baseEnvSchema = z.object({
    * Satu-satunya pemilih staging/prod — tidak ada deteksi dari hostname/DB.
    */
   INFRA_JOBS_INSTANCE: z.enum(["prod", "staging"]).optional(),
+  /**
+   * Allowlist tipe job per instance (kontrak Fase 1 §0.5) — cermin `job_types` di `/etc/infra-jobs/<inst>.conf`.
+   * Daftar dipisah koma; kosong = 5 tipe lama (sama dengan default dispatcher). Tipe di luar daftar ditolak CP
+   * sebelum masuk antrean (dispatcher tetap menolak `rejected_validation`). Divalidasi di lib/job-contract.ts.
+   */
+  INFRA_JOBS_TYPES: z
+    .string()
+    .regex(/^[a-z_]{3,40}(,[a-z_]{3,40}){0,40}$/, "daftar tipe job dipisah koma")
+    .optional(),
 });
 
 /** Path absolut sederhana (tanpa `..`, tanpa spasi). Bind mount dari compose, bukan input user. */

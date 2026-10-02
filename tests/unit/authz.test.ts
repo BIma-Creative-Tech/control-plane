@@ -46,11 +46,13 @@ describe("otorisasi role (default deny)", () => {
     expect(decideAccess({ roles: ["client_admin"] }, "dashboard:view")).toBe("ok");
   });
 
-  it("ops boleh list clients tapi tidak manage; superadmin boleh semua", () => {
+  it("ops boleh list clients tapi tidak manage; superadmin boleh semua (kecuali izin bercakupan tenant sendiri)", () => {
     expect(can(["ops"], "clients:list")).toBe(true);
     expect(can(["ops"], "clients:manage")).toBe(false);
+    // `users:manage_own` = cakupan tenant SENDIRI (client_admin); superadmin memakai `users:manage` (semua tenant).
+    const TENANT_SCOPED = new Set(["users:manage_own"]);
     for (const p of Object.keys(PERMISSIONS) as (keyof typeof PERMISSIONS)[]) {
-      expect(can(["superadmin"], p)).toBe(true);
+      expect(can(["superadmin"], p)).toBe(!TENANT_SCOPED.has(p));
     }
   });
 

@@ -18,17 +18,49 @@ export const JOB_FILE_MAX_BYTES = 8 * 1024;
 /** Batas baca file hasil di worker (hasil ≤ 8 KiB tail + RESULT; longgar tapi terbatas). */
 export const RESULT_FILE_MAX_BYTES = 64 * 1024;
 
-export const BRIDGE_JOB_TYPES = [
+/** 5 tipe plan 05 = default allowlist dispatcher per instance bila `job_types` tidak ada di conf (kontrak Fase 1 §0.5). */
+export const LEGACY_JOB_TYPES = [
   "odoo_db_provision",
   "odoo_route",
   "odoo_sso_provision",
   "odoo_sso_disable",
   "odoo_sso_user",
 ] as const;
+
+/** Tipe SaaS Fase 1 (kontrak `docs/plans/saas-phase-1-contract.md` §1, repo infra). */
+export const SAAS_P1_JOB_TYPES = [
+  "kc_realm_sync",
+  "kc_org_ensure",
+  "kc_user_ensure",
+  "kc_user_set_roles",
+  "kc_user_set_enabled",
+  "kc_user_action_email",
+  "odoo_user_ensure",
+  "odoo_tenant_config",
+  "tenant_suspend",
+  "tenant_resume",
+] as const;
+
+export const BRIDGE_JOB_TYPES = [...LEGACY_JOB_TYPES, ...SAAS_P1_JOB_TYPES] as const;
 export type BridgeJobType = (typeof BRIDGE_JOB_TYPES)[number];
+export type SaasP1JobType = (typeof SAAS_P1_JOB_TYPES)[number];
 
 export function isBridgeJobType(v: unknown): v is BridgeJobType {
   return typeof v === "string" && (BRIDGE_JOB_TYPES as readonly string[]).includes(v);
+}
+
+export function isSaasP1JobType(v: unknown): v is SaasP1JobType {
+  return typeof v === "string" && (SAAS_P1_JOB_TYPES as readonly string[]).includes(v);
+}
+
+/**
+ * Allowlist tipe per instance (env `INFRA_JOBS_TYPES`, cermin `job_types` conf dispatcher). Kosong/tidak ada →
+ * 5 tipe lama. Nama tidak dikenal dibuang (fail-closed: tipe itu tidak bisa di-enqueue).
+ */
+export function instanceJobTypes(raw: string | undefined): readonly BridgeJobType[] {
+  if (!raw) return LEGACY_JOB_TYPES;
+  const set = new Set(raw.split(",").map((t) => t.trim()));
+  return BRIDGE_JOB_TYPES.filter((t) => set.has(t));
 }
 
 export const INSTANCES = ["prod", "staging"] as const;
@@ -60,7 +92,14 @@ export const DISPATCHER_ERROR_CODES = [
  * keputusan Lead J2b) + `result_inconsistent` (RESULT tidak cocok dengan aksi yang diminta, BUG-J5-01).
  * Sama dengan CHECK `provision_jobs_error_code_valid`.
  */
-export const ERROR_CODES = [...DISPATCHER_ERROR_CODES, "no_result", "spool_error", "result_inconsistent"] as const;
+export const ERROR_CODES = [
+  ...DISPATCHER_ERROR_CODES,
+  "no_result",
+  "spool_error",
+  "result_inconsistent",
+  // Kontrak Fase 1 §2.1: job sebelumnya di rantai (after_job_id) failed/cancelled → job ini cancelled.
+  "chain_aborted",
+] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
 function isDispatcherErrorCode(v: unknown): v is (typeof DISPATCHER_ERROR_CODES)[number] {
@@ -81,6 +120,17 @@ export const JOB_TIMEOUT_SECONDS: Record<BridgeJobType, number> = {
   odoo_sso_provision: 300,
   odoo_sso_disable: 120,
   odoo_sso_user: 180,
+  // Kontrak Fase 1 §1 (= DEFAULT_TIMEOUTS dispatcher).
+  kc_realm_sync: 300,
+  kc_org_ensure: 120,
+  kc_user_ensure: 120,
+  kc_user_set_roles: 120,
+  kc_user_set_enabled: 120,
+  kc_user_action_email: 120,
+  odoo_user_ensure: 300,
+  odoo_tenant_config: 300,
+  tenant_suspend: 60,
+  tenant_resume: 60,
 };
 /** Dry-run otomatis dispatcher sebelum apply (sso_provision/sso_disable/sso_user grant). */
 export const DRY_RUN_PREFLIGHT_SECONDS = 60;
@@ -109,6 +159,12 @@ export const FQDN_REGEX = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
 /** ACTOR_RE (total ≤ 140). */
 export const ACTOR_REGEX = /^(user|system):[A-Za-z0-9._@:-]{1,128}$/;
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/**
+ * NAME_RE dispatcher (kontrak Fase 1 §1, varian ASCII — varian `À-ɏ` di dokumen kontrak digantikan keputusan Lead):
+ * 1–100, tidak diawali spasi/'-'. Nama non-ASCII ditolak (bukan ditransliterasi) — lihat asciiName().
+ */
+export const NAME_REGEX = /^[A-Za-z0-9.,'][A-Za-z0-9 .,'-]{0,99}$/;
+export const NAME_MAX = 100;
 /** REQUESTED_AT_RE + harus tanggal valid (dispatcher: datetime.fromisoformat). */
 export const REQUESTED_AT_REGEX = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
 
@@ -145,6 +201,37 @@ export function dbNameFor(slug: string, env: TenantEnv): string {
 const hostSchema = z.string().max(253).regex(FQDN_REGEX, "host tidak valid");
 const emailSchema = z.string().max(EMAIL_MAX).regex(EMAIL_REGEX, "email tidak valid");
 const loginSchema = z.string().max(LOGIN_MAX).regex(LOGIN_REGEX, "login tidak valid");
+const nameSchema = z.string().max(NAME_MAX).regex(NAME_REGEX, "nama tidak valid");
+const tenantIdSchema = z.string().max(36).regex(UUID_REGEX, "tenant_id tidak valid");
+
+/** Tenant internal (kontrak Fase 1 §0.1): slug reserved, CP menolak membuat client bernama ini lewat form. */
+export const PLATFORM_SLUG = "platform";
+/** Nilai `cp_role` (kontrak §1): `none` = cabut semua role client `control-plane`. */
+export const CP_ROLE_ARGS = ["none", "superadmin", "ops", "client_admin", "client_user"] as const;
+export type CpRoleArg = (typeof CP_ROLE_ARGS)[number];
+/** Aturan §0.3 "tidak pernah memberi hak lebih": role platform hanya di slug platform, role tenant hanya di tenant. */
+export const CP_ROLES_PLATFORM = ["none", "superadmin", "ops"] as const satisfies readonly CpRoleArg[];
+export const CP_ROLES_TENANT = ["none", "client_admin", "client_user"] as const satisfies readonly CpRoleArg[];
+export const ODOO_ACCESS = ["none", "user", "admin"] as const;
+export type OdooAccess = (typeof ODOO_ACCESS)[number];
+export const ODOO_USER_ROLES = ["user", "admin"] as const;
+export const KC_EMAIL_ACTIONS = ["UPDATE_PASSWORD", "VERIFY_EMAIL", "CONFIGURE_TOTP"] as const;
+export const TENANT_CHECK_MODES = ["off", "compat", "strict"] as const;
+/** kc_realm_sync apply di env ini wajib `approve=true`. */
+export const APPROVE_ENVS: readonly TenantEnv[] = ["prod", "demo"];
+
+export function cpRolesForSlug(slug: string): readonly CpRoleArg[] {
+  return slug === PLATFORM_SLUG ? CP_ROLES_PLATFORM : CP_ROLES_TENANT;
+}
+
+/**
+ * Nama untuk args job (keputusan Lead Fase 1: TOLAK non-ASCII, tidak ditransliterasi — file job ASCII saja):
+ * spasi dirapikan; tidak lolos NAME_REGEX (= NAME_RE dispatcher) → null (form menampilkan pesan jelas).
+ */
+export function asciiName(raw: string): string | null {
+  const v = raw.replace(/\s+/g, " ").trim();
+  return v.length > 0 && v.length <= NAME_MAX && NAME_REGEX.test(v) ? v : null;
+}
 
 export const argsSchemas = {
   odoo_db_provision: z.object({ host: hostSchema.optional() }).strict(),
@@ -166,6 +253,29 @@ export const argsSchemas = {
       create_kc: z.boolean(),
     })
     .strict(),
+  // --- Kontrak Fase 1 §1 (additionalProperties=false; boolean wajib JSON true|false). ---
+  kc_realm_sync: z.object({ approve: z.boolean().optional() }).strict(),
+  kc_org_ensure: z.object({ tenant_id: tenantIdSchema }).strict(),
+  kc_user_ensure: z
+    .object({ email: emailSchema, tenant_id: tenantIdSchema, invite: z.boolean(), name: nameSchema.optional() })
+    .strict(),
+  kc_user_set_roles: z
+    .object({ email: emailSchema, cp_role: z.enum(CP_ROLE_ARGS), odoo: z.enum(ODOO_ACCESS).optional() })
+    .strict(),
+  kc_user_set_enabled: z.object({ email: emailSchema, enabled: z.boolean() }).strict(),
+  kc_user_action_email: z.object({ email: emailSchema, action: z.enum(KC_EMAIL_ACTIONS) }).strict(),
+  odoo_user_ensure: z
+    .object({
+      email: emailSchema,
+      role: z.enum(ODOO_USER_ROLES),
+      active: z.boolean(),
+      login: loginSchema.optional(),
+      name: nameSchema.optional(),
+    })
+    .strict(),
+  odoo_tenant_config: z.object({ tenant_check: z.enum(TENANT_CHECK_MODES) }).strict(),
+  tenant_suspend: z.object({}).strict(),
+  tenant_resume: z.object({}).strict(),
 } as const satisfies Record<BridgeJobType, z.ZodType>;
 
 export type JobArgs = { [K in BridgeJobType]: z.infer<(typeof argsSchemas)[K]> };
@@ -198,7 +308,14 @@ export type ContractIssue =
   | "actor"
   | "requested_at"
   | "dry_run"
-  | "non_ascii";
+  | "non_ascii"
+  // Kontrak Fase 1 §1/§0.3
+  | "platform_only"
+  | "platform_forbidden"
+  | "cp_role_slug"
+  | "odoo_platform"
+  | "approve_required"
+  | "type_not_allowed";
 
 export type ContractResult<T> = { ok: true; value: T } | { ok: false; issue: ContractIssue };
 
@@ -264,6 +381,28 @@ export function validateJobRequest(instance: Instance, input: unknown): Contract
       if (a.action === "revoke" && a.admin === true) return { ok: false, issue: "admin_revoke" };
       break;
     }
+    // --- Kontrak Fase 1 §1 (= v_kc_* / v_odoo_* / v_tenant_state dispatcher). ---
+    case "kc_realm_sync":
+      if (slug !== PLATFORM_SLUG) return { ok: false, issue: "platform_only" };
+      if (APPROVE_ENVS.includes(env) && !dryRun && a.approve !== true) return { ok: false, issue: "approve_required" };
+      break;
+    case "kc_org_ensure":
+    case "kc_user_ensure":
+    case "kc_user_set_enabled":
+    case "kc_user_action_email":
+      // slug tenant maupun platform boleh (§1); lintas tenant ditegakkan skrip (atribut tenant_id user/alias org).
+      break;
+    case "kc_user_set_roles":
+      // §0.3: tidak pernah memberi hak lebih — role platform hanya di slug platform, role tenant hanya di tenant.
+      if (!cpRolesForSlug(slug).includes(a.cp_role as CpRoleArg)) return { ok: false, issue: "cp_role_slug" };
+      if (a.odoo !== undefined && slug === PLATFORM_SLUG) return { ok: false, issue: "odoo_platform" };
+      break;
+    case "odoo_user_ensure":
+    case "odoo_tenant_config":
+    case "tenant_suspend":
+    case "tenant_resume":
+      if (slug === PLATFORM_SLUG) return { ok: false, issue: "platform_forbidden" };
+      break;
   }
   return { ok: true, value: { type, slug, env, dryRun, args: parsed.data } as JobRequest };
 }
@@ -416,6 +555,12 @@ export const RESULT_KEYS = [
   // OBS-J5-01: fakta undangan ter-allowlist (mis. `invite=sent`) — pengganti baris tail yang teredaksi;
   // redaksi tail TIDAK dilonggarkan.
   "invite",
+  // Kontrak Fase 1 §1.2 (RESULT_KEYS dispatcher += org roles enabled state tenant).
+  "org",
+  "roles",
+  "enabled",
+  "state",
+  "tenant",
 ] as const;
 const RESULT_KEY_SET: ReadonlySet<string> = new Set(RESULT_KEYS);
 export const RESULT_VALUE_REGEX = /^[A-Za-z0-9._,:@/=-]{0,512}$/;
@@ -559,6 +704,39 @@ export function inviteFact(result: Record<string, string> | null | undefined): I
 /** Hash email untuk audit_logs.metadata (PII tidak masuk audit, plan 05 §5.1). */
 export function emailHash(email: string): string {
   return createHash("sha256").update(email.trim().toLowerCase(), "utf8").digest("hex");
+}
+
+/**
+ * idempotency_key (kontrak Fase 1 §2.2) = `<type>:<slug>:<env>:<target>`; target = email untuk tipe user,
+ * `org` untuk kc_org_ensure, `realm` untuk kc_realm_sync, `tenant` untuk odoo_tenant_config/tenant_*. Tipe lama
+ * (plan 05) dan job dry-run → null (tidak di-dedupe; tipe lama memakai provision_jobs_one_active_uq).
+ */
+export function idempotencyKey(req: Pick<JobRequest, "type" | "slug" | "env" | "dryRun" | "args">): string | null {
+  if (req.dryRun || !isSaasP1JobType(req.type)) return null;
+  const a = req.args as Record<string, unknown>;
+  let target: string;
+  switch (req.type) {
+    case "kc_realm_sync":
+      target = "realm";
+      break;
+    case "kc_org_ensure":
+      target = "org";
+      break;
+    case "odoo_tenant_config":
+    case "tenant_suspend":
+    case "tenant_resume":
+      target = "tenant";
+      break;
+    default:
+      if (typeof a.email !== "string") return null;
+      target = a.email;
+  }
+  return `${req.type}:${req.slug}:${req.env}:${target}`;
+}
+
+/** Env realm untuk job identitas (kc_*) per instance: prod-inst → `prod` (realm platform), staging → `staging`. */
+export function realmEnvForInstance(instance: Instance): TenantEnv {
+  return instance === "staging" ? "staging" : "prod";
 }
 
 /** Deadline watchdog setelah dispatch: timeout + preflight + kill + antrean serial dispatcher. */

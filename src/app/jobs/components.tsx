@@ -13,6 +13,8 @@ const TONE: Record<string, string> = {
   dispatched: "bg-blue-100 text-blue-800",
   queued: "bg-amber-100 text-amber-800",
   pending: "bg-amber-100 text-amber-800",
+  invited: "bg-amber-100 text-amber-800",
+  cancelled: "bg-slate-200 text-slate-700",
 };
 
 export function StatusBadge({ value }: { value: string }) {

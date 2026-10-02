@@ -4,16 +4,20 @@
  *                  `dispatched` (+deadline) → tulis file job atomik ke spool. Tanpa retry.
  *  - collect()     baca results/<id>.json untuk job aktif → `running` / final (succeeded|failed + error_code),
  *                  RESULT ter-allowlist + tail teredaksi → rekonsiliasi environment/tenant_user_access → audit.
+ *  - advanceChains() rantai (kontrak Fase 1 §2.1): job `queued` dengan after_job_id → di-dispatch bila pendahulu
+ *                  `succeeded`; pendahulu `failed|cancelled` → `cancelled` + error_code `chain_aborted` (berantai).
  *  - watchdog()    job aktif lewat deadline → failed `no_result`; job `queued` yang tidak pernah
- *                  di-dispatch (pesan pg-boss hilang) → failed `no_result`.
+ *                  di-dispatch (pesan pg-boss hilang / pendahulu sukses tapi tidak dilanjutkan) → failed `no_result`.
  * Worker TIDAK menjalankan skrip, tidak punya Docker API/SSH/secret. Satu-satunya efek ke host = file spool.
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Logger } from "pino";
 import type { Db } from "../db/client";
 import { safeErrorMessage } from "../db/errors";
 import { auditLogs, environments, provisionJobs } from "../db/schema";
 import { applyReconcile, planReconcile } from "../jobs/reconcile";
+import { applyUserReconcile, planUserReconcile } from "../jobs/user-reconcile";
 import type { Tx } from "../jobs/service";
 import {
   BRIDGE_JOB_TYPES,
@@ -23,6 +27,7 @@ import {
   dispatchDeadline,
   emailHash,
   isBridgeJobType,
+  isSaasP1JobType,
   mapFinalOutcome,
   parseResultFile,
   runningDeadline,
@@ -65,8 +70,8 @@ export function createBridge(opts: BridgeOptions) {
     await tx.insert(auditLogs).values({
       actor: SYSTEM_ACTOR,
       action: "job.finish",
-      targetType: "environment",
-      targetId: job.environmentId,
+      targetType: job.environmentId ? "environment" : "job",
+      targetId: job.environmentId ?? job.id,
       clientId: job.clientId,
       result: status === "succeeded" ? "success" : "failure",
       metadata: { job_id: job.id, type: job.type, state: status, error_code: errorCode, exit_code: exitCode, dry_run: job.dryRun },
@@ -146,11 +151,28 @@ export function createBridge(opts: BridgeOptions) {
           payload: provisionJobs.payload,
           clientId: provisionJobs.clientId,
           environmentId: provisionJobs.environmentId,
+          actorUserId: provisionJobs.actorUserId,
         });
       const job = updated[0];
       if (!job) return false;
       let final = { status: outcome.status, errorCode: outcome.errorCode };
-      if (job.environmentId && isBridgeJobType(job.type) && job.env) {
+      if (isSaasP1JobType(job.type) && job.env) {
+        // Kontrak Fase 1 §2.3: users/clients/tenant_user_access dari RESULT (id KC = sub).
+        const ujob = {
+          id: job.id,
+          type: job.type,
+          env: job.env,
+          dryRun: job.dryRun,
+          clientId: job.clientId,
+          actorUserId: job.actorUserId,
+          args: ((job.payload as { args?: Record<string, unknown> }).args ?? {}) as Record<string, unknown>,
+          status: outcome.status,
+          result: parsed?.result ?? {},
+        };
+        const plan = planUserReconcile(ujob);
+        const extra = await applyUserReconcile(tx, ujob, plan);
+        for (const w of [...plan.warnings, ...extra]) logger.warn({ jobId: job.id, type: job.type }, w);
+      } else if (job.environmentId && isBridgeJobType(job.type) && job.env) {
         const envRow = await tx
           .select({ dbName: environments.dbName })
           .from(environments)
@@ -193,6 +215,7 @@ export function createBridge(opts: BridgeOptions) {
           actor: provisionJobs.actor,
           createdAt: provisionJobs.createdAt,
           payload: provisionJobs.payload,
+          afterJobId: provisionJobs.afterJobId,
         })
         .from(provisionJobs)
         .where(and(eq(provisionJobs.id, provisionJobId), eq(provisionJobs.status, "queued")))
@@ -200,6 +223,15 @@ export function createBridge(opts: BridgeOptions) {
         .limit(1);
       const row = rows[0];
       if (!row) return { kind: "skipped" as const };
+      if (row.afterJobId) {
+        // Rantai: hanya bila pendahulu sudah `succeeded` (pesan pg-boss nyasar / dispatch terlalu awal → tunggu).
+        const prev = await tx
+          .select({ status: provisionJobs.status })
+          .from(provisionJobs)
+          .where(eq(provisionJobs.id, row.afterJobId))
+          .limit(1);
+        if (prev[0]?.status !== "succeeded") return { kind: "skipped" as const };
+      }
       const payload = row.payload as { slug?: unknown; args?: unknown };
       try {
         const file = buildJobFile(instance, {
@@ -312,8 +344,91 @@ export function createBridge(opts: BridgeOptions) {
     return { running, finished };
   }
 
+  const prevJob = alias(provisionJobs, "prev_job");
+
+  /**
+   * Rantai (kontrak Fase 1 §2.1). Batalkan dulu (berantai, ≤ 12 tingkat per tick) job yang pendahulunya
+   * failed/cancelled, lalu dispatch job yang pendahulunya succeeded. Idempoten: cancel/dispatch hanya dari `queued`.
+   */
+  async function advanceChains(): Promise<{ cancelled: number; dispatched: number }> {
+    let cancelled = 0;
+    for (let depth = 0; depth < 12; depth++) {
+      const doomed = await db
+        .select({ id: provisionJobs.id, prevId: prevJob.id, prevStatus: prevJob.status, prevError: prevJob.errorCode })
+        .from(provisionJobs)
+        .innerJoin(prevJob, eq(prevJob.id, provisionJobs.afterJobId))
+        .where(
+          and(
+            eq(provisionJobs.status, "queued"),
+            isNotNull(provisionJobs.afterJobId),
+            inArray(provisionJobs.type, bridgeTypes),
+            inArray(provisionJobs.env, envs),
+            inArray(prevJob.status, ["failed", "cancelled"]),
+          ),
+        )
+        .limit(200);
+      if (doomed.length === 0) break;
+      for (const d of doomed) {
+        const ok = await db.transaction(async (tx) => {
+          const upd = await tx
+            .update(provisionJobs)
+            .set({
+              status: "cancelled",
+              errorCode: "chain_aborted",
+              error: `rantai dihentikan: job sebelumnya ${d.prevId} ${d.prevStatus}${d.prevError ? ` (${d.prevError})` : ""}`,
+              finishedAt: now(),
+            })
+            .where(and(eq(provisionJobs.id, d.id), eq(provisionJobs.status, "queued")))
+            .returning({
+              id: provisionJobs.id,
+              type: provisionJobs.type,
+              clientId: provisionJobs.clientId,
+              environmentId: provisionJobs.environmentId,
+              dryRun: provisionJobs.dryRun,
+            });
+          const job = upd[0];
+          if (!job) return false;
+          await tx.insert(auditLogs).values({
+            actor: SYSTEM_ACTOR,
+            action: "job.chain_aborted",
+            targetType: job.environmentId ? "environment" : "job",
+            targetId: job.environmentId ?? job.id,
+            clientId: job.clientId,
+            result: "failure",
+            metadata: { job_id: job.id, type: job.type, after_job_id: d.prevId, after_status: d.prevStatus, error_code: "chain_aborted" },
+          });
+          return true;
+        });
+        if (ok) {
+          cancelled++;
+          logger.warn({ jobId: d.id, after: d.prevId }, "job rantai dibatalkan (chain_aborted)");
+        }
+      }
+    }
+    const ready = await db
+      .select({ id: provisionJobs.id })
+      .from(provisionJobs)
+      .innerJoin(prevJob, eq(prevJob.id, provisionJobs.afterJobId))
+      .where(
+        and(
+          eq(provisionJobs.status, "queued"),
+          inArray(provisionJobs.type, bridgeTypes),
+          inArray(provisionJobs.env, envs),
+          eq(prevJob.status, "succeeded"),
+        ),
+      )
+      .orderBy(provisionJobs.createdAt)
+      .limit(50);
+    let dispatched = 0;
+    for (const r of ready) {
+      if ((await dispatch(r.id)) === "dispatched") dispatched++;
+    }
+    return { cancelled, dispatched };
+  }
+
   async function watchdog(): Promise<number> {
     const at = now();
+    const queuedCutoff = new Date(at.getTime() - opts.queueGraceSeconds * 1000);
     const overdue = await db
       .select({ id: provisionJobs.id, status: provisionJobs.status })
       .from(provisionJobs)
@@ -321,9 +436,14 @@ export function createBridge(opts: BridgeOptions) {
         and(
           inArray(provisionJobs.type, bridgeTypes),
           inArray(provisionJobs.env, envs),
+          // Job rantai yang menunggu pendahulu (aktif) BUKAN overdue; dihitung dari selesainya pendahulu.
           sql`(
             (${provisionJobs.status} IN ('dispatched', 'running') AND ${provisionJobs.deadlineAt} < ${at})
-            OR (${provisionJobs.status} = 'queued' AND ${provisionJobs.createdAt} < ${new Date(at.getTime() - opts.queueGraceSeconds * 1000)})
+            OR (${provisionJobs.status} = 'queued' AND ${provisionJobs.afterJobId} IS NULL AND ${provisionJobs.createdAt} < ${queuedCutoff})
+            OR (${provisionJobs.status} = 'queued' AND ${provisionJobs.afterJobId} IS NOT NULL AND EXISTS (
+              SELECT 1 FROM ${provisionJobs} AS wd_prev
+              WHERE wd_prev.id = ${provisionJobs.afterJobId} AND wd_prev.status = 'succeeded' AND wd_prev.finished_at < ${queuedCutoff}
+            ))
           )`,
         ),
       )
@@ -358,13 +478,14 @@ export function createBridge(opts: BridgeOptions) {
   async function tick(): Promise<void> {
     try {
       await collect();
+      await advanceChains();
       await watchdog();
     } catch (err) {
       logger.error({ err: safeErrorMessage(err) }, "tick bridge gagal");
     }
   }
 
-  return { dispatch, collect, watchdog, tick };
+  return { dispatch, collect, advanceChains, watchdog, tick };
 }
 
 export type Bridge = ReturnType<typeof createBridge>;

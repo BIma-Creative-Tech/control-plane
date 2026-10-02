@@ -41,6 +41,15 @@ export const ACTION_RESULT_CODES = [
   "created",
   "exists",
   "reauth",
+  // Halaman Users (kontrak Fase 1 §2.3)
+  "cross_tenant",
+  "role_not_allowed",
+  "self_action",
+  "one_admin",
+  "name_invalid",
+  "email_other_tenant",
+  "tenant_inactive",
+  "user_disabled",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -66,4 +75,14 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   created: "Tersimpan.",
   exists: "Sudah ada (slug/environment/DB duplikat).",
   reauth: "Sesi dibuat sebelum pembaruan identitas — silakan logout lalu login ulang untuk menjalankan aksi.",
+  cross_tenant: "Ditolak: user atau tenant di luar cakupan akun Anda.",
+  role_not_allowed:
+    "Role tidak diizinkan: platform-admin/platform-viewer hanya untuk tenant platform, tenant-admin/tenant-user hanya untuk tenant klien.",
+  self_action: "Tidak bisa menonaktifkan atau mengubah role akun sendiri.",
+  one_admin: "Tenant sudah punya satu tenant-admin aktif/diundang (maksimal satu per tenant).",
+  name_invalid:
+    "Nama hanya boleh huruf/angka ASCII, spasi, titik, koma, apostrof, dan tanda hubung (maks. 100 karakter; huruf beraksen belum didukung).",
+  email_other_tenant: "Email sudah terdaftar pada tenant lain.",
+  tenant_inactive: "Tenant sudah diterminasi.",
+  user_disabled: "User nonaktif — aktifkan dulu.",
 };

@@ -24,7 +24,9 @@ export function loginUserValues(p: LoginProfile, now: Date) {
 
 /**
  * Upsert `users` saat login (plan 05 §7, prasyarat audit actor_user_id & iterasi 2). `client_id` TIDAK
- * disentuh (binding user↔client dikelola superadmin). Role = cache; otorisasi tetap dari klaim sesi.
+ * disentuh (binding user↔tenant hanya dari RESULT job kc_user_ensure, jobs/user-reconcile.ts). Role = cache;
+ * otorisasi tetap dari klaim sesi. Login pertama user undangan (`invited`) → `active`; `disabled` tidak diubah
+ * (user nonaktif tidak bisa login di Keycloak; bila status cache tertinggal, aksi mutasinya tetap ditolak).
  */
 export async function upsertUserOnLogin(db: Db, p: LoginProfile, now = new Date()): Promise<string | null> {
   if (!isValidSub(p.sub)) return null;
@@ -34,7 +36,14 @@ export async function upsertUserOnLogin(db: Db, p: LoginProfile, now = new Date(
     .values(v)
     .onConflictDoUpdate({
       target: users.keycloakSub,
-      set: { email: v.email, displayName: v.displayName, role: v.role, lastLoginAt: now, updatedAt: sql`now()` },
+      set: {
+        email: v.email,
+        displayName: v.displayName,
+        role: v.role,
+        lastLoginAt: now,
+        status: sql`CASE WHEN ${users.status} = 'invited' THEN 'active'::user_status ELSE ${users.status} END`,
+        updatedAt: sql`now()`,
+      },
     })
     .returning({ id: users.id });
   return rows[0]?.id ?? null;

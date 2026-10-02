@@ -61,12 +61,16 @@ export async function createEnvironmentAction(formData: FormData): Promise<void>
   if (!parsed.success) redirect("/clients?r=invalid");
   const { clientId, kind, host } = parsed.data;
   const db = getDb();
-  const client = (await db.select({ id: clients.id, slug: clients.slug }).from(clients).where(eq(clients.id, clientId)).limit(1))[0];
+  const client = (
+    await db.select({ id: clients.id, slug: clients.slug, isPlatform: clients.isPlatform }).from(clients).where(eq(clients.id, clientId)).limit(1)
+  )[0];
   if (!client) redirect("/clients?r=not_found");
   const slug = client.slug;
   function back(code: string): never {
     redirect(`/clients/${slug}?r=${code}`);
   }
+  // Tenant internal `platform` tidak punya environment Odoo (kontrak Fase 1 §1: odoo_* dilarang untuk slug platform).
+  if (client.isPlatform) back("invalid");
 
   const instance = getWebEnv().INFRA_JOBS_INSTANCE;
   if (instance && !envAllowedForInstance(instance, kind)) back("invalid");

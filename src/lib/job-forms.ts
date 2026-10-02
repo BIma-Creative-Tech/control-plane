@@ -4,7 +4,7 @@
  * Checkbox HTML: ada = "on", tidak ada = field hilang.
  */
 import { z } from "zod";
-import { EMAIL_REGEX, FQDN_REGEX, LOGIN_REGEX, UUID_REGEX } from "./job-contract";
+import { EMAIL_REGEX, FQDN_REGEX, LOGIN_REGEX, PLATFORM_SLUG, UUID_REGEX } from "./job-contract";
 import { SLUG_REGEX } from "./slug";
 
 const uuid = z.string().regex(UUID_REGEX);
@@ -49,7 +49,12 @@ export const formSchemas = {
   retry: z.object({ jobId: uuid }).strict(),
   createClient: z
     .object({
-      slug: z.string().trim().regex(SLUG_REGEX),
+      // `platform` = tenant internal (kontrak Fase 1 §0.1) — reserved, hanya dibuat oleh langkah boot.
+      slug: z
+        .string()
+        .trim()
+        .regex(SLUG_REGEX)
+        .refine((s) => s !== PLATFORM_SLUG, "slug reserved"),
       name: z.string().trim().min(1).max(200),
     })
     .strict(),
