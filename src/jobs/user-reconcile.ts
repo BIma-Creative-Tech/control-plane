@@ -115,7 +115,7 @@ export function planUserReconcile(job: UserReconcileJob): UserReconcilePlan {
         warnings,
       };
     default:
-      // kc_realm_sync, kc_user_action_email, odoo_tenant_config, tenant_*: tidak ada kolom CP yang diturunkan (Fase 1).
+      // kc_realm_sync, kc_user_action_email: tidak ada kolom CP yang diturunkan. odoo_tenant_config, tenant_*: jobs/tenant-reconcile.ts.
       return { kind: "none", warnings };
   }
 }

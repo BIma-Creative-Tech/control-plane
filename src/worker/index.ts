@@ -16,6 +16,7 @@ import { provisionJobs } from "../db/schema";
 import { getWorkerEnv } from "../env";
 import { INFRA_JOB_QUEUE_OPTIONS, QUEUE_INFRA_JOB } from "../jobs/queue";
 import { logger } from "../lib/logger";
+import { QUEUE_SUBSCRIPTION_TICK, registerSubscriptionTick } from "./billing";
 import { createBridge } from "./bridge";
 import { registerInfraJobWorker } from "./register";
 import { QUEUE_NOOP, handleNoop, parseNoopPayload } from "./jobs";
@@ -60,7 +61,10 @@ async function main(): Promise<void> {
     }
   });
 
-  const queues = [QUEUE_NOOP];
+  // ADR 0018 D5: subscription_tick harian 00:15 WIB (transisi + enqueue tenant_suspend + email pengingat).
+  await registerSubscriptionTick(boss, { db, env, logger });
+
+  const queues = [QUEUE_NOOP, QUEUE_SUBSCRIPTION_TICK];
   let bridgeTimer: NodeJS.Timeout | undefined;
   if (env.INFRA_JOBS_SPOOL_DIR && env.INFRA_JOBS_RESULTS_DIR && env.INFRA_JOBS_INSTANCE) {
     const bridge = createBridge({
