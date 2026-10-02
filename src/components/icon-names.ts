@@ -42,6 +42,10 @@ export const ICON_NAMES = [
   "location",
   "clock",
   "warning-2",
+  // Biaya & BAST (plan infra 19)
+  "percentage-square",
+  "pen-tool",
+  "gps",
 ] as const;
 
 export const ICON_STYLES = ["linear", "bulk"] as const;

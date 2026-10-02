@@ -13,6 +13,7 @@ import { accessFor, getSpkDetail } from "@/server/spk-dashboard";
 import { Nav } from "../../../nav";
 import { Badge, EmptyRow, MockupBadge, Panel, ROW, TD, TH, rise } from "../../ui";
 import { Progress, TrackStepper } from "../bars";
+import { BastBadge, BastPanel, CostPanel } from "./cost-bast";
 import { IssueBadge, IssuesPanel } from "./issues";
 import { Procurement } from "./procurement";
 
@@ -61,10 +62,11 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
               ) : null}
             </div>
             <div className="flex flex-col items-end gap-1.5">
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap justify-end gap-1.5">
                 <Badge tone={trackTone(d.track)}>{TRACK_LABEL[d.track] ?? d.track}</Badge>
                 <Badge tone={stageTone(s.stage)}>{s.stage}</Badge>
                 <IssueBadge count={s.issueCount} />
+                <BastBadge bast={s.bast} />
               </div>
               <Progress value={s.progress} />
             </div>
@@ -90,6 +92,8 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
             </dl>
           ) : null}
         </section>
+
+        {access.canSeeValue && d.cost && s.status === "spk" ? <CostPanel cost={d.cost} mockup={s.isMockup} /> : null}
 
         <div className="grid gap-5 2xl:grid-cols-2">
           <Panel title="Penagihan" icon="receipt-2" count={d.invoices.length} className={rise(1)}>
@@ -164,6 +168,8 @@ export default async function SpkDetailPage(props: PageProps<"/dashboard/spk/[so
         </div>
 
         <IssuesPanel issues={d.issues} odooUrl={odooUrlFor(access.client)} />
+
+        {s.status === "spk" || d.basts.length > 0 ? <BastPanel basts={d.basts} /> : null}
 
         <Procurement client={access.client} soId={soId} scm={d.scm} products={d.products}
           vendorPayments={d.vendorPayments} canSeeValue={access.canSeeValue} />

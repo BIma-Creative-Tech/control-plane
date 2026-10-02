@@ -4,12 +4,14 @@ import { Icon } from "@/components/icon";
 import { datamartEnabled } from "@/db/datamart";
 import { requirePermission } from "@/lib/authz";
 import { TRACK_LABEL, rupiah, rupiahCompact, stageTone, tanggal, trackTone } from "@/lib/format";
+import { marginTone, persen } from "@/lib/spk-cost-bast";
 import { parseSpkListParams, spkQuery } from "@/lib/spk-params";
 import { accessFor, getSpkDashboard, listAccess } from "@/server/spk-dashboard";
 import { Nav } from "../../nav";
 import {
   Badge, DashboardTabs, EmptyRow, INPUT, LINK, MockupBadge, PageHeader, Pagination, Panel, ROW, StatCard, TD, TH, rise,
 } from "../ui";
+import { BastBadge } from "./[soId]/cost-bast";
 import { IssueBadge } from "./[soId]/issues";
 import { Progress, StageBar, ValueBar, stageFill } from "./bars";
 
@@ -34,7 +36,7 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
   const pages = Math.max(1, Math.ceil(d.total / p.pageSize));
   const maxCustomer = Math.max(1, ...(d.valueByCustomer ?? []).map((c) => c.value));
   const stageHref = (stage: string) => `/dashboard/spk${spkQuery(p, { stage: p.stage === stage ? "" : stage, page: 1 })}`;
-  const cols = access.canSeeValue ? 8 : 7;
+  const cols = access.canSeeValue ? 10 : 8;
 
   return (
     <>
@@ -45,15 +47,17 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
           refreshedAt={d.refreshedAt} refreshNote="otomatis ±2 menit setelah ada perubahan di Odoo"
           actions={<DashboardTabs client={access.client} active="spk" />} />
 
-        <section className={`grid grid-cols-2 gap-2.5 md:grid-cols-3 ${d.value ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
+        <section className={`grid grid-cols-2 gap-2.5 md:grid-cols-4 ${d.value ? "xl:grid-cols-7" : "xl:grid-cols-6"}`}>
           <StatCard index={0} label="SPK" value={d.kpi.spk} icon="clipboard-tick" sub={`${d.kpi.locations.toLocaleString("id-ID")} lokasi`} />
           <StatCard index={1} label="Penawaran" value={d.kpi.quotations} icon="document-text"
             sub={`${d.kpi.quotationsSent.toLocaleString("id-ID")} terkirim · belum dikonfirmasi`} />
           <StatCard index={2} label="Dalam proses" value={d.kpi.inProgress} icon="status-up" tone="info" sub="desain → instalasi" />
           <StatCard index={3} label="Menunggu BAST" value={d.kpi.waitingBast} icon="task-square" tone="warn" sub="laporan sudah" />
           <StatCard index={4} label="Selesai (BAST)" value={d.kpi.done} icon="tick-circle" tone="good" />
+          <StatCard index={5} label="BAST ditandatangani" value={d.kpi.bastSigned} icon="pen-tool" tone={d.kpi.bastWaiting ? "warn" : "good"}
+            sub={`${d.kpi.bastWaiting.toLocaleString("id-ID")} SPK menunggu TTD`} />
           {d.value ? (
-            <StatCard index={5} label="Nilai SPK" value={rupiahCompact(d.value.total)} title={rupiah(d.value.total)} icon="wallet-money"
+            <StatCard index={6} label="Nilai SPK" value={rupiahCompact(d.value.total)} title={rupiah(d.value.total)} icon="wallet-money"
               sub={`ditagih ${rupiahCompact(d.value.invoiced)} · piutang ${rupiahCompact(d.value.due)}`}
               badge={d.value.isMockup ? <MockupBadge /> : undefined} />
           ) : null}
@@ -138,9 +142,11 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
                   <th className={`hidden lg:table-cell ${TH}`}>AE</th>
                   <th className={`text-center ${TH}`}>Lokasi</th>
                   <th className={TH}>Tahap</th>
+                  <th className={`hidden md:table-cell ${TH}`}>BAST</th>
                   <th className={TH}>Status terakhir</th>
                   <th className={`hidden text-right xl:table-cell ${TH}`}>Jam kru</th>
                   {access.canSeeValue ? <th className={`text-right ${TH}`}>Nilai / Piutang</th> : null}
+                  {access.canSeeValue ? <th className={`text-right ${TH}`}>Margin</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -162,6 +168,9 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
                     <td className={`hidden lg:table-cell ${TD}`}>{r.ae ?? "-"}</td>
                     <td className={`text-center tabular-nums ${TD}`}>{r.locations}</td>
                     <td className={TD}><Badge tone={stageTone(r.stage)}>{r.stage}</Badge><Progress value={r.progress} /></td>
+                    <td className={`hidden md:table-cell ${TD}`}>
+                      {r.bast.count > 0 ? <BastBadge bast={r.bast} /> : <span className="text-xs text-muted-foreground">{r.status === "spk" ? "belum ada" : "-"}</span>}
+                    </td>
                     <td className={TD}>
                       <div className="max-w-xs">{r.lastStatus ?? "-"}</div>
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground"><Icon name="clock" className="size-3.5" />{tanggal(r.lastStatusAt)}</div>
@@ -171,6 +180,16 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
                       <td className={`whitespace-nowrap text-right tabular-nums ${TD}`}>
                         <span className="font-semibold">{rupiah(r.value)}</span>{r.isMockup ? <MockupBadge short /> : null}
                         <div className="text-xs text-muted-foreground">piutang {rupiah(r.due)}</div>
+                      </td>
+                    ) : null}
+                    {access.canSeeValue ? (
+                      <td className={`whitespace-nowrap text-right tabular-nums ${TD}`}>
+                        {r.status === "spk" && r.margin !== null && r.margin !== undefined ? (
+                          <>
+                            <span className={`font-semibold ${MARGIN_TEXT[marginTone(r.marginPct ?? null)]}`} title={rupiah(r.margin)}>{rupiahCompact(r.margin)}</span>
+                            <div className="text-xs text-muted-foreground">{persen(r.marginPct ?? null)} · biaya {rupiahCompact(r.costTotal ?? 0)}</div>
+                          </>
+                        ) : <span className="text-muted-foreground">-</span>}
                       </td>
                     ) : null}
                   </tr>
@@ -188,3 +207,8 @@ export default async function SpkDashboardPage(props: PageProps<"/dashboard/spk"
     </>
   );
 }
+
+const MARGIN_TEXT = {
+  good: "text-emerald-700 dark:text-emerald-300", warn: "text-amber-700 dark:text-amber-300",
+  danger: "text-rose-700 dark:text-rose-300", info: "", neutral: "",
+} as const;
