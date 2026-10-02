@@ -41,6 +41,11 @@ nrun npm test            # vitest
 nrun npm run build       # next build (standalone) + esbuild worker & migrate → dist/
 nrun npm audit --audit-level=high
 nrun npm run db:generate -- --name <nama>   # setelah ubah src/db/schema.ts
+# Varian tanpa npm ci (node_modules checkout utama di-mount read-only, mis. dari worktree): image glibc
+# (node:24.21.0-bookworm-slim, bukan alpine), tmpfs untuk cache vite, dan vitest wajib `--configLoader runner`:
+#   docker run --rm --network none -v "$PWD":/app -v /opt/src/control-plane/node_modules:/app/node_modules:ro \
+#     --tmpfs /app/node_modules/.vite-temp --tmpfs /app/node_modules/.vite -w /app node:24.21.0-bookworm-slim \
+#     npx vitest run --configLoader runner
 ```
 
 ## Konfigurasi

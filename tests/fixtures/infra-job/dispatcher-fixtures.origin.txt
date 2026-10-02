@@ -1,9 +1,9 @@
 dispatcher-fixtures.json — salinan APA ADANYA (jangan diedit di sini) dari:
-  repo     : infra (/opt/infra, worktree /opt/infra-wt/p1-dispatcher)
-  branch   : feat/infra-saas-p1-dispatcher
-  commit   : f175457
+  repo     : infra (/opt/infra, worktree /opt/infra-wt/p1-int)
+  branch   : feat/infra-saas-p1 (integrasi Fase 1)
+  commit   : 447c801 (+ VERSION 1.2.0, belum di-commit saat salin)
   path     : scripts/infra-job/contract/fixtures.json
-  sha256   : 8651a117af99ab2a863a96e10de012dcd8ac589a101ea49f52a8f83b35a496e1
+  sha256   : ca874603d5a33378daa511534f15f75f17e542af4cb817a5540334c6b482233a
 Riwayat: plan 05 = feat/infra-job-dispatcher 1bcfe0a (sha256 ee4e6db1…); SaaS Fase 1 (dispatcher 1.1.0, 10 tipe baru)
-= commit di atas. Dipakai tests/unit/dispatcher-contract.test.ts (hash diverifikasi di test). Bila dispatcher mengubah
+= f175457 (8651a117…); kontrak v1.2 QA (arg adopt) = commit di atas. Dipakai tests/unit/dispatcher-contract.test.ts (hash diverifikasi di test). Bila dispatcher mengubah
 kontrak: salin ulang file, perbarui commit + sha256 di sini, jalankan npm test.

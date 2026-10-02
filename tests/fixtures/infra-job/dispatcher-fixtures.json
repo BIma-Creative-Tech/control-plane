@@ -630,6 +630,104 @@
    ]
   },
   {
+   "name": "kc_user_ensure_platform_adopt",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "kc_user_ensure",
+    "slug": "platform",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "email": "ops@bimacreative.tech",
+     "tenant_id": "0b5f2d4e-8a1c-4f3b-9d2e-6c7a8b9c0d1e",
+     "invite": false,
+     "adopt": true
+    }
+   },
+   "argv": [
+    "kc-user.sh",
+    "ensure",
+    "platform",
+    "staging",
+    "--email",
+    "ops@bimacreative.tech",
+    "--tenant-id",
+    "0b5f2d4e-8a1c-4f3b-9d2e-6c7a8b9c0d1e",
+    "--no-invite",
+    "--adopt"
+   ]
+  },
+  {
+   "name": "kc_user_ensure_adopt_false",
+   "instance": "prod",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "kc_user_ensure",
+    "slug": "acme-co",
+    "env": "prod",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "email": "budi@acme.co.id",
+     "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+     "invite": true,
+     "adopt": false
+    }
+   },
+   "argv": [
+    "kc-user.sh",
+    "ensure",
+    "acme-co",
+    "prod",
+    "--email",
+    "budi@acme.co.id",
+    "--tenant-id",
+    "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+   ]
+  },
+  {
+   "name": "kc_user_ensure_tenant_adopt_dry_run",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "kc_user_ensure",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": true,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "email": "budi@acme.co.id",
+     "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+     "invite": false,
+     "name": "Budi",
+     "adopt": true
+    }
+   },
+   "argv": [
+    "kc-user.sh",
+    "ensure",
+    "acme-co",
+    "staging",
+    "--email",
+    "budi@acme.co.id",
+    "--tenant-id",
+    "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "--name",
+    "Budi",
+    "--no-invite",
+    "--adopt",
+    "--dry-run"
+   ]
+  },
+  {
    "name": "kc_user_set_roles_client_admin_odoo_admin",
    "instance": "staging",
    "job": {
@@ -3510,6 +3608,69 @@
      "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
      "invite": true,
      "cp_role": "superadmin"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "kc_user_ensure_adopt_string",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "kc_user_ensure",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "email": "budi@acme.co.id",
+     "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+     "invite": true,
+     "adopt": "true"
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "kc_user_ensure_adopt_int",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "kc_user_ensure",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "email": "budi@acme.co.id",
+     "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+     "invite": true,
+     "adopt": 1
+    }
+   },
+   "error_code": "rejected_validation"
+  },
+  {
+   "name": "kc_user_ensure_adopt_null",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "kc_user_ensure",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "email": "budi@acme.co.id",
+     "tenant_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+     "invite": true,
+     "adopt": null
     }
    },
    "error_code": "rejected_validation"
