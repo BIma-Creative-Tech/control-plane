@@ -122,11 +122,22 @@ Tanpa `INFRA_JOBS_SPOOL_DIR/RESULTS_DIR/INSTANCE` worker berjalan seperti sebelu
   `platform` ditolak form Tambah client; tenant platform tidak punya environment Odoo.
 - **Allowlist tipe per instance**: env `INFRA_JOBS_TYPES` (web + worker, dipisah koma) = cermin `job_types` di
   `/etc/infra-jobs/<inst>.conf`. Kosong = 5 tipe plan 05 → halaman `/users` read-only. Staging Fase 1: isi semua tipe.
-- `/users` (`users:view` = superadmin+ops; aksi `users:manage` = superadmin; `users:manage_own` = client_admin, tenant
-  sendiri — dipakai portal kelak): filter tenant (termasuk `platform`), Tambah user (rantai `[kc_org_ensure] →
+- `/users` (`users:view` = superadmin+ops; aksi `users:manage` = superadmin; `users:manage_own` = **default-deny untuk
+  semua role** sampai portal tenant W6 — jalur kode cakupan tenant sendiri tetap ada + diuji): filter tenant (termasuk `platform`), Tambah user (rantai `[kc_org_ensure] →
   kc_user_ensure → kc_user_set_roles → odoo_user_ensure` per env berakses), Nonaktifkan/Aktifkan, Ubah role/akses Odoo,
   Kirim reset password; status rantai per langkah. Label role: superadmin=platform-admin, ops=platform-viewer,
   client_admin=tenant-admin, client_user=tenant-user. Nama user: ASCII saja (non-ASCII ditolak, sama dengan dispatcher).
+- **Pengikatan email** (temuan QA F1): setiap mutasi ditolak bila email yang sama sudah ada di `users` sebagai baris lama
+  tanpa tenant (`email_unbound`), ber-role superadmin/ops untuk tenant klien (`email_platform_role`), atau milik tenant
+  lain (`email_other_tenant`). Baris lama `client_id IS NULL` diikat lewat aksi superadmin **"Ikat ke tenant…"** →
+  `kc_user_ensure adopt=true` (kontrak v1.2, tanpa undangan) → `kc_user_set_roles` (platform: role cache tetap
+  superadmin/ops; tenant klien: hanya tenant-admin/tenant-user, tidak pernah untuk role cache platform). `adopt=true` dari
+  aktor tanpa `users:manage` ditolak + diaudit di `enqueueChain`, dan worker menolak (`rejected_validation`, `adopt_actor`)
+  job adopt yang aktornya bukan superadmin. Rekonsiliasi hanya mengisi `users.client_id` baris lama bila `adopt=true` (audit
+  `user.adopt_bound`) atau RESULT `created=1`; selain itu `user.reconcile_conflict` `unbound_without_adopt`.
+- **Satu tenant-admin atomik** (temuan QA F2): rantai yang memuat `kc_user_set_roles cp_role=client_admin` mengambil
+  `pg_advisory_xact_lock(hashtext('tenant-admin:'||client_id))` di transaksi enqueue lalu ditolak (`one_admin`) bila sudah
+  ada `client_admin` invited/active atau job set_roles client_admin aktif (email lain) untuk tenant itu.
 - Rantai: hanya kepala yang dikirim ke pg-boss; langkah berikut di-dispatch worker (`advanceChains`) setelah pendahulu
   `succeeded`; pendahulu `failed|cancelled` → `cancelled`/`chain_aborted` + audit `job.chain_aborted`. Idempotency:
   `<type>:<slug>:<env>:<email|org|realm|tenant>` — job aktif dengan args sama dipakai ulang, args beda → `duplicate`;

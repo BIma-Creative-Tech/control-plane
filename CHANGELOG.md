@@ -19,6 +19,19 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
   `users:manage_own`, `realm:sync`; otorisasi lintas tenant / satu tenant-admin / tidak mengubah diri sendiri di server.
 - Tenant internal `platform` dibuat idempoten oleh `migrate.mjs`; slug `platform` reserved di form.
 
+### Security
+- Temuan QA Fase 1 (Lead 2026-10-03):
+  - **F1 (High)** — pengambilalihan user lama lintas tenant: setiap mutasi Users ditolak bila email sudah ada sebagai
+    baris tanpa tenant / ber-role superadmin-ops (untuk tenant klien) / milik tenant lain. Kontrak v1.2: `kc_user_ensure`
+    + `adopt` (bool opsional) — hanya superadmin (`enqueueChain` + penjaga worker), diaudit. `users:manage_own` dicabut
+    dari client_admin (default-deny sampai portal tenant W6). Rekonsiliasi tidak mengikat baris lama tanpa `adopt`.
+  - **F2 (Medium)** — aturan satu tenant-admin ditegakkan atomik saat enqueue (advisory lock per tenant + cek admin
+    invited/active dan job `kc_user_set_roles client_admin` aktif).
+
+### Added
+- Aksi superadmin **"Ikat ke tenant…"** di `/users` untuk baris lama `client_id IS NULL` (temuan F8): platform (role
+  cache tetap) atau tenant klien (tenant-admin/tenant-user) lewat rantai `kc_user_ensure adopt=true → kc_user_set_roles`.
+
 ### Fixed
 - Temuan "users prod kosong" (`docs/temuan-users-prod-kosong.md`): penyebab = cleanup QA menghapus baris `users` (FK audit
   `ON DELETE SET NULL`) + tidak ada login CP prod sejak itu. Baris `users` kini juga dibuat dari RESULT `kc_user_ensure`;
