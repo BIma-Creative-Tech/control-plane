@@ -252,7 +252,8 @@ Tanpa itu, uji email memakai mailer perekam.
 - Cakupan tenant SELALU `users.client_id` baris users sesi (dicari by `sub`, `decidePortalScope`) — tidak pernah dari
   URL/form/klaim. Baris disabled → `/forbidden`; belum terikat / tenant platform → pesan tanpa data.
 - `/portal` Ringkasan (`portal:view` = client_admin + client_user, read-only): environment + status, langganan
-  (implementasi/garansi/aktif/lewat jatuh tempo/ditangguhkan + tanggal), invoice terbuka (nomor, jumlah, jatuh tempo).
+  (implementasi/garansi/aktif/lewat jatuh tempo/ditangguhkan + tanggal), invoice terbuka (nomor, jumlah, jatuh tempo) —
+  invoice hanya untuk tenant-admin (ADR 0018 §Security: data finansial), tenant-user tidak memuatnya.
 - `/portal/users` (`portal:admin` = client_admin; mutasi `users:manage_own` = client_admin): daftar user tenant; tambah
   (email, nama ASCII, akses Odoo per env), nonaktifkan/aktifkan, reset password, akses Odoo per env (none/user/admin).
   Server Action sendiri (`app/portal/users/actions.ts`, form `.strict()` TANPA `clientId`/`cp_role`) → `jobs/portal.ts`

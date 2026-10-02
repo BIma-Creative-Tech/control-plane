@@ -12,7 +12,8 @@ import { ScopeNotice } from "./scope-notice";
 
 /**
  * Portal tenant — Ringkasan (W6, read-only): layanan/environment + status, langganan (implementasi/garansi/aktif/lewat
- * jatuh tempo/ditangguhkan + tanggal), invoice terbuka. tenant-admin & tenant-user; cakupan = users.client_id sesi.
+ * jatuh tempo/ditangguhkan + tanggal), invoice terbuka (tenant-admin saja — ADR 0018 §Security: data finansial).
+ * tenant-admin & tenant-user; cakupan = users.client_id sesi.
  */
 export default async function PortalPage() {
   const { session, scope } = await requirePortal("portal:view");
@@ -29,8 +30,13 @@ export default async function PortalPage() {
   }
   const db = getDb();
   const t = scope.tenant;
-  const [envs, subs, open] = await Promise.all([portalEnvironments(db, t.id), portalSubscriptions(db, t.id), portalOpenInvoices(db, t.id)]);
+  // ADR 0018 §Security: data finansial (invoice) hanya untuk tenant-admin — tenant-user tidak memuat/menampilkan invoice.
   const isAdmin = can(session.roles, "portal:admin");
+  const [envs, subs, open] = await Promise.all([
+    portalEnvironments(db, t.id),
+    portalSubscriptions(db, t.id),
+    isAdmin ? portalOpenInvoices(db, t.id) : Promise.resolve(null),
+  ]);
 
   return (
     <>
@@ -125,38 +131,40 @@ export default async function PortalPage() {
           )}
         </section>
 
-        <section className="space-y-2">
-          <h2 className="font-semibold">Invoice terbuka</h2>
-          {open.length === 0 ? (
-            <p className="text-sm text-slate-500">Tidak ada invoice terbuka.</p>
-          ) : (
-            <table className="w-full border bg-white text-left text-sm">
-              <thead className="bg-slate-100">
-                <tr>
-                  <th className="p-2">Nomor</th>
-                  <th className="p-2">Jenis</th>
-                  <th className="p-2">Jumlah</th>
-                  <th className="p-2">Jatuh tempo</th>
-                  <th className="p-2">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {open.map((i) => (
-                  <tr key={i.id} className="border-t">
-                    <td className="p-2 font-mono">{i.number}</td>
-                    <td className="p-2">{i.kind === "implementation" ? "implementasi" : "maintenance"}</td>
-                    <td className="p-2 whitespace-nowrap">{formatAmount(i.amount, i.currency)}</td>
-                    <td className="p-2 whitespace-nowrap">{i.dueAt ?? "—"}</td>
-                    <td className="p-2">
-                      <BillingBadge value={i.status} />
-                    </td>
+        {open ? (
+          <section className="space-y-2">
+            <h2 className="font-semibold">Invoice terbuka</h2>
+            {open.length === 0 ? (
+              <p className="text-sm text-slate-500">Tidak ada invoice terbuka.</p>
+            ) : (
+              <table className="w-full border bg-white text-left text-sm">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="p-2">Nomor</th>
+                    <th className="p-2">Jenis</th>
+                    <th className="p-2">Jumlah</th>
+                    <th className="p-2">Jatuh tempo</th>
+                    <th className="p-2">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          <p className="text-xs text-slate-500">Pembayaran via transfer; konfirmasi dilakukan oleh tim billing platform.</p>
-        </section>
+                </thead>
+                <tbody>
+                  {open.map((i) => (
+                    <tr key={i.id} className="border-t">
+                      <td className="p-2 font-mono">{i.number}</td>
+                      <td className="p-2">{i.kind === "implementation" ? "implementasi" : "maintenance"}</td>
+                      <td className="p-2 whitespace-nowrap">{formatAmount(i.amount, i.currency)}</td>
+                      <td className="p-2 whitespace-nowrap">{i.dueAt ?? "—"}</td>
+                      <td className="p-2">
+                        <BillingBadge value={i.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <p className="text-xs text-slate-500">Pembayaran via transfer; konfirmasi dilakukan oleh tim billing platform.</p>
+          </section>
+        ) : null}
 
         {isAdmin ? (
           <p className="text-sm">
