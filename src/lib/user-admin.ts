@@ -206,6 +206,8 @@ export interface ChainStep {
   type: BridgeJobType;
   env: TenantEnv;
   args: Record<string, unknown>;
+  /** Default false. Dry-run (mis. rencana kc_realm_sync) tidak memegang idempotency_key. */
+  dryRun?: boolean;
 }
 
 export interface TenantEnvRef {

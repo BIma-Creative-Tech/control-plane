@@ -190,7 +190,7 @@ export default async function UsersPage(props: PageProps<"/users">) {
                 const t = tenantOf(u.clientId);
                 const roles = t ? cpRolesForSlug(t.isPlatform ? "platform" : t.slug) : [];
                 return (
-                  <tr key={u.id} className="border-t align-top">
+                  <tr key={u.id} id={`user-${u.id}`} className="border-t align-top">
                     <td className="p-2 font-mono">{u.email ?? "—"}</td>
                     <td className="p-2">{u.displayName ?? "—"}</td>
                     <td className="p-2 font-mono">{u.slug ?? "(tanpa tenant)"}</td>

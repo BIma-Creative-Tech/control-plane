@@ -15,14 +15,26 @@
  * - F2: aturan satu tenant-admin ditegakkan ATOMIK saat enqueue — rantai yang memuat `kc_user_set_roles
  *   cp_role=client_admin` mengambil `pg_advisory_xact_lock(hashtext('tenant-admin:'||client_id))` lalu menolak bila
  *   sudah ada client_admin invited/active atau job set_roles client_admin AKTIF untuk tenant itu (email lain).
+ *
+ * Fase 1 W5 (onboarding tenant): rantai boleh memuat tipe lama yang terikat environment (`CHAIN_ENV_TYPES`:
+ * odoo_db_provision → odoo_route → odoo_sso_provision). `environment_id` langkah itu diturunkan SERVER dari
+ * (client, env) — tidak pernah dari input — sehingga langkah ikut partial unique index `provision_jobs_one_active_uq`
+ * (satu job aktif per environment+type). Pengganti idempotency_key untuk tipe lama = indeks itu: job aktif
+ * (environment, type) dengan args sama dipakai ulang, args beda → `duplicate`; tabrakan paralel (unique violation)
+ * → satu ulangan lalu `duplicate`. Aksi berisiko (`requiresAdmin`) wajib `jobs:odoo_admin`; tipe lama lain
+ * (sso_disable, sso_user) tidak boleh masuk rantai. `prelude` = langkah DB tambahan di transaksi yang sama (mis.
+ * INSERT clients/environments onboarding, kunci status tenant) — semua atau tidak sama sekali.
  */
 import { randomUUID } from "node:crypto";
 import { and, count, countDistinct, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
-import { auditLogs, provisionJobs, users } from "../db/schema";
+import { auditLogs, environments, provisionJobs, users } from "../db/schema";
 import {
   BRIDGE_JOB_TYPES,
+  isSaasP1JobType,
+  checkSsoHosts,
+  defaultHost,
   idempotencyKey,
   validateJobRequest,
   type BridgeJobType,
@@ -33,19 +45,38 @@ import {
 import { evaluateChainQuota, type ChainQuotaCounts, type ChainQuotaViolation } from "../lib/quota";
 import { can } from "../lib/roles";
 import type { ChainStep } from "../lib/user-admin";
-import type { Actor, RequestMeta, SendFn, Tx } from "./service";
+import { requiresAdmin, type Actor, type RequestMeta, type SendFn, type Tx } from "./service";
 
 const ACTIVE = ["queued", "dispatched", "running"] as const;
+
+/** Batas langkah satu rantai (onboarding prod+demo = 14 langkah). */
+export const MAX_CHAIN_STEPS = 20;
+
+/**
+ * Tipe lama (plan 05) yang boleh masuk rantai — terikat environment (environment_id diisi server). Tipe lama lain
+ * (`odoo_sso_disable`, `odoo_sso_user`) hanya lewat halaman environment (enqueueBridgeJob, bookkeeping
+ * tenant_user_access).
+ */
+export const CHAIN_ENV_TYPES = ["odoo_db_provision", "odoo_route", "odoo_sso_provision"] as const satisfies readonly BridgeJobType[];
+
+export function isChainEnvType(t: string): t is (typeof CHAIN_ENV_TYPES)[number] {
+  return (CHAIN_ENV_TYPES as readonly string[]).includes(t);
+}
 
 export interface ChainInput {
   instance: Instance;
   /** Allowlist tipe instance (env INFRA_JOBS_TYPES). */
   allowedTypes: readonly BridgeJobType[];
-  client: { id: string; slug: string };
+  /** `isNew` = baris clients dibuat oleh `prelude` (audit penolakan tanpa client_id — barisnya di-rollback). */
+  client: { id: string; slug: string; isNew?: boolean };
   steps: readonly ChainStep[];
   actor: Actor;
   meta: RequestMeta;
   audit: { action: string; targetType: string; targetId: string | null; metadata: Record<string, unknown> };
+  /** Langkah DB di transaksi yang sama SEBELUM dedupe/insert; lempar `ChainAbort` untuk menolak. */
+  prelude?: (tx: Tx) => Promise<void>;
+  /** "Ulangi dari langkah gagal": parent_job_id kepala rantai baru = job yang diulang. */
+  retryOf?: string | null;
 }
 
 export type ChainFailure =
@@ -56,7 +87,18 @@ export type ChainFailure =
   | { reason: "adopt_forbidden" }
   /** F2: tenant sudah punya client_admin invited/active atau job set_roles client_admin aktif. */
   | { reason: "one_admin"; conflict: "user" | "job" }
+  /** Langkah tipe lama berisiko (requiresAdmin) tanpa jobs:odoo_admin, atau tipe lama tanpa jobs:odoo. */
+  | { reason: "forbidden" }
+  /** Prelude: slug/DB/host sudah dipakai. */
+  | { reason: "exists" }
+  /**
+   * Prasyarat rantai: environment (client, env) tidak ada; host SSO tidak ada di route (rantai/DB); status tenant
+   * sedang berubah (suspend/resume aktif); rencana kc_realm_sync belum ada/berblokir.
+   */
+  | { reason: "precondition"; detail: ChainPreconditionDetail; step?: number }
   | { reason: "error"; message: string };
+
+export type ChainPreconditionDetail = "env_missing" | "host_not_in_route" | "host_taken" | "state_busy" | "plan_required" | "no_env";
 
 export type ChainOutcome =
   | { ok: true; chainId: string; jobIds: string[]; reused: number }
@@ -82,11 +124,13 @@ export function validateChain(
   slug: string,
   steps: readonly ChainStep[],
 ): { ok: true; reqs: JobRequest[] } | { ok: false; issue: ContractIssue; step: number } {
-  if (steps.length === 0 || steps.length > 12) return { ok: false, issue: "args", step: 0 };
+  if (steps.length === 0 || steps.length > MAX_CHAIN_STEPS) return { ok: false, issue: "args", step: 0 };
   const reqs: JobRequest[] = [];
   for (const [i, s] of steps.entries()) {
     if (!allowedTypes.includes(s.type)) return { ok: false, issue: "type_not_allowed", step: i };
-    const v = validateJobRequest(instance, { type: s.type, slug, env: s.env, dryRun: false, args: s.args });
+    // Tipe lama di luar CHAIN_ENV_TYPES tidak pernah lewat rantai (bookkeeping tenant_user_access ada di service.ts).
+    if (!isSaasP1JobType(s.type) && !isChainEnvType(s.type)) return { ok: false, issue: "type_not_allowed", step: i };
+    const v = validateJobRequest(instance, { type: s.type, slug, env: s.env, dryRun: s.dryRun ?? false, args: s.args });
     if (!v.ok) return { ok: false, issue: v.issue, step: i };
     reqs.push(v.value);
   }
@@ -105,6 +149,25 @@ export function chainAdminEmails(steps: readonly ChainStep[]): string[] {
     if (s.type === "kc_user_set_roles" && s.args.cp_role === "client_admin" && typeof s.args.email === "string") out.add(s.args.email);
   }
   return [...out];
+}
+
+/**
+ * Host route yang AKAN aktif per env bila langkah odoo_route (remove=false) di rantai ini sebelum langkah `upTo` sukses
+ * (host = args.host atau host default skrip). Dipakai cek prasyarat odoo_sso_provision di rantai — murni.
+ */
+export function chainRouteHosts(reqs: readonly JobRequest[], upTo: number): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of reqs.slice(0, upTo)) {
+    if (r.type !== "odoo_route") continue;
+    const a = r.args as { host?: string; remove: boolean };
+    if (a.remove) {
+      out.delete(r.env);
+      continue;
+    }
+    const h = a.host ?? defaultHost(r.slug, r.env);
+    if (h) out.set(r.env, h);
+  }
+  return out;
 }
 
 /**
@@ -164,6 +227,9 @@ async function chainQuotaCounts(tx: Tx, actorLabel: string, now: Date): Promise<
     kcRealmSyncLastDay: await one(and(types(["kc_realm_sync"]), gte(provisionJobs.createdAt, dayAgo))),
     tenantStateLastDay: await one(and(types(["tenant_suspend", "tenant_resume"]), gte(provisionJobs.createdAt, dayAgo))),
     odooUserLastHour: await one(and(types(["odoo_user_ensure"]), gte(provisionJobs.createdAt, hourAgo))),
+    dbProvisionLastDay: await one(
+      and(types(["odoo_db_provision"]), eq(provisionJobs.dryRun, false), gte(provisionJobs.createdAt, dayAgo)),
+    ),
     actorChainsLastMinute:
       (
         await tx
@@ -180,6 +246,9 @@ class Abort extends Error {
   }
 }
 
+/** Dilempar `prelude` untuk menolak rantai (transaksi di-rollback, penolakan diaudit). */
+export { Abort as ChainAbort };
+
 async function auditChain(
   db: Db | Tx,
   input: ChainInput,
@@ -192,11 +261,17 @@ async function auditChain(
     action: input.audit.action,
     targetType: input.audit.targetType,
     targetId: input.audit.targetId,
-    clientId: input.client.id,
+    // Baris clients baru (prelude) ikut di-rollback saat ditolak → audit penolakan tanpa FK client.
+    clientId: result === "rejected" && input.client.isNew ? null : input.client.id,
     result,
     ip: input.meta.ip,
     requestId: input.meta.requestId,
-    metadata: { ...input.audit.metadata, steps: input.steps.map((s) => `${s.type}@${s.env}`), ...extra },
+    metadata: {
+      ...input.audit.metadata,
+      steps: input.steps.map((s) => `${s.type}@${s.env}${s.dryRun ? ":dry" : ""}`),
+      ...(input.retryOf ? { retry_of: input.retryOf } : {}),
+      ...extra,
+    },
   });
 }
 
@@ -213,17 +288,44 @@ async function insertChain(db: Db, send: SendFn, input: ChainInput, reqs: JobReq
   const actorLabel = `user:${input.actor.sub}`;
   return db.transaction(async (tx) => {
     const chainId = randomUUID();
+    if (input.prelude) await input.prelude(tx);
     // 0) F2: kunci per tenant SEBELUM dedupe/insert — enqueue paralel untuk tenant yang sama berurutan di sini.
     const adminEmails = chainAdminEmails(input.steps);
     if (adminEmails.length > 0) {
       const conflict = await tenantAdminConflict(tx, input.client.id, adminEmails);
       if (conflict) throw new Abort({ reason: "one_admin", conflict });
     }
+    // 0b) Langkah tipe lama: environment_id dari (client, env) + prasyarat host SSO (cermin check_hosts dispatcher).
+    const envIds: (string | null)[] = [];
+    for (const [i, req] of reqs.entries()) {
+      if (!isChainEnvType(req.type)) {
+        envIds.push(null);
+        continue;
+      }
+      const envRow = (
+        await tx
+          .select({ id: environments.id, host: environments.host, routeStatus: environments.routeStatus })
+          .from(environments)
+          .where(and(eq(environments.clientId, input.client.id), eq(environments.kind, req.env)))
+          .limit(1)
+      )[0];
+      if (!envRow) throw new Abort({ reason: "precondition", detail: "env_missing", step: i });
+      if (req.type === "odoo_sso_provision") {
+        const planned = chainRouteHosts(reqs, i).get(req.env);
+        const routeHosts = [
+          ...(planned ? [planned] : []),
+          ...(envRow.routeStatus === "active" && envRow.host ? [envRow.host] : []),
+        ];
+        if (!checkSsoHosts(req, routeHosts).ok) throw new Abort({ reason: "precondition", detail: "host_not_in_route", step: i });
+      }
+      envIds.push(envRow.id);
+    }
     // 1) Dedupe dulu (FOR UPDATE), kuota hanya untuk langkah baru.
-    type Plan = { req: JobRequest; key: string | null; reuse: string | null };
+    type Plan = { req: JobRequest; key: string | null; reuse: string | null; environmentId: string | null };
     const plans: Plan[] = [];
-    for (const req of reqs) {
+    for (const [i, req] of reqs.entries()) {
       const key = idempotencyKey(req);
+      const environmentId = envIds[i] ?? null;
       let reuse: string | null = null;
       if (key) {
         const existing = (
@@ -245,8 +347,30 @@ async function insertChain(db: Db, send: SendFn, input: ChainInput, reqs: JobReq
             await tx.update(provisionJobs).set({ idempotencyKey: null }).where(eq(provisionJobs.id, existing.id));
           }
         }
+      } else if (environmentId) {
+        // Tipe lama: "kunci" = satu job aktif per (environment, type) — provision_jobs_one_active_uq.
+        const existing = (
+          await tx
+            .select({ id: provisionJobs.id, payload: provisionJobs.payload, dryRun: provisionJobs.dryRun })
+            .from(provisionJobs)
+            .where(
+              and(
+                eq(provisionJobs.environmentId, environmentId),
+                eq(provisionJobs.type, req.type),
+                inArray(provisionJobs.status, [...ACTIVE]),
+              ),
+            )
+            .for("update")
+            .limit(1)
+        )[0];
+        if (existing) {
+          const same =
+            !existing.dryRun && !req.dryRun && canonicalJson((existing.payload as { args?: unknown }).args ?? null) === canonicalJson(req.args);
+          if (!same) throw new Abort({ reason: "duplicate", existingJobId: existing.id });
+          reuse = existing.id;
+        }
       }
-      plans.push({ req, key, reuse });
+      plans.push({ req, key, reuse, environmentId });
     }
     const fresh = plans.filter((p) => p.reuse === null);
     const violation = evaluateChainQuota(
@@ -271,9 +395,9 @@ async function insertChain(db: Db, send: SendFn, input: ChainInput, reqs: JobReq
           type: p.req.type,
           status: "queued",
           clientId: input.client.id,
-          environmentId: null,
+          environmentId: p.environmentId,
           env: p.req.env,
-          dryRun: false,
+          dryRun: p.req.dryRun,
           payload: { slug: p.req.slug, args: p.req.args as Record<string, unknown> },
           actorUserId: input.actor.userId,
           actor: actorLabel,
@@ -281,6 +405,7 @@ async function insertChain(db: Db, send: SendFn, input: ChainInput, reqs: JobReq
           idempotencyKey: p.key,
           afterJobId: prev,
           chainId,
+          parentJobId: prev === null && input.retryOf ? input.retryOf : null,
         })
         .returning({ id: provisionJobs.id });
       const id = inserted[0]?.id;
@@ -316,6 +441,15 @@ export async function enqueueChain(db: Db, send: SendFn, input: ChainInput, now 
     await auditRejectedChain(db, input, { reason: "invalid", issue: v.issue, step: v.step });
     return { ok: false, reason: "invalid", issue: v.issue, step: v.step };
   }
+  // Tipe lama di rantai: izin sama dengan halaman environment (jobs:odoo; aksi berisiko jobs:odoo_admin).
+  const legacy = v.reqs.filter((r) => isChainEnvType(r.type));
+  if (
+    (legacy.length > 0 && !can(input.actor.roles, "jobs:odoo")) ||
+    legacy.some((r) => requiresAdmin(r.type, r.args) && !can(input.actor.roles, "jobs:odoo_admin"))
+  ) {
+    await auditRejectedChain(db, input, { reason: "forbidden" });
+    return { ok: false, reason: "forbidden" };
+  }
   // Satu ulangan: permintaan paralel dengan kunci sama → unique violation → putaran kedua melihat job yang sudah
   // ter-commit dan memakainya ulang (atau menolak duplicate).
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -329,10 +463,19 @@ export async function enqueueChain(db: Db, send: SendFn, input: ChainInput, now 
           ...("violation" in err.failure ? { violation: err.failure.violation } : {}),
           ...("existingJobId" in err.failure ? { existing_job_id: err.failure.existingJobId } : {}),
           ...("conflict" in err.failure ? { conflict: err.failure.conflict } : {}),
+          ...("detail" in err.failure ? { detail: err.failure.detail } : {}),
+          ...("step" in err.failure && err.failure.step !== undefined ? { step: err.failure.step } : {}),
         });
         return { ok: false, ...err.failure };
       }
       if (isUniqueViolation(err, "provision_jobs_idempotency_key_uq") && attempt === 0) continue;
+      // Tipe lama: job aktif (environment, type) paralel ter-commit di antara SELECT dan INSERT → putaran kedua
+      // memakai ulang (args sama) atau menolak duplicate.
+      if (isUniqueViolation(err, "provision_jobs_one_active_uq")) {
+        if (attempt === 0) continue;
+        await auditRejectedChain(db, input, { reason: "duplicate" });
+        return { ok: false, reason: "duplicate", existingJobId: "" };
+      }
       return { ok: false, reason: "error", message: safeErrorMessage(err) };
     }
   }

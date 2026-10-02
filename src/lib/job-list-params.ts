@@ -60,6 +60,14 @@ export const ACTION_RESULT_CODES = [
   "invoice_state",
   "future_date",
   "plan_inactive",
+  // Tenant (Fase 1 W5): onboarding, suspend/resume, sync realm
+  "slug_reserved",
+  "host_invalid",
+  "host_taken",
+  "state_busy",
+  "no_env",
+  "plan_required",
+  "approve_required",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -104,4 +112,12 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   invoice_state: "Status invoice tidak mengizinkan aksi ini (hanya invoice belum lunas yang bisa di-void/ditandai lunas).",
   future_date: "Tanggal tidak boleh di masa depan.",
   plan_inactive: "Plan tidak aktif atau belum punya layanan.",
+  slug_reserved: "Slug `platform` dicadangkan untuk tenant internal.",
+  host_invalid:
+    "Host tidak valid: prod/demo harus <label>.erp.bimacreative.tech, staging <label>.staging.bimacreative.tech; demo wajib host dan berbeda dari prod.",
+  host_taken: "Host sudah dipakai environment lain.",
+  state_busy: "Masih ada job suspend/resume kebalikannya yang aktif untuk tenant ini — tunggu selesai.",
+  no_env: "Tenant tidak punya environment yang dilayani instance ini.",
+  plan_required: "Jalankan \"Rencana sync realm\" dulu: rencana terakhir harus sukses (≤ 24 jam) tanpa blocker.",
+  approve_required: "Realm prod/demo: centang persetujuan eksplisit sebelum menerapkan.",
 };

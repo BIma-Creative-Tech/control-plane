@@ -20,6 +20,8 @@ export function Nav({ session }: { session: Session }) {
         {can(session.roles, "billing:view") ? <Link href="/subscriptions" className={ITEM}><Icon name="wallet-check" className="size-4" />Subscriptions</Link> : null}
         {can(session.roles, "billing:view") ? <Link href="/invoices" className={ITEM}><Icon name="receipt-2" className="size-4" />Invoices</Link> : null}
         {can(session.roles, "jobs:view") ? <Link href="/jobs" className={ITEM}><Icon name="setting-4" className="size-4" />Jobs</Link> : null}
+        {can(session.roles, "audit:view") ? <Link href="/audit" className={ITEM}><Icon name="document-text" className="size-4" />Audit</Link> : null}
+        {can(session.roles, "realm:sync") ? <Link href="/realm" className={ITEM}><Icon name="refresh-circle" className="size-4" />Realm</Link> : null}
         <span className="ml-auto hidden rounded-full border px-2.5 py-1 text-xs text-muted-foreground md:inline">
           {session.roles.join(", ") || "tanpa role"}
         </span>
