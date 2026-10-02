@@ -52,6 +52,8 @@ export const PERMISSIONS = {
   "users:manage_own": [],
   /** Job kc_realm_sync (prod/demo wajib approve). */
   "realm:sync": ["superadmin"],
+  /** Halaman /audit (baca audit_logs; email tidak pernah ditampilkan). */
+  "audit:view": ["superadmin", "ops"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

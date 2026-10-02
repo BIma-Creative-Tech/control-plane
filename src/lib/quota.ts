@@ -72,6 +72,11 @@ export interface ChainQuotaCounts {
   odooUserLastHour: number;
   /** Rantai/job tunggal (distinct coalesce(chain_id, id)) aktor ini dalam 1 menit terakhir. */
   actorChainsLastMinute: number;
+  /**
+   * odoo_db_provision apply 24 jam terakhir (rantai onboarding tenant memuat tipe lama — kuota dispatcher
+   * `odoo_db_provision` 3/hari berlaku juga untuk rantai). Opsional: tidak diisi = 0.
+   */
+  dbProvisionLastDay?: number;
 }
 
 export type ChainQuotaViolation =
@@ -82,9 +87,10 @@ export type ChainQuotaViolation =
   | "kc_action_email_hour"
   | "kc_realm_sync_day"
   | "tenant_state_day"
-  | "odoo_user_hour";
+  | "odoo_user_hour"
+  | "db_provision_day";
 
-export function plannedChainCounts(steps: readonly QuotaStep[]): Omit<ChainQuotaCounts, "actorChainsLastMinute"> {
+export function plannedChainCounts(steps: readonly QuotaStep[]): Required<Omit<ChainQuotaCounts, "actorChainsLastMinute">> {
   const n = (f: (s: QuotaStep) => boolean) => steps.filter(f).length;
   return {
     totalLastHour: steps.length,
@@ -94,6 +100,7 @@ export function plannedChainCounts(steps: readonly QuotaStep[]): Omit<ChainQuota
     kcRealmSyncLastDay: n((s) => s.type === "kc_realm_sync"),
     tenantStateLastDay: n((s) => s.type === "tenant_suspend" || s.type === "tenant_resume"),
     odooUserLastHour: n((s) => s.type === "odoo_user_ensure"),
+    dbProvisionLastDay: n((s) => s.type === "odoo_db_provision" && !s.dryRun),
   };
 }
 
@@ -111,5 +118,6 @@ export function evaluateChainQuota(counts: ChainQuotaCounts, steps: readonly Quo
   if (counts.kcRealmSyncLastDay + p.kcRealmSyncLastDay > P1_QUOTA.kcRealmSyncPerDay) return "kc_realm_sync_day";
   if (counts.tenantStateLastDay + p.tenantStateLastDay > P1_QUOTA.tenantStatePerDay) return "tenant_state_day";
   if (counts.odooUserLastHour + p.odooUserLastHour > P1_QUOTA.odooUserPerHour) return "odoo_user_hour";
+  if ((counts.dbProvisionLastDay ?? 0) + p.dbProvisionLastDay > QUOTA.dbProvisionPerDay) return "db_provision_day";
   return null;
 }

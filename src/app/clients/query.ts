@@ -12,7 +12,7 @@ export async function listClients(params: ClientListParams) {
   const where = params.q ? ilike(clients.slug, `%${params.q}%`) : undefined;
   const [rows, totals] = await Promise.all([
     db
-      .select({ id: clients.id, slug: clients.slug, name: clients.name, createdAt: clients.createdAt })
+      .select({ id: clients.id, slug: clients.slug, name: clients.name, createdAt: clients.createdAt, status: clients.status, isPlatform: clients.isPlatform })
       .from(clients)
       .where(where)
       .orderBy(asc(clients.slug))

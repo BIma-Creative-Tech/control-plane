@@ -54,6 +54,14 @@ export const ACTION_RESULT_CODES = [
   "email_unbound",
   "email_platform_role",
   "already_bound",
+  // Tenant (Fase 1 W5): onboarding, suspend/resume, sync realm
+  "slug_reserved",
+  "host_invalid",
+  "host_taken",
+  "state_busy",
+  "no_env",
+  "plan_required",
+  "approve_required",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -93,4 +101,12 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
     "Email sudah ada sebagai user lama tanpa tenant — ikat dulu lewat aksi \"Ikat ke tenant…\" (khusus platform-admin).",
   email_platform_role: "Email milik user platform (platform-admin/platform-viewer) — tidak bisa dipakai di tenant klien.",
   already_bound: "User sudah terikat ke tenant.",
+  slug_reserved: "Slug `platform` dicadangkan untuk tenant internal.",
+  host_invalid:
+    "Host tidak valid: prod/demo harus <label>.erp.bimacreative.tech, staging <label>.staging.bimacreative.tech; demo wajib host dan berbeda dari prod.",
+  host_taken: "Host sudah dipakai environment lain.",
+  state_busy: "Masih ada job suspend/resume kebalikannya yang aktif untuk tenant ini — tunggu selesai.",
+  no_env: "Tenant tidak punya environment yang dilayani instance ini.",
+  plan_required: "Jalankan \"Rencana sync realm\" dulu: rencana terakhir harus sukses (≤ 24 jam) tanpa blocker.",
+  approve_required: "Realm prod/demo: centang persetujuan eksplisit sebelum menerapkan.",
 };

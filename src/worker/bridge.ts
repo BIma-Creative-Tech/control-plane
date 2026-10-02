@@ -18,12 +18,14 @@ import { safeErrorMessage } from "../db/errors";
 import { auditLogs, environments, provisionJobs, users } from "../db/schema";
 import { applyReconcile, planReconcile } from "../jobs/reconcile";
 import { applyUserReconcile, planUserReconcile } from "../jobs/user-reconcile";
+import { MAX_CHAIN_STEPS } from "../jobs/chain";
 import type { Tx } from "../jobs/service";
 import {
   BRIDGE_JOB_TYPES,
   ContractError,
   INSTANCE_ENVS,
   buildJobFile,
+  checkSsoHosts,
   dispatchDeadline,
   emailHash,
   isBridgeJobType,
@@ -217,6 +219,7 @@ export function createBridge(opts: BridgeOptions) {
           payload: provisionJobs.payload,
           afterJobId: provisionJobs.afterJobId,
           actorUserId: provisionJobs.actorUserId,
+          environmentId: provisionJobs.environmentId,
         })
         .from(provisionJobs)
         .where(and(eq(provisionJobs.id, provisionJobId), eq(provisionJobs.status, "queued")))
@@ -253,6 +256,22 @@ export function createBridge(opts: BridgeOptions) {
           createdAt: row.createdAt,
           args: payload.args,
         });
+        // Rantai onboarding (W5): odoo_sso_provision di-enqueue sebelum route ada — cek host ⊆ route aktif di DB
+        // (cermin check_hosts dispatcher) baru dilakukan saat langkah ini siap dikirim.
+        if (row.afterJobId && file.type === "odoo_sso_provision") {
+          const envRow = row.environmentId
+            ? (
+                await tx
+                  .select({ host: environments.host, routeStatus: environments.routeStatus })
+                  .from(environments)
+                  .where(eq(environments.id, row.environmentId))
+                  .limit(1)
+              )[0]
+            : undefined;
+          const routeHosts = envRow?.routeStatus === "active" && envRow.host ? [envRow.host] : [];
+          const hc = checkSsoHosts({ type: file.type, slug: file.slug, env: file.env, dryRun: file.dry_run, args: file.args as never }, routeHosts);
+          if (!hc.ok) return { kind: "invalid" as const, issue: "host_not_in_route" };
+        }
         const at = now();
         await tx
           .update(provisionJobs)
@@ -356,12 +375,12 @@ export function createBridge(opts: BridgeOptions) {
   const prevJob = alias(provisionJobs, "prev_job");
 
   /**
-   * Rantai (kontrak Fase 1 §2.1). Batalkan dulu (berantai, ≤ 12 tingkat per tick) job yang pendahulunya
+   * Rantai (kontrak Fase 1 §2.1). Batalkan dulu (berantai, ≤ MAX_CHAIN_STEPS tingkat per tick) job yang pendahulunya
    * failed/cancelled, lalu dispatch job yang pendahulunya succeeded. Idempoten: cancel/dispatch hanya dari `queued`.
    */
   async function advanceChains(): Promise<{ cancelled: number; dispatched: number }> {
     let cancelled = 0;
-    for (let depth = 0; depth < 12; depth++) {
+    for (let depth = 0; depth < MAX_CHAIN_STEPS; depth++) {
       const doomed = await db
         .select({ id: provisionJobs.id, prevId: prevJob.id, prevStatus: prevJob.status, prevError: prevJob.errorCode })
         .from(provisionJobs)
