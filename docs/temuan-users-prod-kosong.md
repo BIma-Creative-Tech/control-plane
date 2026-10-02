@@ -58,7 +58,8 @@ Kode/skema (branch `feat/saas-p1-users`):
    `kc_user_ensure` tenant mana pun (temuan QA F1/F8): superadmin memakai aksi **"Ikat ke tenant…"** di `/users`
    (`kc_user_ensure adopt=true` → `kc_user_set_roles`); rekonsiliasi mengisi `client_id` + audit `user.adopt_bound`.
 
-Usulan untuk Lead (BUKAN bagian 0004 — kontrak §2.1 tidak memuatnya): migrasi berikutnya mengganti FK
+**Status usulan: DITERAPKAN di migrasi `0005_saas_p1_billing`** (branch `feat/saas-p1-billing`, diuji di Postgres sekali
+pakai: DELETE user beraudit ditolak `23503`). Usulan semula untuk Lead (BUKAN bagian 0004): migrasi berikutnya mengganti FK
 `audit_logs.actor_user_id` / `provision_jobs.actor_user_id` dari `ON DELETE SET NULL` → `ON DELETE RESTRICT`, sehingga
 DELETE `users` yang punya jejak audit ditolak DB:
 

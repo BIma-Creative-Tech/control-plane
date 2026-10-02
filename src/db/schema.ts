@@ -12,6 +12,7 @@ import {
   boolean,
   check,
   char,
+  date,
   index,
   inet,
   integer,
@@ -31,13 +32,31 @@ import {
 // ---------------------------------------------------------------------------
 export const userRole = pgEnum("user_role", ["superadmin", "ops", "client_admin", "client_user"]);
 
+/**
+ * Siklus langganan ADR 0018 D4 (migrasi 0005 menambah `implementation`, `warranty`, `past_due` di AKHIR enum).
+ * `pending` dan `grace` USANG: Postgres tidak bisa menghapus nilai enum — kode baru tidak pernah menulisnya
+ * (lib/billing.ts memperlakukannya sebagai status tanpa transisi). Default kolom tetap `pending` di DB (nilai enum
+ * baru tidak boleh dipakai di transaksi migrasi yang sama) — kode SELALU mengisi status eksplisit.
+ */
 export const subscriptionStatus = pgEnum("subscription_status", [
   "pending",
   "active",
   "grace",
   "suspended",
   "terminated",
+  "implementation",
+  "warranty",
+  "past_due",
 ]);
+
+/** ADR 0018 D7 (migrasi 0005): layanan yang dijual per plan. */
+export const planService = pgEnum("plan_service", ["odoo", "insight", "mail", "web"]);
+
+/** ADR 0018 D4 (migrasi 0005): invoice implementasi (manual) vs maintenance (per periode). */
+export const invoiceKind = pgEnum("invoice_kind", ["implementation", "maintenance"]);
+
+/** ADR 0018 D1 (migrasi 0005): kegunaan domain tenant. */
+export const domainPurpose = pgEnum("domain_purpose", ["odoo", "web", "mail", "insight", "sso"]);
 
 export const invoiceStatus = pgEnum("invoice_status", ["unpaid", "awaiting_confirmation", "paid", "void"]);
 
@@ -190,7 +209,8 @@ export const plans = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     code: text("code").notNull(),
     name: text("name").notNull(),
-    priceAmount: numeric("price_amount", { precision: 14, scale: 2 }).notNull(),
+    /** ADR 0018 D7 (migrasi 0005): NULL = harga belum ditetapkan (diisi kemudian). */
+    priceAmount: numeric("price_amount", { precision: 14, scale: 2 }),
     currency: char("currency", { length: 3 }).notNull().default("IDR"),
     billingPeriodMonths: integer("billing_period_months").notNull().default(1),
     maxUsers: integer("max_users"),
@@ -201,6 +221,8 @@ export const plans = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** ADR 0018 D7 (migrasi 0005, nullable agar aditif). Seed (db/plans.ts) selalu mengisi. */
+    service: planService("service"),
   },
   (t) => [
     uniqueIndex("plans_code_uq").on(t.code),
@@ -227,6 +249,11 @@ export const subscriptions = pgTable(
     terminatedAt: timestamp("terminated_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // --- ADR 0018 D4 (migrasi 0005, aditif). current_period_start = starts_at, current_period_end = ends_at
+    // (disimpan 00:00 Asia/Jakarta, lib/billing.ts). Tanggal kalender WIB (string YYYY-MM-DD). ---
+    goLiveAt: date("go_live_at", { mode: "string" }),
+    warrantyUntil: date("warranty_until", { mode: "string" }),
+    notes: text("notes"),
   },
   (t) => [index("subscriptions_client_idx").on(t.clientId), index("subscriptions_status_idx").on(t.status)],
 );
@@ -262,6 +289,13 @@ export const invoices = pgTable(
     voidReason: text("void_reason"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // --- ADR 0018 D4 (migrasi 0005, aditif). ---
+    kind: invoiceKind("kind").notNull().default("maintenance"),
+    /** Referensi bukti bayar (teks bebas tervalidasi, mis. nomor mutasi) — Fase 1 tanpa upload file. */
+    proofReference: text("proof_reference"),
+    /** Periode maintenance yang ditagih (tanggal WIB); NULL untuk invoice implementasi. */
+    periodStart: date("period_start", { mode: "string" }),
+    periodEnd: date("period_end", { mode: "string" }),
   },
   (t) => [
     uniqueIndex("invoices_number_uq").on(t.number),
@@ -274,6 +308,11 @@ export const invoices = pgTable(
       sql`${t.status} <> 'paid' OR (${t.confirmedAt} IS NOT NULL AND ${t.paidAt} IS NOT NULL)`,
     ),
     check("invoices_proof_file_format", sql`${t.proofFile} IS NULL OR ${t.proofFile} ~ '^[A-Za-z0-9_-]{16,128}(\\.(png|jpg|pdf))?$'`),
+    // Migrasi 0005: satu invoice maintenance non-void per (subscription, periode) — penerbitan tick idempoten.
+    uniqueIndex("invoices_maintenance_period_uq")
+      .on(t.subscriptionId, t.periodStart)
+      .where(sql`${t.kind} = 'maintenance' AND ${t.status} <> 'void' AND ${t.periodStart} IS NOT NULL`),
+    check("invoices_period_order", sql`${t.periodStart} IS NULL OR (${t.periodEnd} IS NOT NULL AND ${t.periodEnd} > ${t.periodStart})`),
   ],
 );
 
@@ -306,6 +345,8 @@ export const environments = pgTable(
     /** id auth.oauth.provider di DB tenant (RESULT provider). */
     ssoProviderId: integer("sso_provider_id"),
     lastJobId: uuid("last_job_id").references((): AnyPgColumn => provisionJobs.id, { onDelete: "set null" }),
+    /** Migrasi 0005: mode `sh_auth_oidc.tenant_check` dari RESULT `mode` job odoo_tenant_config (off|compat|strict). */
+    tenantCheck: text("tenant_check"),
   },
   (t) => [
     uniqueIndex("environments_client_kind_uq").on(t.clientId, t.kind),
@@ -317,6 +358,7 @@ export const environments = pgTable(
       sql`${t.host} IS NULL OR (length(${t.host}) <= 253 AND ${t.host} ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$')`,
     ),
     check("environments_sso_client_id_format", sql`${t.ssoClientId} IS NULL OR ${t.ssoClientId} ~ '^[A-Za-z0-9._-]{1,128}$'`),
+    check("environments_tenant_check_valid", sql`${t.tenantCheck} IS NULL OR ${t.tenantCheck} IN ('off', 'compat', 'strict')`),
   ],
 );
 
@@ -339,6 +381,12 @@ export const domains = pgTable(
     certificateStatus: text("certificate_status"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // --- ADR 0018 D1 (migrasi 0005, aditif). ---
+    purpose: domainPurpose("purpose"),
+    /** Nilai TXT DKIM yang harus dipasang client (checklist DNS). */
+    dkimTxt: text("dkim_txt"),
+    /** Hasil cek DNS terakhir (bentuk ditentukan Fase 2 `dns_verify`). */
+    lastCheck: jsonb("last_check").$type<Record<string, unknown>>(),
   },
   (t) => [
     uniqueIndex("domains_fqdn_uq").on(t.fqdn),
@@ -364,7 +412,8 @@ export const provisionJobs = pgTable(
     /** Argumen tervalidasi (whitelist Zod) — bukan input mentah user. */
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
     log: text("log").notNull().default(""),
-    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Migrasi 0005: ON DELETE RESTRICT (docs/temuan-users-prod-kosong.md) — baris users beraudit tidak bisa dihapus. */
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "restrict" }),
     /** `user:<sub>` atau `system:<komponen>`. */
     actor: text("actor").notNull(),
     bossJobId: text("boss_job_id"),
@@ -457,7 +506,8 @@ export const auditLogs = pgTable(
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Migrasi 0005: ON DELETE RESTRICT (docs/temuan-users-prod-kosong.md). */
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "restrict" }),
     actor: text("actor").notNull(),
     action: text("action").notNull(),
     targetType: text("target_type"),
@@ -472,6 +522,34 @@ export const auditLogs = pgTable(
     index("audit_logs_occurred_idx").on(t.occurredAt),
     index("audit_logs_client_idx").on(t.clientId),
     index("audit_logs_action_idx").on(t.action),
+  ],
+);
+
+/**
+ * Penanda email terkirim (ADR 0018 D8, migrasi 0005) — idempotensi pengingat per (subscription, jenis, periode) dan
+ * laporan harian. `key` unik = `<kind>:<subscription_id|instance>:<periode|tanggal>`. Klaim `pending` → kirim →
+ * `sent`; gagal → `failed` (dicoba ulang tick berikutnya, maks. 3 kali). Tanpa alamat email (PII) di tabel ini.
+ */
+export const notificationLog = pgTable(
+  "notification_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    kind: text("kind").notNull(),
+    subscriptionId: uuid("subscription_id").references(() => subscriptions.id, { onDelete: "restrict" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "restrict" }),
+    status: text("status").notNull().default("pending"),
+    recipientCount: integer("recipient_count").notNull().default(0),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    createdAt: createdAt(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("notification_log_key_uq").on(t.key),
+    index("notification_log_subscription_idx").on(t.subscriptionId),
+    check("notification_log_status_valid", sql`${t.status} IN ('pending', 'sent', 'failed')`),
+    check("notification_log_key_format", sql`${t.key} ~ '^[a-z0-9_:./-]{3,200}$'`),
   ],
 );
 
