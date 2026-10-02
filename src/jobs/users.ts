@@ -3,8 +3,12 @@
  * tenant + target → authorizeUserMutation (murni, diuji unit) → rencana rantai → enqueueChain (satu transaksi +
  * audit). Penolakan otorisasi/prasyarat diaudit `result=rejected`. Tidak ada eksekusi di request HTTP (ADR 0009).
  * Email tidak masuk audit (hanya email_hash).
+ *
+ * Temuan QA F1 (Lead 2026-10-03): setiap mutasi juga melewati aturan pengikatan email (emailBindingConflict) — email
+ * user lama tanpa tenant / ber-role platform / milik tenant lain tidak bisa diambil alih lewat tenant klien; user lama
+ * hanya bisa diikat lewat adoptUser (superadmin, `kc_user_ensure adopt=true`).
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { auditLogs, clients, environments, tenantUserAccess, users } from "../db/schema";
 import {
@@ -20,14 +24,18 @@ import {
   type TenantEnv,
 } from "../lib/job-contract";
 import {
+  authorizeAdopt,
   authorizeUserMutation,
   buildAddUserSteps,
+  buildAdoptSteps,
   buildDisableSteps,
   buildEnableSteps,
   buildAccessSteps,
   buildPasswordResetSteps,
+  emailBindingConflict,
   envsForInstance,
   type ChainStep,
+  type UserAuthzResult,
   type TargetUser,
   type TenantRef,
   type UserActorContext,
@@ -50,7 +58,10 @@ export type UserActionFailure =
   | { reason: "authz"; denial: UserAuthzDenial }
   | { reason: "not_found" }
   | { reason: "disabled" }
-  | { reason: "precondition"; detail: "email_other_tenant" | "email_invalid" | "name_invalid" | "env_unknown" | "no_email" }
+  | {
+      reason: "precondition";
+      detail: "email_other_tenant" | "email_unbound" | "email_platform_role" | "email_invalid" | "name_invalid" | "env_unknown" | "no_email";
+    }
   | ChainFailure;
 
 export type UserActionOutcome = { ok: true; chainId: string; jobIds: string[] } | ({ ok: false } & UserActionFailure);
@@ -128,6 +139,15 @@ async function otherAdmins(db: Db, clientId: string, excludeUserId: string | nul
   return rows.filter((r) => r.id !== excludeUserId).length;
 }
 
+/** Baris users lain dengan email sama (lower) — untuk emailBindingConflict. */
+async function usersByEmail(db: Db, email: string) {
+  return db
+    .select({ id: users.id, clientId: users.clientId, role: users.role })
+    .from(users)
+    .where(sql`lower(${users.email}) = ${email.toLowerCase()}`)
+    .limit(20);
+}
+
 async function auditRejected(
   db: Db,
   input: UsersServiceInput,
@@ -176,6 +196,10 @@ async function run(
     mutation: UserMutation;
     excludeAdmin: string | null;
     email: string;
+    /** Otorisasi khusus (adopt); default authorizeUserMutation(mutation). */
+    authorize?: (actor: UserActorContext, otherActiveAdmins: number) => UserAuthzResult;
+    /** Baris yang dikecualikan dari aturan pengikatan email (target adopt, client_id NULL). */
+    bindingExcludeId?: string | null;
     /** Prasyarat SETELAH otorisasi (tidak membocorkan data tenant lain ke aktor yang tidak berwenang). */
     pre?: () => Promise<UserActionFailure | null>;
     steps: () => ChainStep[];
@@ -184,12 +208,18 @@ async function run(
 ): Promise<UserActionOutcome> {
   const actor = await loadActor(db, input.actor);
   const baseMd = { tenant: p.tenant.slug, email_hash: emailHash(p.email) };
-  const authz = authorizeUserMutation(actor, p.tenant, p.mutation, { otherActiveAdmins: await otherAdmins(db, p.tenant.id, p.excludeAdmin) });
+  const nAdmins = await otherAdmins(db, p.tenant.id, p.excludeAdmin);
+  const authz = p.authorize ? p.authorize(actor, nAdmins) : authorizeUserMutation(actor, p.tenant, p.mutation, { otherActiveAdmins: nAdmins });
   if (!authz.ok) {
     await auditRejected(db, input, p.action, p.tenant.id, p.targetId, { ...baseMd, reason: "authz", denial: authz.reason });
     return { ok: false, reason: "authz", denial: authz.reason };
   }
-  const failure = p.pre ? await p.pre() : null;
+  let failure = p.pre ? await p.pre() : null;
+  if (!failure) {
+    // F1.2: berlaku untuk SETIAP mutasi (tambah, ubah akses, nonaktif/aktif, reset, adopt).
+    const conflict = emailBindingConflict(p.tenant, await usersByEmail(db, p.email), p.bindingExcludeId ?? null);
+    if (conflict) failure = { reason: "precondition", detail: conflict };
+  }
   if (failure) {
     await auditRejected(db, input, p.action, p.tenant.id, p.targetId, {
       ...baseMd,
@@ -249,9 +279,7 @@ export async function addUser(
         name = asciiName(input.name);
         if (name === null) return { reason: "precondition", detail: "name_invalid" };
       }
-      // Email sudah terikat tenant lain di CP → tolak lebih awal (skrip juga menolak: atribut tenant_id beda → exit 3).
-      const rows = await db.select({ clientId: users.clientId }).from(users).where(eq(users.email, email)).limit(5);
-      if (rows.some((r) => r.clientId !== null && r.clientId !== t.tenant.id)) return { reason: "precondition", detail: "email_other_tenant" };
+      // Email tenant lain / user lama tanpa tenant / role platform → ditolak di run() (emailBindingConflict, F1.2).
       return null;
     },
     md: () => ({ cp_role: input.cpRole, odoo: Object.fromEntries(access) }),
@@ -380,6 +408,36 @@ export async function sendPasswordReset(
   });
 }
 
+/**
+ * "Ikat ke tenant…" (temuan QA F1.4/F8): baris users lama `client_id IS NULL` → rantai kc_user_ensure adopt=true →
+ * kc_user_set_roles. Superadmin saja (authorizeAdopt); rekonsiliasi mengisi users.client_id setelah sukses.
+ */
+export async function adoptUser(
+  db: Db,
+  send: SendFn,
+  input: UsersServiceInput & { userId: string; clientId: string; cpRole: CpRoleArg },
+): Promise<UserActionOutcome> {
+  if (!userFeatureEnabled(input.allowedTypes)) return { ok: false, reason: "disabled" };
+  const target = await loadTarget(db, input.userId);
+  const t = await loadTenant(db, input.clientId);
+  if (!target || !t) return { ok: false, reason: "not_found" };
+  const email = (target.email ?? "").trim().toLowerCase();
+  return run(db, send, input, {
+    action: "user.adopt",
+    tenant: t.tenant,
+    targetId: target.id,
+    // Tidak dipakai (authorize khusus); dipertahankan untuk tipe run().
+    mutation: { kind: "change_access", target, cpRole: input.cpRole },
+    excludeAdmin: target.id,
+    email,
+    authorize: (actor, n) => authorizeAdopt(actor, t.tenant, target, input.cpRole, { otherActiveAdmins: n }),
+    bindingExcludeId: target.id,
+    pre: async () => (validEmail(email) ? null : { reason: "precondition", detail: "no_email" }),
+    md: () => ({ cp_role: input.cpRole, previous_role: target.role, adopt: true }),
+    steps: () => buildAdoptSteps({ tenant: t.tenant, realmEnv: realmEnvForInstance(input.instance), email, cpRole: input.cpRole, needOrg: t.kcOrgId === null }),
+  });
+}
+
 /** Pesan aman untuk log pemanggil (sudah SQLSTATE/constraint saja, tanpa query/params). */
 export function outcomeLogMessage(o: UserActionOutcome): string | null {
   return !o.ok && o.reason === "error" ? o.message : null;
@@ -399,8 +457,12 @@ export function userOutcomeCode(o: UserActionOutcome): ActionResultCode {
         default:
           return o.denial;
       }
+    case "adopt_forbidden":
+      return "forbidden";
     case "precondition":
-      if (o.detail === "email_other_tenant" || o.detail === "name_invalid") return o.detail;
+      if (o.detail === "email_other_tenant" || o.detail === "email_unbound" || o.detail === "email_platform_role" || o.detail === "name_invalid") {
+        return o.detail;
+      }
       if (o.detail === "no_email") return "precondition";
       return "invalid";
     default:

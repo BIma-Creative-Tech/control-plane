@@ -9,7 +9,8 @@ import { SLUG_REGEX } from "@/lib/slug";
 import { listAccessByEnvs, listEnvsByClient, listRecentChains, listTenants, listUsers } from "@/server/users-queries";
 import { ResultBanner, StatusBadge } from "../jobs/components";
 import { Nav } from "../nav";
-import { addUserAction, changeUserAccessAction, disableUserAction, enableUserAction, passwordResetAction } from "./actions";
+import { isPlatformRole } from "@/lib/user-admin";
+import { addUserAction, adoptUserAction, changeUserAccessAction, disableUserAction, enableUserAction, passwordResetAction } from "./actions";
 
 const btn = "rounded border px-3 py-1 text-sm hover:bg-slate-100 disabled:opacity-50";
 const btnDanger = "rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50";
@@ -22,6 +23,52 @@ function roleLabel(r: CpRoleArg | string): string {
 }
 
 type EnvRow = Awaited<ReturnType<typeof listEnvsByClient>>[number];
+type TenantRow = Awaited<ReturnType<typeof listTenants>>[number];
+
+/**
+ * "Ikat ke tenant…" (temuan QA F1.4/F8) untuk baris lama `client_id IS NULL` — superadmin saja. Role cache
+ * superadmin/ops → hanya tenant platform dengan role tetap; role cache tenant → hanya tenant klien
+ * (tenant-admin/tenant-user). Server mengulang semua cek (authorizeAdopt + aturan email).
+ */
+function AdoptForm({ user, tenants, back }: { user: { id: string; role: string }; tenants: TenantRow[]; back: string }) {
+  const platformRole = isRole(user.role) && isPlatformRole(user.role);
+  const options = tenants.filter((t) => !t.terminatedAt && (platformRole ? t.isPlatform : !t.isPlatform));
+  if (options.length === 0) return <span className="text-xs text-slate-500">tidak ada tenant tujuan yang cocok</span>;
+  return (
+    <details>
+      <summary className="cursor-pointer text-xs underline">Ikat ke tenant…</summary>
+      <form action={adoptUserAction} className="mt-2 flex flex-wrap items-center gap-2">
+        <input type="hidden" name="back" value={back} />
+        <input type="hidden" name="userId" value={user.id} />
+        <select name="clientId" className={input} required>
+          {options.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.slug}
+              {t.isPlatform ? " (internal)" : ""}
+            </option>
+          ))}
+        </select>
+        {platformRole ? (
+          <>
+            <input type="hidden" name="cp_role" value={user.role} />
+            <span className="text-xs">role tetap: {roleLabel(user.role)}</span>
+          </>
+        ) : (
+          <select name="cp_role" defaultValue="client_user" className={input}>
+            <option value="client_user">{roleLabel("client_user")}</option>
+            <option value="client_admin">{roleLabel("client_admin")}</option>
+          </select>
+        )}
+        <button type="submit" className={btn}>
+          Ikat
+        </button>
+        <p className="w-full text-xs text-slate-500">
+          Rantai job: kc_user_ensure (adopt, tanpa undangan) → kc_user_set_roles. Tenant user tercatat setelah job sukses.
+        </p>
+      </form>
+    </details>
+  );
+}
 type AccessRow = Awaited<ReturnType<typeof listAccessByEnvs>>[number];
 
 /** Select akses Odoo per environment (nilai awal dari akses aktif saat ini). */
@@ -153,6 +200,9 @@ export default async function UsersPage(props: PageProps<"/users">) {
                     </td>
                     <td className="p-2 whitespace-nowrap">{fmt(u.lastLoginAt)}</td>
                     <td className="space-y-2 p-2">
+                      {canManage && u.clientId === null && u.email && u.status !== "disabled" ? (
+                        <AdoptForm user={u} tenants={tenants} back={backValue} />
+                      ) : null}
                       {canManage && t && u.email ? (
                         <>
                           <div className="flex flex-wrap gap-1">

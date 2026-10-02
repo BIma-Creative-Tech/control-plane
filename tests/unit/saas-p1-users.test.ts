@@ -3,7 +3,7 @@
  * aturan satu admin, rencana rantai job, idempotency, kuota rantai, rekonsiliasi dari RESULT, form.
  */
 import { describe, expect, it } from "vitest";
-import { canonicalJson, validateChain } from "@/jobs/chain";
+import { canonicalJson, chainAdminEmails, chainHasAdopt, validateChain } from "@/jobs/chain";
 import { planUserReconcile, type UserReconcileJob } from "@/jobs/user-reconcile";
 import { USER_FEATURE_TYPES, userFeatureEnabled, userOutcomeCode } from "@/jobs/users";
 import { decideAccess } from "@/lib/access";
@@ -25,14 +25,17 @@ import {
 import { parseForm } from "@/lib/job-forms";
 import { ACTION_RESULT_CODES, ACTION_RESULT_TEXT } from "@/lib/job-list-params";
 import { P1_QUOTA, evaluateChainQuota, type ChainQuotaCounts } from "@/lib/quota";
-import { ROLE_LABELS, can, type Role } from "@/lib/roles";
+import { PERMISSIONS, ROLE_LABELS, can, canWith, type PermissionMap, type Role } from "@/lib/roles";
 import {
+  authorizeAdopt,
   authorizeUserMutation,
   buildAccessSteps,
   buildAddUserSteps,
+  buildAdoptSteps,
   buildDisableSteps,
   buildEnableSteps,
   buildPasswordResetSteps,
+  emailBindingConflict,
   orderChain,
   type ChainStep,
   type TargetUser,
@@ -66,16 +69,25 @@ const target = (over: Partial<TargetUser> = {}): TargetUser => ({
 });
 const NO_ADMIN = { otherActiveAdmins: 0 };
 const ONE_ADMIN = { otherActiveAdmins: 1 };
+/**
+ * Peta izin portal tenant (W6, BELUM aktif): `users:manage_own` untuk client_admin. Hanya untuk menguji jalur kode
+ * `scope: "own"` yang dipertahankan; produksi memakai PERMISSIONS (default-deny, temuan QA F1.3).
+ */
+const W6: PermissionMap = { ...PERMISSIONS, "users:manage_own": ["client_admin"] };
+const NO_ADMIN_W6 = { otherActiveAdmins: 0, permissions: W6 };
+const ONE_ADMIN_W6 = { otherActiveAdmins: 1, permissions: W6 };
 
 describe("izin Users (roles.ts, default deny)", () => {
-  it("users:view = superadmin+ops; users:manage = superadmin; users:manage_own = client_admin; realm:sync = superadmin", () => {
+  it("users:view = superadmin+ops; users:manage = superadmin; users:manage_own = default-deny (F1.3); realm:sync = superadmin", () => {
     expect(can(["superadmin"], "users:view")).toBe(true);
     expect(can(["ops"], "users:view")).toBe(true);
     expect(can(["client_admin"], "users:view")).toBe(false);
     expect(can(["client_user"], "users:view")).toBe(false);
     expect(can(["ops"], "users:manage")).toBe(false);
     expect(can(["client_admin"], "users:manage")).toBe(false);
-    expect(can(["client_admin"], "users:manage_own")).toBe(true);
+    expect(can(["client_admin"], "users:manage_own")).toBe(false);
+    expect(PERMISSIONS["users:manage_own"]).toEqual([]);
+    expect(canWith(W6, ["client_admin"], "users:manage_own")).toBe(true);
     expect(can(["client_user"], "users:manage_own")).toBe(false);
     expect(can(["ops"], "realm:sync")).toBe(false);
     expect(can(["superadmin"], "realm:sync")).toBe(true);
@@ -99,6 +111,21 @@ describe("izin Users (roles.ts, default deny)", () => {
 });
 
 describe("authorizeUserMutation — cakupan & lintas tenant", () => {
+  it("F1.3: client_admin dengan peta izin produksi → forbidden untuk setiap mutasi (portal tenant W6 belum ada)", () => {
+    const ca = actor(["client_admin"], ACME.id);
+    const muts = [
+      { kind: "add", cpRole: "client_user" },
+      { kind: "change_access", target: target(), cpRole: "client_user" },
+      { kind: "disable", target: target() },
+      { kind: "enable", target: target({ status: "disabled" }), cpRole: "client_user" },
+      { kind: "password_reset", target: target() },
+    ] as const;
+    for (const m of muts) {
+      expect(authorizeUserMutation(ca, ACME, m, NO_ADMIN)).toEqual({ ok: false, reason: "forbidden" });
+      // Jalur W6 tetap ada (peta izin portal tenant disuntik eksplisit).
+      expect(authorizeUserMutation(ca, ACME, m, NO_ADMIN_W6)).toEqual({ ok: true, scope: "own" });
+    }
+  });
   it("ops / client_user / tanpa role → forbidden untuk setiap mutasi", () => {
     for (const roles of [["ops"], ["client_user"], []] as Role[][]) {
       expect(authorizeUserMutation(actor(roles, ACME.id), ACME, { kind: "add", cpRole: "client_user" }, NO_ADMIN)).toEqual({ ok: false, reason: "forbidden" });
@@ -107,20 +134,20 @@ describe("authorizeUserMutation — cakupan & lintas tenant", () => {
     }
   });
   it("client_admin: tenant sendiri boleh (scope own)", () => {
-    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: "client_user" }, ONE_ADMIN)).toEqual({ ok: true, scope: "own" });
-    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "disable", target: target() }, ONE_ADMIN)).toEqual({ ok: true, scope: "own" });
-    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "password_reset", target: target() }, ONE_ADMIN)).toEqual({ ok: true, scope: "own" });
+    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: "client_user" }, ONE_ADMIN_W6)).toEqual({ ok: true, scope: "own" });
+    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "disable", target: target() }, ONE_ADMIN_W6)).toEqual({ ok: true, scope: "own" });
+    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "password_reset", target: target() }, ONE_ADMIN_W6)).toEqual({ ok: true, scope: "own" });
   });
   it("client_admin: tenant lain / tanpa tenant / platform → cross_tenant", () => {
-    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), BETA, { kind: "add", cpRole: "client_user" }, NO_ADMIN)).toEqual({ ok: false, reason: "cross_tenant" });
-    expect(authorizeUserMutation(actor(["client_admin"], null), ACME, { kind: "add", cpRole: "client_user" }, NO_ADMIN)).toEqual({ ok: false, reason: "cross_tenant" });
-    expect(authorizeUserMutation(actor(["client_admin"], PLATFORM.id), PLATFORM, { kind: "add", cpRole: "client_user" }, NO_ADMIN)).toEqual({ ok: false, reason: "cross_tenant" });
+    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), BETA, { kind: "add", cpRole: "client_user" }, NO_ADMIN_W6)).toEqual({ ok: false, reason: "cross_tenant" });
+    expect(authorizeUserMutation(actor(["client_admin"], null), ACME, { kind: "add", cpRole: "client_user" }, NO_ADMIN_W6)).toEqual({ ok: false, reason: "cross_tenant" });
+    expect(authorizeUserMutation(actor(["client_admin"], PLATFORM.id), PLATFORM, { kind: "add", cpRole: "client_user" }, NO_ADMIN_W6)).toEqual({ ok: false, reason: "cross_tenant" });
     // target milik tenant lain walau tenant yang dikirim = tenant sendiri
     expect(
-      authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "disable", target: target({ clientId: BETA.id }) }, NO_ADMIN),
+      authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "disable", target: target({ clientId: BETA.id }) }, NO_ADMIN_W6),
     ).toEqual({ ok: false, reason: "cross_tenant" });
     expect(
-      authorizeUserMutation(actor(["client_admin"], ACME.id), BETA, { kind: "password_reset", target: target({ clientId: BETA.id }) }, NO_ADMIN),
+      authorizeUserMutation(actor(["client_admin"], ACME.id), BETA, { kind: "password_reset", target: target({ clientId: BETA.id }) }, NO_ADMIN_W6),
     ).toEqual({ ok: false, reason: "cross_tenant" });
   });
   it("superadmin: target harus anggota tenant yang dikirim", () => {
@@ -130,15 +157,15 @@ describe("authorizeUserMutation — cakupan & lintas tenant", () => {
   });
   it("client_admin tidak bisa memberi superadmin/ops/none (tidak pernah memberi hak lebih)", () => {
     for (const r of ["superadmin", "ops", "none"] as const) {
-      expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: r }, NO_ADMIN)).toEqual({ ok: false, reason: "role_not_allowed" });
+      expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: r }, NO_ADMIN_W6)).toEqual({ ok: false, reason: "role_not_allowed" });
       expect(
-        authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "change_access", target: target(), cpRole: r }, NO_ADMIN),
+        authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "change_access", target: target(), cpRole: r }, NO_ADMIN_W6),
       ).toEqual({ ok: false, reason: "role_not_allowed" });
     }
   });
   it("client_admin tidak menyentuh user ber-role platform walau tercatat di tenantnya", () => {
     expect(
-      authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "disable", target: target({ role: "superadmin" }) }, NO_ADMIN),
+      authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "disable", target: target({ role: "superadmin" }) }, NO_ADMIN_W6),
     ).toEqual({ ok: false, reason: "role_not_allowed" });
   });
   it("superadmin: §0.3 role platform hanya di platform, role tenant hanya di tenant", () => {
@@ -158,8 +185,8 @@ describe("authorizeUserMutation — cakupan & lintas tenant", () => {
     expect(authorizeUserMutation(sa, PLATFORM, { kind: "change_access", target: me, cpRole: "superadmin" }, NO_ADMIN)).toEqual({ ok: true, scope: "all" });
     const ca = actor(["client_admin"], ACME.id, "ca");
     const caSelf = target({ keycloakSub: "ca", role: "client_admin" });
-    expect(authorizeUserMutation(ca, ACME, { kind: "disable", target: caSelf }, NO_ADMIN)).toEqual({ ok: false, reason: "self_action" });
-    expect(authorizeUserMutation(ca, ACME, { kind: "change_access", target: caSelf, cpRole: "client_user" }, NO_ADMIN)).toEqual({ ok: false, reason: "self_action" });
+    expect(authorizeUserMutation(ca, ACME, { kind: "disable", target: caSelf }, NO_ADMIN_W6)).toEqual({ ok: false, reason: "self_action" });
+    expect(authorizeUserMutation(ca, ACME, { kind: "change_access", target: caSelf, cpRole: "client_user" }, NO_ADMIN_W6)).toEqual({ ok: false, reason: "self_action" });
   });
   it("superadmin boleh menonaktifkan superadmin LAIN di platform", () => {
     const other = target({ keycloakSub: "other", role: "superadmin", clientId: PLATFORM.id });
@@ -205,7 +232,7 @@ describe("aturan satu tenant-admin (ADR 0018 D3)", () => {
     ).toEqual({ ok: false, reason: "one_admin" });
   });
   it("client_admin tidak bisa menambah client_admin kedua (dirinya = admin yang ada)", () => {
-    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: "client_admin" }, ONE_ADMIN)).toEqual({
+    expect(authorizeUserMutation(actor(["client_admin"], ACME.id), ACME, { kind: "add", cpRole: "client_admin" }, ONE_ADMIN_W6)).toEqual({
       ok: false,
       reason: "one_admin",
     });
@@ -463,7 +490,7 @@ describe("rekonsiliasi dari RESULT (users dari kc_user = sub)", () => {
     actorUserId: "77777777-7777-4777-8777-777777777777",
     args: { email: "budi@acme.co.id", tenant_id: ACME.id, invite: true, name: "Budi" },
     status: "succeeded",
-    result: { realm: "platform", kc_user: KC, created: "yes", changed: "1", invite: "sent" },
+    result: { realm: "platform", kc_user: KC, created: "1", changed: "1", invite: "1" },
     ...over,
   });
   it("kc_user_ensure sukses → upsert users (sub, email, tenant job, invited_by aktor)", () => {
@@ -474,7 +501,20 @@ describe("rekonsiliasi dari RESULT (users dari kc_user = sub)", () => {
       email: "budi@acme.co.id",
       displayName: "Budi",
       invitedBy: "77777777-7777-4777-8777-777777777777",
+      adopt: false,
+      created: true,
       warnings: [],
+    });
+  });
+  it("F1.4: adopt hanya dari args.adopt === true; created hanya dari RESULT created=1", () => {
+    expect(planUserReconcile(job({ args: { email: "budi@acme.co.id", tenant_id: ACME.id, invite: false, adopt: true }, result: { kc_user: KC, created: "0" } }))).toMatchObject({
+      kind: "user_ensure",
+      adopt: true,
+      created: false,
+    });
+    expect(planUserReconcile(job({ args: { email: "budi@acme.co.id", tenant_id: ACME.id, invite: false, adopt: "true" }, result: { kc_user: KC, created: "yes" } }))).toMatchObject({
+      adopt: false,
+      created: false,
     });
   });
   it("gagal / dry-run / RESULT mode plan / kc_user tidak valid / tanpa client → tidak mengubah apa pun", () => {
@@ -597,6 +637,145 @@ describe("kode umpan balik aksi user (whitelist)", () => {
       "disabled",
       "not_found",
     ]);
+    for (const o of outs) {
+      expect(ACTION_RESULT_CODES).toContain(o);
+      expect(ACTION_RESULT_TEXT[o]).toBeTruthy();
+    }
+  });
+});
+
+describe("temuan QA F1 — kontrak adopt (kc_user_ensure v1.2)", () => {
+  const args = { email: "lama@bimacreative.tech", tenant_id: PLATFORM.id, invite: false };
+  const v = (a: Record<string, unknown>, slug = "platform") => validateJobRequest("prod", { type: "kc_user_ensure", slug, env: "prod", dryRun: false, args: a });
+  it("adopt opsional boolean: absen / true / false → valid", () => {
+    expect(v(args).ok).toBe(true);
+    expect(v({ ...args, adopt: true }).ok).toBe(true);
+    expect(v({ ...args, adopt: false }).ok).toBe(true);
+    expect(v({ ...args, tenant_id: ACME.id, adopt: true }, "acme-co").ok).toBe(true);
+  });
+  it("adopt non-boolean → args (JSON true|false wajib)", () => {
+    for (const bad of ["true", "false", 1, 0, null, [], {}, "yes"]) expect(v({ ...args, adopt: bad })).toEqual({ ok: false, issue: "args" });
+  });
+  it(".strict(): kunci asing tetap ditolak; tipe lain tidak menerima adopt", () => {
+    expect(v({ ...args, adopt: true, force: true })).toEqual({ ok: false, issue: "args" });
+    expect(
+      validateJobRequest("prod", { type: "kc_user_set_roles", slug: "platform", env: "prod", dryRun: false, args: { email: "a@b.co", cp_role: "ops", adopt: true } }),
+    ).toEqual({ ok: false, issue: "args" });
+  });
+  it("file job dengan adopt=true lolos validator file (penjaga terakhir sebelum spool)", () => {
+    const f = buildJobFile("prod", {
+      id: "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+      type: "kc_user_ensure",
+      slug: "platform",
+      env: "prod",
+      dryRun: false,
+      actor: "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+      createdAt: new Date("2026-10-03T10:00:00Z"),
+      args: { ...args, adopt: true },
+    });
+    expect(f.args).toEqual({ ...args, adopt: true });
+  });
+  it("chainHasAdopt / chainAdminEmails (F2) murni", () => {
+    expect(chainHasAdopt([{ type: "kc_user_ensure", env: "prod", args: { ...args, adopt: true } }])).toBe(true);
+    expect(chainHasAdopt([{ type: "kc_user_ensure", env: "prod", args: { ...args, adopt: false } }])).toBe(false);
+    expect(chainHasAdopt([{ type: "kc_user_ensure", env: "prod", args }])).toBe(false);
+    expect(
+      chainAdminEmails([
+        { type: "kc_user_set_roles", env: "prod", args: { email: "a@acme.co.id", cp_role: "client_admin", odoo: "user" } },
+        { type: "kc_user_set_roles", env: "demo", args: { email: "a@acme.co.id", cp_role: "client_admin", odoo: "none" } },
+        { type: "kc_user_set_roles", env: "prod", args: { email: "b@acme.co.id", cp_role: "client_user" } },
+      ]),
+    ).toEqual(["a@acme.co.id"]);
+  });
+});
+
+describe("temuan QA F1.2 — aturan pengikatan email", () => {
+  const row = (clientId: string | null, role: Role = "client_user", id = "r1") => ({ id, clientId, role });
+  it("tenant klien: baris lama NULL / role platform / tenant lain → ditolak; tenant sama → ok", () => {
+    expect(emailBindingConflict(ACME, [])).toBeNull();
+    expect(emailBindingConflict(ACME, [row(ACME.id)])).toBeNull();
+    expect(emailBindingConflict(ACME, [row(null)])).toBe("email_unbound");
+    expect(emailBindingConflict(ACME, [row(null, "superadmin")])).toBe("email_unbound");
+    expect(emailBindingConflict(ACME, [row(ACME.id, "superadmin")])).toBe("email_platform_role");
+    expect(emailBindingConflict(ACME, [row(ACME.id, "ops")])).toBe("email_platform_role");
+    expect(emailBindingConflict(ACME, [row(BETA.id)])).toBe("email_other_tenant");
+    expect(emailBindingConflict(ACME, [row(PLATFORM.id, "superadmin")])).toBe("email_other_tenant");
+  });
+  it("platform: baris lama NULL hanya lewat adopt; tenant klien → ditolak; platform sendiri → ok", () => {
+    expect(emailBindingConflict(PLATFORM, [row(PLATFORM.id, "superadmin")])).toBeNull();
+    expect(emailBindingConflict(PLATFORM, [row(null, "superadmin")])).toBe("email_unbound");
+    expect(emailBindingConflict(PLATFORM, [row(ACME.id)])).toBe("email_other_tenant");
+  });
+  it("adopt: baris target sendiri (NULL) dikecualikan, baris lain tetap dicek", () => {
+    expect(emailBindingConflict(PLATFORM, [row(null, "superadmin", "me")], "me")).toBeNull();
+    expect(emailBindingConflict(ACME, [row(null, "client_user", "me"), row(null, "client_user", "other")], "me")).toBe("email_unbound");
+  });
+});
+
+describe("temuan QA F1.4 — adopt (Ikat ke tenant…)", () => {
+  const sa = actor(["superadmin"], PLATFORM.id, "sa-sub");
+  const legacy = (over: Partial<TargetUser> = {}) => target({ clientId: null, keycloakSub: "legacy-sub", ...over });
+  it("hanya superadmin (users:manage): ops / client_admin (juga dengan izin W6) / client_user → forbidden", () => {
+    for (const roles of [["ops"], ["client_admin"], ["client_user"], []] as Role[][]) {
+      expect(authorizeAdopt(actor(roles, ACME.id), ACME, legacy(), "client_user", NO_ADMIN)).toEqual({ ok: false, reason: "forbidden" });
+    }
+    expect(authorizeAdopt(actor(["superadmin"], PLATFORM.id, "x", "disabled"), ACME, legacy(), "client_user", NO_ADMIN)).toEqual({
+      ok: false,
+      reason: "actor_disabled",
+    });
+  });
+  it("platform: role tetap = role cache superadmin/ops; role tenant → ditolak", () => {
+    expect(authorizeAdopt(sa, PLATFORM, legacy({ role: "superadmin" }), "superadmin", NO_ADMIN)).toEqual({ ok: true, scope: "all" });
+    expect(authorizeAdopt(sa, PLATFORM, legacy({ role: "ops" }), "ops", NO_ADMIN)).toEqual({ ok: true, scope: "all" });
+    expect(authorizeAdopt(sa, PLATFORM, legacy({ role: "ops" }), "superadmin", NO_ADMIN)).toEqual({ ok: false, reason: "role_not_allowed" });
+    expect(authorizeAdopt(sa, PLATFORM, legacy({ role: "superadmin" }), "none", NO_ADMIN)).toEqual({ ok: false, reason: "role_not_allowed" });
+    expect(authorizeAdopt(sa, PLATFORM, legacy({ role: "client_user" }), "client_user", NO_ADMIN)).toEqual({ ok: false, reason: "role_not_allowed" });
+    // superadmin mengikat baris lamanya sendiri ke platform (role tetap) → boleh.
+    expect(authorizeAdopt(sa, PLATFORM, legacy({ role: "superadmin", keycloakSub: "sa-sub" }), "superadmin", NO_ADMIN)).toEqual({ ok: true, scope: "all" });
+  });
+  it("tenant klien: hanya client_admin/client_user, tidak pernah untuk role cache superadmin/ops; satu admin", () => {
+    expect(authorizeAdopt(sa, ACME, legacy(), "client_user", NO_ADMIN)).toEqual({ ok: true, scope: "all" });
+    expect(authorizeAdopt(sa, ACME, legacy({ role: "client_admin" }), "client_admin", NO_ADMIN)).toEqual({ ok: true, scope: "all" });
+    for (const r of ["superadmin", "ops"] as const) {
+      expect(authorizeAdopt(sa, ACME, legacy({ role: r }), "client_user", NO_ADMIN)).toEqual({ ok: false, reason: "role_not_allowed" });
+      expect(authorizeAdopt(sa, ACME, legacy(), r, NO_ADMIN)).toEqual({ ok: false, reason: "role_not_allowed" });
+    }
+    expect(authorizeAdopt(sa, ACME, legacy(), "none", NO_ADMIN)).toEqual({ ok: false, reason: "role_not_allowed" });
+    expect(authorizeAdopt(sa, ACME, legacy(), "client_admin", ONE_ADMIN)).toEqual({ ok: false, reason: "one_admin" });
+  });
+  it("sudah terikat / tenant terminated / target disabled → ditolak", () => {
+    expect(authorizeAdopt(sa, ACME, legacy({ clientId: ACME.id }), "client_user", NO_ADMIN)).toEqual({ ok: false, reason: "already_bound" });
+    expect(authorizeAdopt(sa, { ...ACME, terminated: true }, legacy(), "client_user", NO_ADMIN)).toEqual({ ok: false, reason: "tenant_inactive" });
+    expect(authorizeAdopt(sa, ACME, legacy({ status: "disabled" }), "client_user", NO_ADMIN)).toEqual({ ok: false, reason: "target_disabled" });
+  });
+  it("rantai adopt: [org] → kc_user_ensure adopt=true invite=false → kc_user_set_roles (tanpa odoo) — lolos kontrak", () => {
+    const st = buildAdoptSteps({ tenant: ACME, realmEnv: "prod", email: "tono@acme.co.id", cpRole: "client_user", needOrg: true });
+    expect(st).toEqual([
+      { type: "kc_org_ensure", env: "prod", args: { tenant_id: ACME.id } },
+      { type: "kc_user_ensure", env: "prod", args: { email: "tono@acme.co.id", tenant_id: ACME.id, invite: false, adopt: true } },
+      { type: "kc_user_set_roles", env: "prod", args: { email: "tono@acme.co.id", cp_role: "client_user" } },
+    ]);
+    assertContract("acme-co", st);
+    const sp = buildAdoptSteps({ tenant: PLATFORM, realmEnv: "staging", email: "lama@bimacreative.tech", cpRole: "superadmin", needOrg: false });
+    expect(sp.map((x) => x.type)).toEqual(["kc_user_ensure", "kc_user_set_roles"]);
+    assertContract("platform", sp, "staging");
+  });
+  it("form adoptUser: strict, role dari enum", () => {
+    const U = "88888888-8888-4888-8888-888888888888";
+    expect(parseUserForm("adoptUser", [["userId", U], ["clientId", ACME.id], ["cp_role", "client_user"]]).success).toBe(true);
+    expect(parseUserForm("adoptUser", [["userId", U], ["clientId", ACME.id], ["cp_role", "root"]]).success).toBe(false);
+    expect(parseUserForm("adoptUser", [["userId", U], ["clientId", ACME.id], ["cp_role", "client_user"], ["adopt", "true"]]).success).toBe(false);
+    expect(parseUserForm("adoptUser", [["userId", U], ["clientId", ACME.id], ["cp_role", "client_user"], [`odoo_${ENV_PROD}`, "user"]]).success).toBe(false);
+  });
+  it("kode umpan balik baru ada di whitelist + punya teks", () => {
+    const outs = [
+      userOutcomeCode({ ok: false, reason: "precondition", detail: "email_unbound" }),
+      userOutcomeCode({ ok: false, reason: "precondition", detail: "email_platform_role" }),
+      userOutcomeCode({ ok: false, reason: "authz", denial: "already_bound" }),
+      userOutcomeCode({ ok: false, reason: "adopt_forbidden" }),
+      userOutcomeCode({ ok: false, reason: "one_admin", conflict: "job" }),
+    ];
+    expect(outs).toEqual(["email_unbound", "email_platform_role", "already_bound", "forbidden", "one_admin"]);
     for (const o of outs) {
       expect(ACTION_RESULT_CODES).toContain(o);
       expect(ACTION_RESULT_TEXT[o]).toBeTruthy();

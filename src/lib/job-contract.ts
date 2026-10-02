@@ -256,8 +256,16 @@ export const argsSchemas = {
   // --- Kontrak Fase 1 §1 (additionalProperties=false; boolean wajib JSON true|false). ---
   kc_realm_sync: z.object({ approve: z.boolean().optional() }).strict(),
   kc_org_ensure: z.object({ tenant_id: tenantIdSchema }).strict(),
+  // Kontrak v1.2 (temuan QA F1): `adopt` opsional (default false) — ikat user lama (tanpa tenant_id) ke tenant job.
+  // Hanya superadmin (`users:manage`) yang boleh mengirim adopt=true; ditegakkan enqueueChain + worker.
   kc_user_ensure: z
-    .object({ email: emailSchema, tenant_id: tenantIdSchema, invite: z.boolean(), name: nameSchema.optional() })
+    .object({
+      email: emailSchema,
+      tenant_id: tenantIdSchema,
+      invite: z.boolean(),
+      name: nameSchema.optional(),
+      adopt: z.boolean().optional(),
+    })
     .strict(),
   kc_user_set_roles: z
     .object({ email: emailSchema, cp_role: z.enum(CP_ROLE_ARGS), odoo: z.enum(ODOO_ACCESS).optional() })

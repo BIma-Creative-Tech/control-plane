@@ -44,8 +44,12 @@ export const PERMISSIONS = {
    */
   "users:view": ["superadmin", "ops"],
   "users:manage": ["superadmin"],
-  /** client_admin: hanya tenant sendiri (users.client_id aktor), hanya role client_user/client_admin, satu admin. */
-  "users:manage_own": ["client_admin"],
+  /**
+   * Cakupan tenant sendiri (users.client_id aktor), hanya role client_user/client_admin, satu admin. Temuan QA F1
+   * (Lead 2026-10-03): DEFAULT-DENY untuk semua role sampai portal tenant (W6) ada — client_admin tidak boleh memanggil
+   * Server Action Users. Jalur kode `scope: "own"` (lib/user-admin.ts) + testnya dipertahankan untuk W6.
+   */
+  "users:manage_own": [],
   /** Job kc_realm_sync (prod/demo wajib approve). */
   "realm:sync": ["superadmin"],
 } as const satisfies Record<string, readonly Role[]>;
@@ -70,8 +74,15 @@ export function canAny(roles: readonly Role[] | undefined, permissions: readonly
   return permissions.some((p) => can(roles, p));
 }
 
-export function can(roles: readonly Role[] | undefined, permission: Permission): boolean {
+/** Peta izin (tipe umum) — `can` memakai PERMISSIONS; peta lain hanya untuk uji jalur W6 (portal tenant). */
+export type PermissionMap = Readonly<Record<Permission, readonly Role[]>>;
+
+export function canWith(map: PermissionMap, roles: readonly Role[] | undefined, permission: Permission): boolean {
   if (!roles || roles.length === 0) return false;
-  const allowed: readonly Role[] = PERMISSIONS[permission];
+  const allowed: readonly Role[] = map[permission];
   return roles.some((r) => allowed.includes(r));
+}
+
+export function can(roles: readonly Role[] | undefined, permission: Permission): boolean {
+  return canWith(PERMISSIONS, roles, permission);
 }

@@ -50,6 +50,10 @@ export const ACTION_RESULT_CODES = [
   "email_other_tenant",
   "tenant_inactive",
   "user_disabled",
+  // Temuan QA F1 (pengikatan email / adopt user lama)
+  "email_unbound",
+  "email_platform_role",
+  "already_bound",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -85,4 +89,8 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   email_other_tenant: "Email sudah terdaftar pada tenant lain.",
   tenant_inactive: "Tenant sudah diterminasi.",
   user_disabled: "User nonaktif — aktifkan dulu.",
+  email_unbound:
+    "Email sudah ada sebagai user lama tanpa tenant — ikat dulu lewat aksi \"Ikat ke tenant…\" (khusus platform-admin).",
+  email_platform_role: "Email milik user platform (platform-admin/platform-viewer) — tidak bisa dipakai di tenant klien.",
+  already_bound: "User sudah terikat ke tenant.",
 };

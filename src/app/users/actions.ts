@@ -2,7 +2,7 @@
 
 /**
  * Server Actions halaman Users (kontrak SaaS Fase 1 §2.3). Setiap aksi: requireAnyPermission(users:manage |
- * users:manage_own) → Origin fail-closed → Zod `.strict()` → aktor (sub Keycloak) → layanan jobs/users.ts
+ * users:manage_own — yang terakhir default-deny untuk semua role sampai portal tenant W6, temuan QA F1.3) → Origin fail-closed → Zod `.strict()` → aktor (sub Keycloak) → layanan jobs/users.ts
  * (otorisasi tingkat aksi: tenant sendiri, role yang boleh, diri sendiri, satu admin + rantai job + audit, satu
  * transaksi) → redirect dengan kode ter-whitelist. Tidak ada eksekusi apa pun di request HTTP (ADR 0009).
  */
@@ -12,6 +12,7 @@ import { getDb } from "@/db";
 import { getWebEnv } from "@/env";
 import {
   addUser,
+  adoptUser,
   changeUserAccess,
   outcomeLogMessage,
   sendPasswordReset,
@@ -102,6 +103,12 @@ export async function disableUserAction(formData: FormData): Promise<void> {
 export async function enableUserAction(formData: FormData): Promise<void> {
   await handle("enableUser", formData, async (svc, p) =>
     setUserEnabled(getDb(), await getSendFn(), { ...svc, userId: p.data.userId, enabled: true, odoo: p.odoo }),
+  );
+}
+
+export async function adoptUserAction(formData: FormData): Promise<void> {
+  await handle("adoptUser", formData, async (svc, p) =>
+    adoptUser(getDb(), await getSendFn(), { ...svc, userId: p.data.userId, clientId: p.data.clientId, cpRole: p.data.cp_role }),
   );
 }
 

@@ -24,6 +24,8 @@ export const userFormSchemas = {
   enableUser: z.object({ userId: uuid }).strict(),
   disableUser: z.object({ userId: uuid, confirm: z.literal("on") }).strict(),
   passwordReset: z.object({ userId: uuid }).strict(),
+  /** "Ikat ke tenant…" (F1.4): user lama client_id NULL → tenant/platform; role diverifikasi ulang di layanan. */
+  adoptUser: z.object({ userId: uuid, clientId: uuid, cp_role: z.enum(CP_ROLE_ARGS) }).strict(),
 } as const;
 
 export type UserFormName = keyof typeof userFormSchemas;

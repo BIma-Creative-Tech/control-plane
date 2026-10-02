@@ -35,6 +35,10 @@ export type UserReconcilePlan =
       email: string;
       displayName: string | null;
       invitedBy: string | null;
+      /** args.adopt === true (superadmin, F1.4): boleh mengikat baris lama client_id NULL. */
+      adopt: boolean;
+      /** RESULT created=1: user Keycloak dibuat job ini — baris NULL dengan sub yang sama = login user baru itu. */
+      created: boolean;
       warnings: string[];
     }
   | { kind: "user_role"; clientId: string; sub: string | null; email: string; role: Role; warnings: string[] }
@@ -79,6 +83,8 @@ export function planUserReconcile(job: UserReconcileJob): UserReconcilePlan {
         email,
         displayName: typeof job.args.name === "string" ? job.args.name : null,
         invitedBy: job.actorUserId,
+        adopt: job.args.adopt === true,
+        created: r.created === "1",
         warnings,
       };
     case "kc_user_set_roles": {
@@ -174,6 +180,25 @@ export async function applyUserReconcile(tx: Tx, job: UserReconcileJob, plan: Us
         await auditWarn(tx, job, "user.reconcile_conflict", { conflict: "cross_tenant" });
         return warnings;
       }
+      const binding = existing.clientId === null;
+      if (binding) {
+        // F1 (pertahanan berlapis): baris lama tanpa tenant hanya diikat lewat adopt eksplisit, atau bila user
+        // Keycloak baru dibuat job ini (login mendahului rekonsiliasi). Role platform tidak pernah masuk tenant klien.
+        if (!plan.adopt && !plan.created) {
+          warnings.push("baris users lama tanpa tenant — tidak diikat tanpa adopt");
+          await auditWarn(tx, job, "user.reconcile_conflict", { conflict: "unbound_without_adopt" });
+          return warnings;
+        }
+        // Adopt: role cache harus sejenis tenant (platform ⇔ superadmin/ops). User baru (created) belum punya role
+        // Keycloak — cache-nya diperbarui kc_user_set_roles di rantai yang sama.
+        const tenant = (await tx.select({ isPlatform: clients.isPlatform }).from(clients).where(eq(clients.id, plan.clientId)).limit(1))[0];
+        const platformRole = existing.role === "superadmin" || existing.role === "ops";
+        if (plan.adopt && (!tenant || tenant.isPlatform !== platformRole)) {
+          warnings.push("role cache tidak cocok dengan jenis tenant — tidak diikat");
+          await auditWarn(tx, job, "user.reconcile_conflict", { conflict: "role_tenant_mismatch" });
+          return warnings;
+        }
+      }
       await tx
         .update(users)
         .set({
@@ -183,6 +208,18 @@ export async function applyUserReconcile(tx: Tx, job: UserReconcileJob, plan: Us
           updatedAt: sql`now()`,
         })
         .where(eq(users.id, existing.id));
+      if (binding && plan.adopt) {
+        await tx.insert(auditLogs).values({
+          actorUserId: job.actorUserId,
+          actor: "system:worker",
+          action: "user.adopt_bound",
+          targetType: "user",
+          targetId: existing.id,
+          clientId: plan.clientId,
+          result: "success",
+          metadata: { job_id: job.id, email_hash: emailHash(plan.email), role: existing.role },
+        });
+      }
       return warnings;
     }
     case "user_role": {

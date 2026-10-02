@@ -8,12 +8,19 @@
  * Idempotency: `idempotency_key` unik. Job lain dengan kunci sama masih AKTIF → dipakai ulang (args sama) atau
  * ditolak `duplicate` (args beda — mis. enable saat disable masih berjalan). Job final dengan kunci sama → kuncinya
  * dilepas (NULL) lalu job baru memegang kunci (riwayat tetap ada, operasi ulang tetap mungkin).
+ *
+ * Temuan QA (Lead 2026-10-03):
+ * - F1.1: `kc_user_ensure adopt=true` hanya dari aktor ber-izin `users:manage` (superadmin) — selain itu ditolak +
+ *   diaudit `adopt_forbidden` (titik sempit: semua tipe SaaS Fase 1 hanya bisa di-enqueue lewat fungsi ini).
+ * - F2: aturan satu tenant-admin ditegakkan ATOMIK saat enqueue — rantai yang memuat `kc_user_set_roles
+ *   cp_role=client_admin` mengambil `pg_advisory_xact_lock(hashtext('tenant-admin:'||client_id))` lalu menolak bila
+ *   sudah ada client_admin invited/active atau job set_roles client_admin AKTIF untuk tenant itu (email lain).
  */
 import { randomUUID } from "node:crypto";
-import { and, count, countDistinct, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, count, countDistinct, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
-import { auditLogs, provisionJobs } from "../db/schema";
+import { auditLogs, provisionJobs, users } from "../db/schema";
 import {
   BRIDGE_JOB_TYPES,
   idempotencyKey,
@@ -24,6 +31,7 @@ import {
   type JobRequest,
 } from "../lib/job-contract";
 import { evaluateChainQuota, type ChainQuotaCounts, type ChainQuotaViolation } from "../lib/quota";
+import { can } from "../lib/roles";
 import type { ChainStep } from "../lib/user-admin";
 import type { Actor, RequestMeta, SendFn, Tx } from "./service";
 
@@ -44,6 +52,10 @@ export type ChainFailure =
   | { reason: "invalid"; issue: ContractIssue; step: number }
   | { reason: "quota"; violation: ChainQuotaViolation }
   | { reason: "duplicate"; existingJobId: string }
+  /** F1.1: adopt=true dari aktor tanpa `users:manage`. */
+  | { reason: "adopt_forbidden" }
+  /** F2: tenant sudah punya client_admin invited/active atau job set_roles client_admin aktif. */
+  | { reason: "one_admin"; conflict: "user" | "job" }
   | { reason: "error"; message: string };
 
 export type ChainOutcome =
@@ -79,6 +91,53 @@ export function validateChain(
     reqs.push(v.value);
   }
   return { ok: true, reqs };
+}
+
+/** Langkah adopt (kc_user_ensure adopt=true) di rantai — murni. */
+export function chainHasAdopt(steps: readonly ChainStep[]): boolean {
+  return steps.some((s) => s.type === "kc_user_ensure" && s.args.adopt === true);
+}
+
+/** Email target langkah `kc_user_set_roles cp_role=client_admin` (aturan satu admin, F2) — murni. */
+export function chainAdminEmails(steps: readonly ChainStep[]): string[] {
+  const out = new Set<string>();
+  for (const s of steps) {
+    if (s.type === "kc_user_set_roles" && s.args.cp_role === "client_admin" && typeof s.args.email === "string") out.add(s.args.email);
+  }
+  return [...out];
+}
+
+/**
+ * F2 — di DALAM transaksi enqueue, setelah advisory lock per tenant: admin lain (users invited/active) atau job
+ * `kc_user_set_roles cp_role=client_admin` aktif untuk email lain → konflik. Email target sendiri dikecualikan
+ * (admin yang sama mengubah akses Odoo / aktifkan ulang; dedupe idempotency menangani permintaan ganda).
+ */
+async function tenantAdminConflict(tx: Tx, clientId: string, emails: readonly string[]): Promise<"user" | "job" | null> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`tenant-admin:${clientId}`}))`);
+  const inList = sql.join(
+    emails.map((e) => sql`${e.toLowerCase()}`),
+    sql`, `,
+  );
+  const admin = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.clientId, clientId), eq(users.role, "client_admin"), inArray(users.status, ["invited", "active"]), or(isNull(users.email), sql`lower(${users.email}) NOT IN (${inList})`)))
+    .limit(1);
+  if (admin.length > 0) return "user";
+  const job = await tx
+    .select({ id: provisionJobs.id })
+    .from(provisionJobs)
+    .where(
+      and(
+        eq(provisionJobs.clientId, clientId),
+        eq(provisionJobs.type, "kc_user_set_roles"),
+        inArray(provisionJobs.status, [...ACTIVE]),
+        sql`${provisionJobs.payload} -> 'args' ->> 'cp_role' = 'client_admin'`,
+        sql`lower(coalesce(${provisionJobs.payload} -> 'args' ->> 'email', '')) NOT IN (${inList})`,
+      ),
+    )
+    .limit(1);
+  return job.length > 0 ? "job" : null;
 }
 
 async function chainQuotaCounts(tx: Tx, actorLabel: string, now: Date): Promise<ChainQuotaCounts> {
@@ -154,6 +213,12 @@ async function insertChain(db: Db, send: SendFn, input: ChainInput, reqs: JobReq
   const actorLabel = `user:${input.actor.sub}`;
   return db.transaction(async (tx) => {
     const chainId = randomUUID();
+    // 0) F2: kunci per tenant SEBELUM dedupe/insert — enqueue paralel untuk tenant yang sama berurutan di sini.
+    const adminEmails = chainAdminEmails(input.steps);
+    if (adminEmails.length > 0) {
+      const conflict = await tenantAdminConflict(tx, input.client.id, adminEmails);
+      if (conflict) throw new Abort({ reason: "one_admin", conflict });
+    }
     // 1) Dedupe dulu (FOR UPDATE), kuota hanya untuk langkah baru.
     type Plan = { req: JobRequest; key: string | null; reuse: string | null };
     const plans: Plan[] = [];
@@ -241,6 +306,11 @@ async function insertChain(db: Db, send: SendFn, input: ChainInput, reqs: JobReq
 }
 
 export async function enqueueChain(db: Db, send: SendFn, input: ChainInput, now = new Date()): Promise<ChainOutcome> {
+  // F1.1: adopt hanya superadmin — dicek sebelum validasi lain, ditolak + diaudit.
+  if (chainHasAdopt(input.steps) && !can(input.actor.roles, "users:manage")) {
+    await auditRejectedChain(db, input, { reason: "adopt_forbidden" });
+    return { ok: false, reason: "adopt_forbidden" };
+  }
   const v = validateChain(input.instance, input.allowedTypes, input.client.slug, input.steps);
   if (!v.ok) {
     await auditRejectedChain(db, input, { reason: "invalid", issue: v.issue, step: v.step });
@@ -258,6 +328,7 @@ export async function enqueueChain(db: Db, send: SendFn, input: ChainInput, now 
           reason: err.failure.reason,
           ...("violation" in err.failure ? { violation: err.failure.violation } : {}),
           ...("existingJobId" in err.failure ? { existing_job_id: err.failure.existingJobId } : {}),
+          ...("conflict" in err.failure ? { conflict: err.failure.conflict } : {}),
         });
         return { ok: false, ...err.failure };
       }

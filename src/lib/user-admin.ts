@@ -15,7 +15,7 @@ import {
   type OdooAccess,
   type TenantEnv,
 } from "./job-contract";
-import { can, type Role } from "./roles";
+import { PERMISSIONS, canWith, type PermissionMap, type Role } from "./roles";
 
 export const USER_STATUSES = ["invited", "active", "disabled"] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
@@ -67,7 +67,9 @@ export type UserAuthzDenial =
   /** Baris users aktor berstatus disabled (sesi JWT masih hidup ≤ 8 jam setelah dinonaktifkan). */
   | "actor_disabled"
   | "tenant_inactive"
-  | "target_disabled";
+  | "target_disabled"
+  /** Adopt (temuan QA F1.4): baris users sudah terikat tenant (client_id tidak NULL). */
+  | "already_bound";
 
 export type UserAuthzResult = { ok: true; scope: "all" | "own" } | { ok: false; reason: UserAuthzDenial };
 
@@ -79,28 +81,35 @@ function rolesAllowedFor(tenant: TenantRef, scope: "all" | "own"): readonly CpRo
   return scope === "all" ? bySlug : bySlug.filter((r) => OWN_SCOPE_ROLES.includes(r));
 }
 
-export function assignableRoles(actorRoles: readonly Role[], tenant: TenantRef): readonly CpRoleArg[] {
-  if (can(actorRoles, "users:manage")) return rolesAllowedFor(tenant, "all");
-  if (can(actorRoles, "users:manage_own") && !tenant.isPlatform) return rolesAllowedFor(tenant, "own");
+export function assignableRoles(actorRoles: readonly Role[], tenant: TenantRef, permissions: PermissionMap = PERMISSIONS): readonly CpRoleArg[] {
+  if (canWith(permissions, actorRoles, "users:manage")) return rolesAllowedFor(tenant, "all");
+  if (canWith(permissions, actorRoles, "users:manage_own") && !tenant.isPlatform) return rolesAllowedFor(tenant, "own");
   return [];
+}
+
+/** Role cache platform (superadmin/ops) — tidak pernah boleh terikat/berada di tenant klien (kontrak §0.3, temuan F1). */
+export function isPlatformRole(role: Role | CpRoleArg): boolean {
+  return role === "superadmin" || role === "ops";
 }
 
 /**
  * Otorisasi satu mutasi user. `otherActiveAdmins` = jumlah client_admin invited/active di tenant ini SELAIN target
  * (untuk `add`: semua admin tenant). Urutan cek: aktor → cakupan tenant → target → role → aturan diri → satu admin.
+ * `permissions` hanya untuk uji jalur W6 (portal tenant); produksi selalu PERMISSIONS (users:manage_own default-deny).
  */
 export function authorizeUserMutation(
   actor: UserActorContext,
   tenant: TenantRef,
   m: UserMutation,
-  ctx: { otherActiveAdmins: number },
+  ctx: { otherActiveAdmins: number; permissions?: PermissionMap },
 ): UserAuthzResult {
   if (actor.status === "disabled") return { ok: false, reason: "actor_disabled" };
+  const perms = ctx.permissions ?? PERMISSIONS;
 
   let scope: "all" | "own";
-  if (can(actor.roles, "users:manage")) {
+  if (canWith(perms, actor.roles, "users:manage")) {
     scope = "all";
-  } else if (can(actor.roles, "users:manage_own")) {
+  } else if (canWith(perms, actor.roles, "users:manage_own")) {
     scope = "own";
     // Tenant aktor dari users.client_id (DB), bukan dari input form/klaim.
     if (actor.clientId === null || actor.clientId !== tenant.id || tenant.isPlatform) return { ok: false, reason: "cross_tenant" };
@@ -133,6 +142,61 @@ export function authorizeUserMutation(
     return { ok: false, reason: "one_admin" };
   }
   return { ok: true, scope };
+}
+
+/**
+ * Adopt / "Ikat ke tenant…" (temuan QA F1.4/F8): baris users lama (`client_id IS NULL`, dibuat login sebelum Fase 1)
+ * diikat ke satu tenant lewat `kc_user_ensure adopt=true`. HANYA superadmin (`users:manage`), apa pun cakupan lain.
+ * - platform: role CP = role cache baris (superadmin/ops) — tidak bisa dinaikkan/diturunkan lewat adopt;
+ * - tenant klien: hanya client_admin/client_user, dan TIDAK PERNAH untuk baris ber-role cache superadmin/ops.
+ */
+export function authorizeAdopt(
+  actor: UserActorContext,
+  tenant: TenantRef,
+  target: TargetUser,
+  cpRole: CpRoleArg,
+  ctx: { otherActiveAdmins: number },
+): UserAuthzResult {
+  if (actor.status === "disabled") return { ok: false, reason: "actor_disabled" };
+  if (!canWith(PERMISSIONS, actor.roles, "users:manage")) return { ok: false, reason: "forbidden" };
+  if (target.clientId !== null) return { ok: false, reason: "already_bound" };
+  if (tenant.terminated) return { ok: false, reason: "tenant_inactive" };
+  if (target.status === "disabled") return { ok: false, reason: "target_disabled" };
+  if (tenant.isPlatform) {
+    if (!isPlatformRole(target.role) || cpRole !== target.role) return { ok: false, reason: "role_not_allowed" };
+    return { ok: true, scope: "all" };
+  }
+  if (isPlatformRole(target.role)) return { ok: false, reason: "role_not_allowed" };
+  if (!OWN_SCOPE_ROLES.includes(cpRole)) return { ok: false, reason: "role_not_allowed" };
+  if (target.keycloakSub === actor.sub) return { ok: false, reason: "self_action" };
+  if (cpRole === "client_admin" && ctx.otherActiveAdmins > 0) return { ok: false, reason: "one_admin" };
+  return { ok: true, scope: "all" };
+}
+
+/** Baris users lain dengan email yang sama (untuk aturan pengikatan email). */
+export interface EmailBindingRow {
+  id: string;
+  clientId: string | null;
+  role: Role;
+}
+
+export type EmailBindingConflict = "email_unbound" | "email_platform_role" | "email_other_tenant";
+
+/**
+ * Temuan QA F1.2 — email yang sudah ada di `users` tidak boleh "diambil alih" lewat tenant lain:
+ * - (a) baris `client_id IS NULL` (user lama) → hanya lewat adopt eksplisit superadmin → `email_unbound`;
+ * - (b) tenant klien + baris ber-role superadmin/ops → `email_platform_role`;
+ * - (c) baris milik tenant lain → `email_other_tenant`.
+ * `excludeId` = baris target adopt itu sendiri (client_id-nya NULL menurut definisi).
+ */
+export function emailBindingConflict(tenant: TenantRef, rows: readonly EmailBindingRow[], excludeId: string | null = null): EmailBindingConflict | null {
+  for (const r of rows) {
+    if (r.id === excludeId) continue;
+    if (r.clientId === null) return "email_unbound";
+    if (r.clientId !== tenant.id) return "email_other_tenant";
+    if (!tenant.isPlatform && isPlatformRole(r.role)) return "email_platform_role";
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +291,18 @@ export function buildAddUserSteps(p: {
     args: { email: p.email, tenant_id: p.tenant.id, invite: true, ...(p.name ? { name: p.name } : {}) },
   });
   return [...steps, ...buildAccessSteps({ ...p, existing: [] })];
+}
+
+/**
+ * Adopt: [kc_org_ensure bila org belum tercatat] → kc_user_ensure (adopt=true, tanpa undangan) → kc_user_set_roles
+ * (role terpilih; tanpa akses Odoo — diatur kemudian lewat "Ubah role / akses Odoo").
+ */
+export function buildAdoptSteps(p: { tenant: TenantRef; realmEnv: TenantEnv; email: string; cpRole: CpRoleArg; needOrg: boolean }): ChainStep[] {
+  const steps: ChainStep[] = [];
+  if (p.needOrg) steps.push({ type: "kc_org_ensure", env: p.realmEnv, args: { tenant_id: p.tenant.id } });
+  steps.push({ type: "kc_user_ensure", env: p.realmEnv, args: { email: p.email, tenant_id: p.tenant.id, invite: false, adopt: true } });
+  steps.push({ type: "kc_user_set_roles", env: p.realmEnv, args: { email: p.email, cp_role: p.cpRole } });
+  return steps;
 }
 
 /** Nonaktifkan: Keycloak (enabled=false + logout) dulu, lalu user Odoo di setiap env yang aksesnya aktif. */

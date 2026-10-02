@@ -15,7 +15,7 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Logger } from "pino";
 import type { Db } from "../db/client";
 import { safeErrorMessage } from "../db/errors";
-import { auditLogs, environments, provisionJobs } from "../db/schema";
+import { auditLogs, environments, provisionJobs, users } from "../db/schema";
 import { applyReconcile, planReconcile } from "../jobs/reconcile";
 import { applyUserReconcile, planUserReconcile } from "../jobs/user-reconcile";
 import type { Tx } from "../jobs/service";
@@ -216,6 +216,7 @@ export function createBridge(opts: BridgeOptions) {
           createdAt: provisionJobs.createdAt,
           payload: provisionJobs.payload,
           afterJobId: provisionJobs.afterJobId,
+          actorUserId: provisionJobs.actorUserId,
         })
         .from(provisionJobs)
         .where(and(eq(provisionJobs.id, provisionJobId), eq(provisionJobs.status, "queued")))
@@ -233,6 +234,14 @@ export function createBridge(opts: BridgeOptions) {
         if (prev[0]?.status !== "succeeded") return { kind: "skipped" as const };
       }
       const payload = row.payload as { slug?: unknown; args?: unknown };
+      // Temuan QA F1.1 (pertahanan berlapis, setelah cek enqueueChain): kc_user_ensure adopt=true hanya bila aktor
+      // job tercatat superadmin (cache role users). Baris yang disisipkan langsung ke DB tanpa aktor sah → ditolak.
+      if (row.type === "kc_user_ensure" && (payload.args as { adopt?: unknown } | null | undefined)?.adopt === true) {
+        const actorRow = row.actorUserId
+          ? (await tx.select({ role: users.role, status: users.status }).from(users).where(eq(users.id, row.actorUserId)).limit(1))[0]
+          : undefined;
+        if (actorRow?.role !== "superadmin" || actorRow.status === "disabled") return { kind: "invalid" as const, issue: "adopt_actor" };
+      }
       try {
         const file = buildJobFile(instance, {
           id: row.id,

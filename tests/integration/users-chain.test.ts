@@ -3,6 +3,7 @@
  * dispatcher PALSU (direktori temp), idempotency, chain_aborted, rekonsiliasi users dari RESULT kc_user, dan
  * otorisasi lintas tenant di lapisan layanan. Postgres SEKALI PAKAI (TEST_DATABASE_URL; skema di-DROP).
  */
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,7 +17,8 @@ import { auditLogs, clients, environments, provisionJobs, tenantUserAccess, user
 import { upsertUserOnLogin } from "@/db/users";
 import { INFRA_JOB_QUEUE_OPTIONS, QUEUE_INFRA_JOB } from "@/jobs/queue";
 import type { Actor, SendFn } from "@/jobs/service";
-import { addUser, changeUserAccess, sendPasswordReset, setUserEnabled } from "@/jobs/users";
+import { enqueueChain } from "@/jobs/chain";
+import { addUser, adoptUser, changeUserAccess, sendPasswordReset, setUserEnabled } from "@/jobs/users";
 import { BRIDGE_JOB_TYPES, type JobFile } from "@/lib/job-contract";
 import { createBridge, type Bridge } from "@/worker/bridge";
 import { registerInfraJobWorker } from "@/worker/register";
@@ -32,14 +34,24 @@ type Behavior = (job: JobFile) => Res;
 
 const ok = (result: Record<string, string>): Res => ({ state: "succeeded", exit_code: 0, error_code: null, result, tail: [] });
 
+/** UUID deterministik per string (id Keycloak/org palsu yang stabil per email/tenant). */
+function uuidFrom(v: string): string {
+  const x = createHash("sha256").update(v).digest("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-4${x.slice(13, 16)}-8${x.slice(17, 20)}-${x.slice(20, 32)}`;
+}
+/** User yang SUDAH ada di Keycloak (baris users lama dari login) → RESULT kc_user = sub itu, created=0. */
+const existingKc = new Map<string, string>();
+
 const defaultBehavior: Behavior = (j) => {
-  const email = String((j.args as Record<string, unknown>).email ?? "");
-  const kc = email === "budi@acme.co.id" ? KC_BUDI : "5b5b5b5b-1111-4222-8333-444455556666";
+  const a = j.args as Record<string, unknown>;
+  const email = String(a.email ?? "");
+  const known = existingKc.get(email);
+  const kc = email === "budi@acme.co.id" ? KC_BUDI : (known ?? uuidFrom(`kc:${email}`));
   switch (j.type) {
     case "kc_org_ensure":
-      return ok({ realm: "platform", org: ORG_ACME, created: "yes", changed: "1" });
+      return ok({ realm: "platform", org: j.slug === "acme-co" ? ORG_ACME : uuidFrom(`org:${String(a.tenant_id)}`), created: "1", changed: "1" });
     case "kc_user_ensure":
-      return ok({ realm: "platform", kc_user: kc, created: "yes", changed: "1", invite: "sent" });
+      return ok({ realm: "platform", kc_user: kc, created: known ? "0" : "1", changed: "1", invite: known ? "0" : "1" });
     case "kc_user_set_roles":
       return ok({ kc_user: kc, roles: "client_user,odoo_access", changed: "1" });
     case "kc_user_set_enabled":
@@ -286,21 +298,33 @@ describe.skipIf(!URL_)("Users: rantai job ⇄ dispatcher palsu (Postgres nyata)"
     expect(tua.status).toBe("revoked");
   });
 
-  it("lintas tenant (client_admin acme): tenant lain / user tenant lain / admin kedua / role platform → ditolak tanpa job + audit rejected", async () => {
+  it("F1.3: client_admin (peta izin produksi) → SEMUA mutasi Users ditolak forbidden, tanpa job + audit rejected", async () => {
     const before = (await db.select().from(provisionJobs)).length;
     const beta = (await db.select().from(users).where(eq(users.keycloakSub, "beta-user-sub")))[0]!;
+    const budi = (await db.select().from(users).where(eq(users.keycloakSub, KC_BUDI)))[0]!;
     const base = { instance: "prod" as const, allowedTypes: ALL, actor: CADMIN, meta: META };
+    const F = { ok: false, reason: "authz", denial: "forbidden" };
 
-    const a1 = await addUser(db, send, { ...base, clientId: betaId, email: "x@beta.co.id", name: null, cpRole: "client_user", odoo: {} });
-    expect(a1).toEqual({ ok: false, reason: "authz", denial: "cross_tenant" });
-    const a2 = await changeUserAccess(db, send, { ...base, userId: beta.id, cpRole: "client_user", odoo: {} });
-    expect(a2).toEqual({ ok: false, reason: "authz", denial: "cross_tenant" });
-    const a3 = await sendPasswordReset(db, send, { ...base, userId: beta.id });
-    expect(a3).toEqual({ ok: false, reason: "authz", denial: "cross_tenant" });
-    const a4 = await setUserEnabled(db, send, { ...base, userId: beta.id, enabled: false });
-    expect(a4).toEqual({ ok: false, reason: "authz", denial: "cross_tenant" });
-    const a5 = await addUser(db, send, { ...base, clientId: platformId, email: "x@bimacreative.tech", name: null, cpRole: "ops", odoo: {} });
-    expect(a5).toEqual({ ok: false, reason: "authz", denial: "cross_tenant" });
+    // tenant sendiri (acme) pun ditolak — users:manage_own default-deny sampai portal tenant W6.
+    expect(await addUser(db, send, { ...base, clientId: acmeId, email: "sari2@acme.co.id", name: null, cpRole: "client_user", odoo: {} })).toEqual(F);
+    expect(await addUser(db, send, { ...base, clientId: betaId, email: "x@beta.co.id", name: null, cpRole: "client_user", odoo: {} })).toEqual(F);
+    expect(await addUser(db, send, { ...base, clientId: platformId, email: "x@bimacreative.tech", name: null, cpRole: "ops", odoo: {} })).toEqual(F);
+    expect(await changeUserAccess(db, send, { ...base, userId: budi.id, cpRole: "client_user", odoo: {} })).toEqual(F);
+    expect(await changeUserAccess(db, send, { ...base, userId: beta.id, cpRole: "client_user", odoo: {} })).toEqual(F);
+    expect(await sendPasswordReset(db, send, { ...base, userId: budi.id })).toEqual(F);
+    expect(await setUserEnabled(db, send, { ...base, userId: beta.id, enabled: false })).toEqual(F);
+    expect(await adoptUser(db, send, { ...base, userId: budi.id, clientId: acmeId, cpRole: "client_user" })).toEqual(F);
+
+    expect((await db.select().from(provisionJobs)).length).toBe(before);
+    const rej = await db.select().from(auditLogs).where(and(eq(auditLogs.result, "rejected"), eq(auditLogs.actorUserId, CADMIN.userId!)));
+    expect(rej.length).toBe(8);
+    expect(rej.every((x) => (x.metadata as { denial?: string }).denial === "forbidden")).toBe(true);
+    expect(rej.every((x) => !JSON.stringify(x.metadata).includes("@"))).toBe(true);
+  });
+
+  it("prasyarat & aturan role (superadmin): env tenant lain / email tenant lain / nama non-ASCII / satu admin / ops / fitur nonaktif", async () => {
+    const before = (await db.select().from(provisionJobs)).length;
+    const base = { instance: "prod" as const, allowedTypes: ALL, actor: SUPER, meta: META };
     const a6 = await addUser(db, send, { ...base, clientId: acmeId, email: "boss@acme.co.id", name: null, cpRole: "client_admin", odoo: {} });
     expect(a6).toEqual({ ok: false, reason: "authz", denial: "one_admin" });
     const a7 = await addUser(db, send, { ...base, clientId: acmeId, email: "boss@acme.co.id", name: null, cpRole: "superadmin", odoo: {} });
@@ -320,13 +344,8 @@ describe.skipIf(!URL_)("Users: rantai job ⇄ dispatcher palsu (Postgres nyata)"
     // fitur nonaktif di instance (allowlist lama)
     const a12 = await addUser(db, send, { ...base, allowedTypes: ["odoo_route"], clientId: acmeId, email: "f@acme.co.id", name: null, cpRole: "client_user", odoo: {} });
     expect(a12).toEqual({ ok: false, reason: "disabled" });
-
     expect((await db.select().from(provisionJobs)).length).toBe(before);
-    const rej = await db.select().from(auditLogs).where(and(eq(auditLogs.result, "rejected"), eq(auditLogs.actorUserId, CADMIN.userId!)));
-    expect(rej.length).toBeGreaterThanOrEqual(7);
-    expect(rej.every((x) => !JSON.stringify(x.metadata).includes("@"))).toBe(true);
 
-    // tenant sendiri, role client_user → boleh (scope own)
     const okr = await addUser(db, send, { ...base, clientId: acmeId, email: "sari@acme.co.id", name: "Sari", cpRole: "client_user", odoo: { [envAcmeDemo]: "user" } });
     expect(okr.ok).toBe(true);
     if (okr.ok) await settleAll(okr.jobIds);
@@ -351,5 +370,268 @@ describe.skipIf(!URL_)("Users: rantai job ⇄ dispatcher palsu (Postgres nyata)"
     await db.update(provisionJobs).set({ status: "cancelled", finishedAt: new Date() }).where(inArray(provisionJobs.id, [head!.id]));
     await bridge.advanceChains();
     expect((await jobsOf([tail!.id]))[0]).toMatchObject({ status: "cancelled", errorCode: "chain_aborted" });
+  });
+  // -------------------------------------------------------------------------------------------------------------
+  // Temuan QA F1 (pengikatan email, adopt) — aktor superadmin terpisah agar kuota rantai per aktor/menit tidak habis.
+  // -------------------------------------------------------------------------------------------------------------
+  const KC_LEGACY_SA = "1e9a7c3b-2222-4333-8444-555566667777";
+  const KC_TONO = "2e9a7c3b-2222-4333-8444-555566667777";
+  const KC_NINA = "3e9a7c3b-2222-4333-8444-555566667777";
+  let SUPER2: Actor;
+  let legacySaId: string;
+  let tonoId: string;
+  let anehId: string;
+
+  it("F1.2: email user lama (client_id NULL) / ber-role platform di tenant → setiap mutasi ditolak tanpa job", async () => {
+    const [s2] = await db.insert(users).values({ keycloakSub: "super2-sub", role: "superadmin", clientId: platformId }).returning();
+    SUPER2 = { sub: "super2-sub", userId: s2!.id, roles: ["superadmin"] };
+    // Baris lama dari login sebelum Fase 1 (client_id NULL) — termasuk superadmin.
+    const [l1] = await db.insert(users).values({ keycloakSub: KC_LEGACY_SA, email: "lama@bimacreative.tech", role: "superadmin" }).returning();
+    const [l2] = await db.insert(users).values({ keycloakSub: KC_TONO, email: "tono@acme.co.id", role: "client_user" }).returning();
+    // Cache role platform yang (entah bagaimana) tercatat di tenant klien.
+    const [l3] = await db.insert(users).values({ keycloakSub: "aneh-sub", email: "aneh@acme.co.id", role: "ops", clientId: acmeId }).returning();
+    legacySaId = l1!.id;
+    tonoId = l2!.id;
+    anehId = l3!.id;
+    existingKc.set("lama@bimacreative.tech", KC_LEGACY_SA);
+    existingKc.set("tono@acme.co.id", KC_TONO);
+
+    const before = (await db.select().from(provisionJobs)).length;
+    const base = { instance: "prod" as const, allowedTypes: ALL, actor: SUPER2, meta: META };
+    const add = (clientId: string, email: string, cpRole: "client_user" | "superadmin" | "ops") =>
+      addUser(db, send, { ...base, clientId, email, name: null, cpRole, odoo: {} });
+    // (a) takeover superadmin lama lewat tenant klien → ditolak
+    expect(await add(acmeId, "lama@bimacreative.tech", "client_user")).toEqual({ ok: false, reason: "precondition", detail: "email_unbound" });
+    expect(await add(betaId, "tono@acme.co.id", "client_user")).toEqual({ ok: false, reason: "precondition", detail: "email_unbound" });
+    // platform pun: baris lama hanya lewat adopt eksplisit
+    expect(await add(platformId, "lama@bimacreative.tech", "superadmin")).toEqual({ ok: false, reason: "precondition", detail: "email_unbound" });
+    // (b) role platform di tenant klien → ditolak untuk tambah maupun mutasi lain
+    expect(await add(acmeId, "aneh@acme.co.id", "client_user")).toEqual({ ok: false, reason: "precondition", detail: "email_platform_role" });
+    expect(await changeUserAccess(db, send, { ...base, userId: anehId, cpRole: "client_user", odoo: {} })).toEqual({
+      ok: false,
+      reason: "precondition",
+      detail: "email_platform_role",
+    });
+    expect(await setUserEnabled(db, send, { ...base, userId: anehId, enabled: false })).toEqual({ ok: false, reason: "precondition", detail: "email_platform_role" });
+    // (c) tenant lain (huruf besar tetap cocok)
+    expect(await add(betaId, "Sari@Acme.co.id", "client_user")).toEqual({ ok: false, reason: "precondition", detail: "email_other_tenant" });
+
+    expect((await db.select().from(provisionJobs)).length).toBe(before);
+    const rej = await db.select().from(auditLogs).where(and(eq(auditLogs.result, "rejected"), eq(auditLogs.actorUserId, SUPER2.userId!)));
+    expect(rej.map((x) => (x.metadata as { detail?: string }).detail).sort()).toEqual(
+      ["email_other_tenant", "email_platform_role", "email_platform_role", "email_platform_role", "email_unbound", "email_unbound", "email_unbound"].sort(),
+    );
+  });
+
+  it("F1.1: adopt=true dari selain superadmin → ditolak + diaudit (layanan, enqueueChain langsung, worker)", async () => {
+    const before = (await db.select().from(provisionJobs)).length;
+    const OPS: Actor = { sub: "ops-sub", userId: null, roles: ["ops"] };
+    for (const actor of [CADMIN, OPS]) {
+      expect(await adoptUser(db, send, { instance: "prod", allowedTypes: ALL, actor, meta: META, userId: tonoId, clientId: acmeId, cpRole: "client_user" })).toEqual({
+        ok: false,
+        reason: "authz",
+        denial: "forbidden",
+      });
+      // Melewati layanan (mis. bug/aksi lain): enqueueChain tetap menolak adopt=true tanpa users:manage.
+      const r = await enqueueChain(db, send, {
+        instance: "prod",
+        allowedTypes: ALL,
+        client: { id: acmeId, slug: "acme-co" },
+        steps: [{ type: "kc_user_ensure", env: "prod", args: { email: "tono@acme.co.id", tenant_id: acmeId, invite: false, adopt: true } }],
+        actor,
+        meta: META,
+        audit: { action: "user.adopt", targetType: "user", targetId: tonoId, metadata: {} },
+      });
+      expect(r).toEqual({ ok: false, reason: "adopt_forbidden" });
+    }
+    expect((await db.select().from(provisionJobs)).length).toBe(before);
+    const rej = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.action, "user.adopt"), eq(auditLogs.result, "rejected")));
+    expect(rej.filter((x) => (x.metadata as { reason?: string }).reason === "adopt_forbidden")).toHaveLength(2);
+    // + 1 dari uji F1.3 (client_admin → adopt budi).
+    expect(rej.filter((x) => (x.metadata as { denial?: string }).denial === "forbidden")).toHaveLength(3);
+
+    // Worker: baris adopt yang disisipkan langsung ke DB dengan aktor bukan superadmin → rejected_validation, tidak ke spool.
+    const [j] = await db
+      .insert(provisionJobs)
+      .values({
+        type: "kc_user_ensure",
+        env: "prod",
+        status: "queued",
+        actor: "user:cadmin-sub",
+        actorUserId: CADMIN.userId,
+        clientId: acmeId,
+        payload: { slug: "acme-co", args: { email: "tono@acme.co.id", tenant_id: acmeId, invite: false, adopt: true } },
+      })
+      .returning();
+    expect(await bridge.dispatch(j!.id)).toBe("rejected");
+    expect((await jobsOf([j!.id]))[0]).toMatchObject({ status: "failed", errorCode: "rejected_validation" });
+    expect((await jobsOf([j!.id]))[0]!.error).toContain("adopt_actor");
+    expect(await readdir(path.join(root, "spool", "new"))).not.toContain(`${j!.id}.json`);
+  });
+
+  it("F1.4: adopt superadmin → platform (role tetap) & tenant (client_user); reconcile mengikat client_id + audit", async () => {
+    seen.length = 0;
+    const base = { instance: "prod" as const, allowedTypes: ALL, actor: SUPER2, meta: META };
+    // role cache superadmin tidak pernah ke tenant klien; platform tidak boleh mengubah role lewat adopt.
+    expect(await adoptUser(db, send, { ...base, userId: legacySaId, clientId: acmeId, cpRole: "client_user" })).toEqual({ ok: false, reason: "authz", denial: "role_not_allowed" });
+    expect(await adoptUser(db, send, { ...base, userId: legacySaId, clientId: platformId, cpRole: "ops" })).toEqual({ ok: false, reason: "authz", denial: "role_not_allowed" });
+
+    const r = await adoptUser(db, send, { ...base, userId: legacySaId, clientId: platformId, cpRole: "superadmin" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const rows = await settleAll(r.jobIds);
+    expect(rows.every((x) => x.status === "succeeded")).toBe(true);
+    expect(seen.map((j) => j.type)).toEqual(["kc_org_ensure", "kc_user_ensure", "kc_user_set_roles"]);
+    expect(seen[1]!.args).toEqual({ email: "lama@bimacreative.tech", tenant_id: platformId, invite: false, adopt: true });
+    expect(seen[2]!.args).toEqual({ email: "lama@bimacreative.tech", cp_role: "superadmin" });
+    expect((await db.select().from(users).where(eq(users.id, legacySaId)))[0]).toMatchObject({ clientId: platformId, role: "superadmin", keycloakSub: KC_LEGACY_SA });
+    const okAudit = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "user.adopt"), eq(auditLogs.result, "success")));
+    expect(okAudit).toHaveLength(1);
+    expect(okAudit[0]!.actorUserId).toBe(SUPER2.userId);
+    const bound = await db.select().from(auditLogs).where(eq(auditLogs.action, "user.adopt_bound"));
+    expect(bound.map((x) => x.targetId)).toEqual([legacySaId]);
+    // sudah terikat → adopt kedua ditolak
+    expect(await adoptUser(db, send, { ...base, userId: legacySaId, clientId: platformId, cpRole: "superadmin" })).toEqual({ ok: false, reason: "authz", denial: "already_bound" });
+
+    // tenant: client_admin saat acme sudah punya admin → one_admin; client_user → ok
+    expect(await adoptUser(db, send, { ...base, userId: tonoId, clientId: acmeId, cpRole: "client_admin" })).toEqual({ ok: false, reason: "authz", denial: "one_admin" });
+    seen.length = 0;
+    const t = await adoptUser(db, send, { ...base, userId: tonoId, clientId: acmeId, cpRole: "client_user" });
+    expect(t.ok).toBe(true);
+    if (!t.ok) return;
+    await settleAll(t.jobIds);
+    expect(seen.map((j) => j.type)).toEqual(["kc_user_ensure", "kc_user_set_roles"]);
+    expect((await db.select().from(users).where(eq(users.id, tonoId)))[0]).toMatchObject({ clientId: acmeId, role: "client_user" });
+    expect((await db.select().from(auditLogs).where(eq(auditLogs.action, "user.adopt_bound"))).map((x) => x.targetId).sort()).toEqual([legacySaId, tonoId].sort());
+  });
+
+  it("F1 reconcile (pertahanan berlapis): kc_user_ensure TANPA adopt tidak mengikat baris lama client_id NULL", async () => {
+    const [n] = await db.insert(users).values({ keycloakSub: KC_NINA, email: "nina@beta.co.id", role: "client_user" }).returning();
+    existingKc.set("nina@beta.co.id", KC_NINA);
+    // Langsung lewat enqueueChain (melewati aturan email layanan) — rekonsiliasi tetap menolak mengikat.
+    const r = await enqueueChain(db, send, {
+      instance: "prod",
+      allowedTypes: ALL,
+      client: { id: betaId, slug: "beta-co" },
+      steps: [{ type: "kc_user_ensure", env: "prod", args: { email: "nina@beta.co.id", tenant_id: betaId, invite: false } }],
+      actor: SUPER2,
+      meta: META,
+      audit: { action: "test.ensure", targetType: "user", targetId: null, metadata: {} },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const rows = await settleAll(r.jobIds);
+    expect(rows[0]!.status).toBe("succeeded");
+    expect((await db.select().from(users).where(eq(users.id, n!.id)))[0]!.clientId).toBeNull();
+    const conflicts = await db.select().from(auditLogs).where(eq(auditLogs.action, "user.reconcile_conflict"));
+    expect(conflicts.some((x) => (x.metadata as { conflict?: string; job_id?: string }).conflict === "unbound_without_adopt" && (x.metadata as { job_id?: string }).job_id === r.jobIds[0])).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------------------------------------------
+  // Temuan QA F2 — satu tenant-admin atomik saat enqueue (advisory lock per tenant).
+  // -------------------------------------------------------------------------------------------------------------
+  it("F2: dua enqueue client_admin paralel (tenant sama, email beda) → tepat satu diterima; sisanya one_admin + audit", async () => {
+    // kc_org_id sudah ada → rantai tanpa kc_org_ensure bersama (kunci idempotency org TIDAK ikut menyerialkan; hanya
+    // advisory lock F2 yang memisahkan kedua transaksi).
+    const [g] = await db.insert(clients).values({ slug: "gamma-co", name: "Gamma", kcOrgId: "4e9a7c3b-2222-4333-8444-555566667777" }).returning();
+    const gammaId = g!.id;
+    const [s3] = await db.insert(users).values({ keycloakSub: "super3-sub", role: "superadmin", clientId: platformId }).returning();
+    const [s4] = await db.insert(users).values({ keycloakSub: "super4-sub", role: "superadmin", clientId: platformId }).returning();
+    const A: Actor = { sub: "super3-sub", userId: s3!.id, roles: ["superadmin"] };
+    const B: Actor = { sub: "super4-sub", userId: s4!.id, roles: ["superadmin"] };
+    const mk = (actor: Actor, email: string) =>
+      addUser(db, send, { instance: "prod", allowedTypes: ALL, actor, meta: META, clientId: gammaId, email, name: null, cpRole: "client_admin", odoo: {} });
+    // Kedua permintaan lolos cek otorisasi (belum ada admin) — hanya kunci di transaksi enqueue yang memisahkan.
+    const res = await Promise.all([mk(A, "a1@gamma.co.id"), mk(B, "a2@gamma.co.id")]);
+    const accepted = res.filter((x) => x.ok);
+    const rejected = res.filter((x) => !x.ok);
+    expect(accepted).toHaveLength(1);
+    expect(rejected).toEqual([{ ok: false, reason: "one_admin", conflict: "job" }]);
+    const rejAudit = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.clientId, gammaId), eq(auditLogs.result, "rejected")));
+    expect(rejAudit.map((x) => (x.metadata as { reason?: string }).reason)).toEqual(["one_admin"]);
+    const adminJobs = await db
+      .select()
+      .from(provisionJobs)
+      .where(and(eq(provisionJobs.clientId, gammaId), eq(provisionJobs.type, "kc_user_set_roles")));
+    expect(adminJobs).toHaveLength(1);
+
+    // Setelah rantai pemenang selesai: baris users client_admin ada → enqueue admin lain ditolak (cabang "user");
+    // admin yang SAMA (ubah akses, role tetap) tetap boleh.
+    const win = accepted[0]!;
+    if (!win.ok) return;
+    await settleAll(win.jobIds);
+    const winnerEmail = (adminJobs[0]!.payload as { args: { email: string } }).args.email;
+    expect((await db.select().from(users).where(and(eq(users.clientId, gammaId), eq(users.role, "client_admin"))))[0]!.email).toBe(winnerEmail);
+    const direct = (actor: Actor, email: string) =>
+      enqueueChain(db, send, {
+        instance: "prod",
+        allowedTypes: ALL,
+        client: { id: gammaId, slug: "gamma-co" },
+        steps: [{ type: "kc_user_set_roles", env: "prod", args: { email, cp_role: "client_admin" } }],
+        actor,
+        meta: META,
+        audit: { action: "test.set_roles", targetType: "user", targetId: null, metadata: {} },
+      });
+    expect(await direct(A, "a3@gamma.co.id")).toEqual({ ok: false, reason: "one_admin", conflict: "user" });
+    const same = await direct(B, winnerEmail);
+    expect(same.ok).toBe(true);
+    if (same.ok) await settleAll(same.jobIds);
+  });
+
+  it("F2: DUA enqueueChain paralel (tenant sama, email beda) → tepat satu diterima — 4 putaran, tenant baru per putaran", async () => {
+    for (let round = 0; round < 4; round++) {
+      const slug = `eps${round}-co`;
+      const [t] = await db.insert(clients).values({ slug, name: slug }).returning();
+      const res = await Promise.all(
+        [0, 1].map((i) =>
+          enqueueChain(db, send, {
+            instance: "prod",
+            allowedTypes: ALL,
+            client: { id: t!.id, slug },
+            steps: [{ type: "kc_user_set_roles", env: "prod", args: { email: `e${i}@${slug}.id`, cp_role: "client_admin" } }],
+            actor: { sub: `eps-${round}-${i}`, userId: null, roles: ["superadmin"] },
+            meta: META,
+            audit: { action: "test.set_roles", targetType: "user", targetId: null, metadata: {} },
+          }),
+        ),
+      );
+      expect(res.filter((x) => x.ok), `putaran ${round}`).toHaveLength(1);
+      expect(res.find((x) => !x.ok)).toEqual({ ok: false, reason: "one_admin", conflict: "job" });
+      const win = res.find((x) => x.ok);
+      if (win?.ok) await settleAll(win.jobIds);
+    }
+  });
+
+  it("F2: 6 enqueue langsung paralel (enqueueChain, aktor berbeda) untuk tenant tanpa admin → tepat satu diterima", async () => {
+    const [d] = await db.insert(clients).values({ slug: "delta-co", name: "Delta" }).returning();
+    const deltaId = d!.id;
+    const res = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        enqueueChain(db, send, {
+          instance: "prod",
+          allowedTypes: ALL,
+          client: { id: deltaId, slug: "delta-co" },
+          steps: [{ type: "kc_user_set_roles", env: "prod", args: { email: `d${i}@delta.co.id`, cp_role: "client_admin" } }],
+          actor: { sub: `par-${i}`, userId: null, roles: ["superadmin"] },
+          meta: META,
+          audit: { action: "test.set_roles", targetType: "user", targetId: null, metadata: {} },
+        }),
+      ),
+    );
+    expect(res.filter((x) => x.ok)).toHaveLength(1);
+    expect(res.filter((x) => !x.ok).every((x) => !x.ok && x.reason === "one_admin")).toBe(true);
+    const jobs = await db
+      .select()
+      .from(provisionJobs)
+      .where(and(eq(provisionJobs.clientId, deltaId), eq(provisionJobs.type, "kc_user_set_roles")));
+    expect(jobs).toHaveLength(1);
+    const win = res.find((x) => x.ok);
+    if (win?.ok) await settleAll(win.jobIds);
   });
 });
