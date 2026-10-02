@@ -190,6 +190,43 @@ export function defaultHost(slug: string, env: TenantEnv): string | null {
   return null;
 }
 
+/**
+ * Host route environment: kolom `environments.host` (fakta RESULT / deklarasi pendaftaran tenant lama); bila kosong,
+ * hostname `environments.url`. URL tidak terbaca → null.
+ */
+export function envRouteHost(e: { host: string | null; url: string }): string | null {
+  if (e.host) return e.host;
+  try {
+    const h = new URL(e.url).hostname;
+    return h || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Route dikelola MANUAL (M8 migrasi prod, "Daftarkan tenant yang sudah ada"): host environment di luar regex HOST
+ * platform env-nya (mis. host kustom `erp.expomedia.id`). DITURUNKAN dari regex HOST — tanpa kolom/migrasi. Host tidak
+ * bisa ditentukan sama sekali → dianggap manual (fail-closed: job route/SSO tidak dikirim untuk environment yang
+ * host-nya tidak jelas). Adopsi route ke platform = Fase 2.
+ */
+export function routeManagedManually(e: { kind: TenantEnv; host: string | null; url: string }): boolean {
+  const h = envRouteHost(e);
+  return h === null || !isValidHostForEnv(h, e.kind);
+}
+
+/**
+ * Tipe job yang menulis/memakai route & host platform environment — DITOLAK di lapisan layanan untuk environment route
+ * manual (enqueueBridgeJob + rantai): tanpa host, skrip memakai host default `<slug>.<erp|staging>…` dan akan menimpa
+ * route manual; dengan host kustom, regex HOST dispatcher menolaknya. DB environment adopsi sudah ada (provision ulang
+ * tidak relevan).
+ */
+export const MANUAL_ROUTE_BLOCKED_TYPES: readonly BridgeJobType[] = ["odoo_db_provision", "odoo_route", "odoo_sso_provision", "odoo_sso_disable"];
+
+export function blockedForManualRoute(type: string): boolean {
+  return (MANUAL_ROUTE_BLOCKED_TYPES as readonly string[]).includes(type);
+}
+
 /** Nama DB turunan (sama dengan `validate_slug_env`): '-' → '_' + `_<env>`. */
 export function dbNameFor(slug: string, env: TenantEnv): string {
   return `${slug.replace(/-/g, "_")}_${env}`;

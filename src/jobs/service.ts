@@ -11,9 +11,11 @@ import { isUniqueViolation, safeErrorMessage } from "../db/errors";
 import { auditLogs, clients, environments, provisionJobs, tenantUserAccess } from "../db/schema";
 import {
   BRIDGE_JOB_TYPES,
+  blockedForManualRoute,
   checkSsoHosts,
   emailHash,
   envAllowedForInstance,
+  routeManagedManually,
   validateJobRequest,
   type BridgeJobType,
   type ContractIssue,
@@ -22,6 +24,7 @@ import {
   type JobRequest,
 } from "../lib/job-contract";
 import { resendAllowedForStatus } from "../lib/job-forms";
+import type { ActionResultCode } from "../lib/job-list-params";
 import { evaluateQuota, type QuotaViolation } from "../lib/quota";
 import { can, type Role } from "../lib/roles";
 
@@ -66,9 +69,18 @@ export type PreconditionIssue =
   | "host_not_in_route"
   | "user_not_listed"
   | "user_not_active"
-  | "job_not_retryable";
+  | "job_not_retryable"
+  /** Environment route manual (host kustom, tenant yang didaftarkan): job route/SSO/DB ditolak sampai adopsi Fase 2. */
+  | "route_manual";
 
 export type EnqueueOutcome = { ok: true; jobId: string } | ({ ok: false } & EnqueueFailure);
+
+/** Kode `?r=` halaman environment (murni). `route_manual` punya teks sendiri; prasyarat lain → `precondition`. */
+export function enqueueOutcomeCode(o: EnqueueOutcome): ActionResultCode {
+  if (o.ok) return "queued";
+  if (o.reason === "precondition" && o.detail === "route_manual") return "route_manual";
+  return o.reason === "invalid" ? "invalid" : o.reason;
+}
 
 const ACTIVE_STATUSES = ["queued", "dispatched", "running"] as const;
 
@@ -173,6 +185,7 @@ export async function enqueueBridgeJob(db: Db, send: SendFn, input: EnqueueInput
       clientId: environments.clientId,
       kind: environments.kind,
       host: environments.host,
+      url: environments.url,
       routeStatus: environments.routeStatus,
       slug: clients.slug,
       terminatedAt: clients.terminatedAt,
@@ -191,6 +204,11 @@ export async function enqueueBridgeJob(db: Db, send: SendFn, input: EnqueueInput
 
   if (!envAllowedForInstance(input.instance, envRow.kind)) {
     return fail({ reason: "invalid", issue: "env_instance" }, null);
+  }
+  // M8: environment route manual (host kustom) — job yang menulis route/host platform ditolak di layanan (bukan hanya
+  // tombol UI): tanpa host, skrip memakai host default dan menimpa route manual.
+  if (blockedForManualRoute(input.type) && routeManagedManually(envRow)) {
+    return fail({ reason: "precondition", detail: "route_manual" }, null);
   }
   const v = validateJobRequest(input.instance, {
     type: input.type,

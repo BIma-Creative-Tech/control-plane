@@ -32,10 +32,12 @@ import { isUniqueViolation, safeErrorMessage } from "../db/errors";
 import { auditLogs, environments, provisionJobs, users } from "../db/schema";
 import {
   BRIDGE_JOB_TYPES,
+  blockedForManualRoute,
   isSaasP1JobType,
   checkSsoHosts,
   defaultHost,
   idempotencyKey,
+  routeManagedManually,
   validateJobRequest,
   type BridgeJobType,
   type ContractIssue,
@@ -108,7 +110,9 @@ export type ChainPreconditionDetail =
   /** Onboarding: plan langganan tidak ada/tidak aktif/bukan layanan odoo (createSubscriptionTx di prelude). */
   | "plan_inactive"
   /** Portal W6: tambah/aktifkan user melebihi plans.max_users langganan Odoo tenant. */
-  | "plan_limit";
+  | "plan_limit"
+  /** M8: langkah route/SSO/DB untuk environment route manual (host kustom tenant yang didaftarkan). */
+  | "route_manual";
 
 export type ChainOutcome =
   | { ok: true; chainId: string; jobIds: string[]; reused: number }
@@ -314,12 +318,16 @@ async function insertChain(db: Db, send: SendFn, input: ChainInput, reqs: JobReq
       }
       const envRow = (
         await tx
-          .select({ id: environments.id, host: environments.host, routeStatus: environments.routeStatus })
+          .select({ id: environments.id, kind: environments.kind, host: environments.host, url: environments.url, routeStatus: environments.routeStatus })
           .from(environments)
           .where(and(eq(environments.clientId, input.client.id), eq(environments.kind, req.env)))
           .limit(1)
       )[0];
       if (!envRow) throw new Abort({ reason: "precondition", detail: "env_missing", step: i });
+      // M8: route manual (host kustom) → langkah route/SSO/DB tidak pernah masuk rantai (mis. ulangan rantai onboarding).
+      if (blockedForManualRoute(req.type) && routeManagedManually(envRow)) {
+        throw new Abort({ reason: "precondition", detail: "route_manual", step: i });
+      }
       if (req.type === "odoo_sso_provision") {
         const planned = chainRouteHosts(reqs, i).get(req.env);
         const routeHosts = [

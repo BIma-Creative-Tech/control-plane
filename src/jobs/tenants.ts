@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
+import { isUniqueViolation, safeErrorMessage } from "../db/errors";
 import { auditLogs, clients, environments, provisionJobs, users } from "../db/schema";
 import {
   emailHash,
@@ -35,6 +36,14 @@ import {
   type RetryIssue,
   type TenantStateAction,
 } from "../lib/tenant-onboarding";
+import {
+  buildRegisterExistingSteps,
+  registerAuditMetadata,
+  registeredEnvironmentRowValues,
+  validateRegisterInput,
+  type RegisterExistingInput,
+  type RegisterFormIssue,
+} from "../lib/tenant-register";
 import { emailBindingConflict, orderChain, type EmailBindingConflict, type TenantRef } from "../lib/user-admin";
 import { BillingAbort, createSubscriptionTx } from "../billing/service";
 import { ChainAbort, enqueueChain, type ChainFailure, type ChainInput } from "./chain";
@@ -56,6 +65,8 @@ export type TenantActionFailure =
   | { reason: "retry"; issue: RetryIssue }
   | { reason: "binding"; conflict: EmailBindingConflict }
   | { reason: "realm"; code: "approve_required" | "plan_required" }
+  /** Pendaftaran tenant lama: input ditolak aturan (slug platform, konvensi db_name, host). */
+  | { reason: "register"; issue: Exclude<RegisterFormIssue, "no_env"> }
   | ChainFailure;
 
 export type TenantActionOutcome = { ok: true; chainId: string; jobIds: string[]; clientId: string } | ({ ok: false } & TenantActionFailure);
@@ -198,6 +209,129 @@ export async function onboardTenant(db: Db, send: SendFn, input: TenantServiceIn
   });
   if (!out.ok) return out;
   return { ok: true, chainId: out.chainId, jobIds: out.jobIds, clientId: tenantId };
+}
+
+// ---------------------------------------------------------------------------
+// Daftarkan tenant yang sudah ada (migrasi prod M8)
+// ---------------------------------------------------------------------------
+export type RegisterOutcome =
+  | { ok: true; clientId: string; chainId: string | null; jobIds: string[]; skipped: BridgeJobType[] }
+  | ({ ok: false } & TenantActionFailure);
+
+/**
+ * Tenant yang SUDAH hidup (DB, route — boleh host kustom —, SSO) dicatat tanpa provisioning: SATU transaksi = INSERT
+ * clients + environments (status = deklarasi) (+ langganan `implementation` bila plan dipilih) + audit
+ * `tenant.register_existing` + rantai `kc_org_ensure` [+ `odoo_tenant_config(compat)` per env ber-SSO aktif] + pesan
+ * pg-boss kepala rantai. Tipe di luar allowlist instance dilewati; tidak ada yang diizinkan → baris DB + audit saja.
+ * Superadmin (`clients:manage`; plan → juga `billing:manage`). Ditolak (slug/DB/host terpakai, kuota) → tidak ada baris
+ * yang tertinggal; penolakan diaudit `result=rejected`.
+ */
+export async function registerExistingTenant(
+  db: Db,
+  send: SendFn,
+  input: TenantServiceInput & { form: RegisterExistingInput; platformDomains?: readonly string[] },
+): Promise<RegisterOutcome> {
+  const f = input.form;
+  const action = "tenant.register_existing";
+  const md = registerAuditMetadata(f);
+  if (!(await gate(db, input, "clients:manage", action, null, md))) return { ok: false, reason: "forbidden" };
+  if (f.planId && !(await gate(db, input, "billing:manage", action, null, md))) return { ok: false, reason: "forbidden" };
+  // Pertahanan berlapis: aturan form diulang di layanan (slug platform, konvensi db_name, host, env instance).
+  const issue = validateRegisterInput(input.instance, f, input.platformDomains);
+  if (issue) {
+    await auditRejected(db, input, action, null, { ...md, reason: "invalid", issue });
+    if (issue === "no_env") return { ok: false, reason: "precondition", detail: "no_env" };
+    return { ok: false, reason: "register", issue };
+  }
+  const tenantId = randomUUID();
+  const hosts = f.envs.map((e) => e.host);
+  const urls = hosts.map((h) => `https://${h}`);
+  const { steps, skipped } = buildRegisterExistingSteps({
+    tenantId,
+    realmEnv: realmEnvForInstance(input.instance),
+    envs: f.envs,
+    allowedTypes: input.allowedTypes,
+  });
+  const auditMd = { ...md, ...(skipped.length > 0 ? { skipped_types: skipped } : {}) };
+
+  const prelude = async (tx: Tx) => {
+    const taken = await tx
+      .select({ id: environments.id })
+      .from(environments)
+      .where(or(inArray(environments.host, hosts), inArray(environments.url, urls)))
+      .limit(1);
+    if (taken.length > 0) throw new ChainAbort({ reason: "precondition", detail: "host_taken" });
+    const ins = await tx
+      .insert(clients)
+      .values({ id: tenantId, slug: f.slug, name: f.name, brand: f.brand })
+      .onConflictDoNothing()
+      .returning({ id: clients.id });
+    if (ins.length === 0) throw new ChainAbort({ reason: "exists" });
+    const envRows = await tx
+      .insert(environments)
+      .values(f.envs.map((e) => ({ clientId: tenantId, ...registeredEnvironmentRowValues(e) })))
+      .onConflictDoNothing()
+      .returning({ id: environments.id });
+    // db_name unik global (environments_db_name_uq): DB sudah tercatat untuk tenant lain → tolak utuh.
+    if (envRows.length !== f.envs.length) throw new ChainAbort({ reason: "exists" });
+    if (f.planId) {
+      try {
+        await createSubscriptionTx(tx, input, { clientId: tenantId, planId: f.planId, requireService: "odoo" });
+      } catch (err) {
+        if (err instanceof BillingAbort) throw new ChainAbort({ reason: "precondition", detail: "plan_inactive" });
+        throw err;
+      }
+    }
+  };
+
+  if (steps.length > 0) {
+    const out = await enqueueChain(db, send, {
+      instance: input.instance,
+      allowedTypes: input.allowedTypes,
+      client: { id: tenantId, slug: f.slug, isNew: true },
+      steps,
+      actor: input.actor,
+      meta: input.meta,
+      audit: { action, targetType: "client", targetId: tenantId, metadata: auditMd },
+      prelude,
+    });
+    if (!out.ok) return out;
+    return { ok: true, clientId: tenantId, chainId: out.chainId, jobIds: out.jobIds, skipped };
+  }
+
+  // Tidak ada tipe job yang diizinkan instance ini → baris DB + audit saja (transaksi yang sama).
+  try {
+    await db.transaction(async (tx) => {
+      await prelude(tx);
+      await tx.insert(auditLogs).values({
+        actorUserId: input.actor.userId,
+        actor: `user:${input.actor.sub}`,
+        action,
+        targetType: "client",
+        targetId: tenantId,
+        clientId: tenantId,
+        result: "success",
+        ip: input.meta.ip,
+        requestId: input.meta.requestId,
+        metadata: { ...auditMd, steps: [] },
+      });
+    });
+  } catch (err) {
+    let failure: TenantActionFailure;
+    if (err instanceof ChainAbort) failure = err.failure;
+    else if (isUniqueViolation(err)) failure = { reason: "exists" };
+    else return { ok: false, reason: "error", message: safeErrorMessage(err) };
+    await auditRejected(db, input, action, null, { ...auditMd, reason: failure.reason, ...("detail" in failure ? { detail: failure.detail } : {}) });
+    return { ok: false, ...failure };
+  }
+  return { ok: true, clientId: tenantId, chainId: null, jobIds: [], skipped };
+}
+
+/** Kode `?r=` hasil pendaftaran (murni): rantai penuh → queued; sebagian/tanpa job (allowlist) → pemberitahuan. */
+export function registerOutcomeCode(o: RegisterOutcome): ActionResultCode {
+  if (!o.ok) return tenantOutcomeCode(o);
+  if (o.chainId === null) return "registered_no_jobs";
+  return o.skipped.length > 0 ? "registered_partial" : "queued";
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +601,8 @@ export function tenantOutcomeCode(o: TenantActionOutcome): ActionResultCode {
       return o.conflict;
     case "realm":
       return o.code;
+    case "register":
+      return o.issue;
     case "one_admin":
       return "one_admin";
     case "precondition":
@@ -476,6 +612,7 @@ export function tenantOutcomeCode(o: TenantActionOutcome): ActionResultCode {
         case "plan_required":
         case "no_env":
         case "plan_inactive":
+        case "route_manual":
           return o.detail;
         default:
           return "precondition";

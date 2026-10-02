@@ -75,6 +75,11 @@ export const ACTION_RESULT_CODES = [
   "deleted",
   "env_mismatch",
   "fqdn_platform",
+  // Daftarkan tenant yang sudah ada (migrasi prod M8)
+  "db_name_mismatch",
+  "route_manual",
+  "registered_partial",
+  "registered_no_jobs",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -132,6 +137,14 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   deleted: "Data dihapus.",
   fqdn_platform:
     "Domain milik platform (mis. *.bimacreative.tech) tidak boleh didaftarkan sebagai domain tenant — host platform dikelola lewat environment.",
+  db_name_mismatch:
+    "Nama DB harus sesuai konvensi <slug ('-' → '_')>_<env> (mis. expomedia_prod) — dispatcher menurunkan nama DB dari slug+env.",
+  route_manual:
+    "Route environment ini dikelola manual (host kustom) — job route/SSO/provision DB dinonaktifkan sampai adopsi route di Fase 2.",
+  registered_partial:
+    "Tenant terdaftar. Sebagian job (kc_org_ensure / odoo_tenant_config) dilewati karena belum ada di allowlist INFRA_JOBS_TYPES instance ini.",
+  registered_no_jobs:
+    "Tenant terdaftar (baris data saja). kc_org_ensure / odoo_tenant_config belum ada di allowlist INFRA_JOBS_TYPES instance ini — jalankan setelah allowlist diperbarui.",
   env_mismatch:
     "Environment tidak cocok: hanya domain odoo/web yang boleh ditautkan, dan environment harus milik tenant yang sama.",
 };

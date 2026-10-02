@@ -23,8 +23,11 @@ export function StatusBadge({ value }: { value: string }) {
 
 export function ResultBanner({ code, text, jobId }: { code: string; text: string; jobId: string | null }) {
   const ok = code === "queued" || code === "created";
+  // Pemberitahuan (berhasil sebagian): pendaftaran tenant lama dengan job di luar allowlist instance.
+  const notice = code === "registered_partial" || code === "registered_no_jobs";
+  const tone = ok ? "bg-green-50 text-green-800" : notice ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700";
   return (
-    <p role="status" className={`rounded p-3 text-sm ${ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"}`}>
+    <p role="status" className={`rounded p-3 text-sm ${tone}`}>
       {text}{" "}
       {jobId ? (
         <Link href={`/jobs/${jobId}`} className="underline">

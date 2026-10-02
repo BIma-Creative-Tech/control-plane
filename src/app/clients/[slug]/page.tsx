@@ -4,11 +4,12 @@ import { getDb } from "@/db";
 import { getTenantBySlug, listClientChains, listTenantDomains, listUsersOfTenant } from "@/db/tenant-queries";
 import { getWebEnv } from "@/env";
 import { requirePermission } from "@/lib/authz";
-import { INSTANCE_ENVS, UUID_REGEX, envAllowedForInstance, instanceJobTypes } from "@/lib/job-contract";
+import { INSTANCE_ENVS, UUID_REGEX, envAllowedForInstance, instanceJobTypes, routeManagedManually } from "@/lib/job-contract";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { ROLE_LABELS, can } from "@/lib/roles";
 import { isValidSlug } from "@/lib/slug";
 import { TENANT_STATE_TYPES, typesEnabled } from "@/lib/tenant-onboarding";
+import { MANUAL_ROUTE_NOTE } from "@/lib/tenant-register";
 import { listEnvironmentsForClient, listJobs } from "@/server/queries";
 import { JobTable, ResultBanner, StatusBadge } from "../../jobs/components";
 import { Nav } from "../../nav";
@@ -127,7 +128,12 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
                       <td className="p-2 font-mono">
                         {e.dbName} <StatusBadge value={e.dbStatus} />
                       </td>
-                      <td className="p-2 font-mono">{e.host ?? "—"}</td>
+                      <td className="p-2 font-mono">
+                        {e.host ?? "—"}
+                        {routeManagedManually(e) ? (
+                          <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 font-sans text-xs text-amber-800">{MANUAL_ROUTE_NOTE}</span>
+                        ) : null}
+                      </td>
                       <td className="p-2">
                         <StatusBadge value={e.routeStatus} />
                       </td>

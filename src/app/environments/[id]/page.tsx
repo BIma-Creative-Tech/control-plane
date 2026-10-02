@@ -6,6 +6,7 @@ import { UUID_REGEX, defaultHost, envAllowedForInstance } from "@/lib/job-contra
 import { ssoUserRowActions } from "@/lib/job-forms";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
+import { environmentJobAvailability } from "@/lib/tenant-register";
 import { countActiveJobs, getEnvironment, listAuditForEnvironment, listJobs, listTenantUsers } from "@/server/queries";
 import { JobTable, ResultBanner, StatusBadge } from "../../jobs/components";
 import { Nav } from "../../nav";
@@ -53,6 +54,9 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
   })();
   const suggestedHost = env.host ?? (urlHost || defaultHost(env.slug, env.kind) || "");
   const busy = (t: string) => active.has(t as never);
+  // M8: route manual (host kustom, tenant yang didaftarkan) → tombol DB/route/SSO nonaktif; layanan juga menolak.
+  const avail = environmentJobAvailability(env);
+  const manualNote = avail.note ? <span className="text-xs text-amber-800">{avail.note}</span> : null;
 
   return (
     <>
@@ -87,6 +91,7 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
           </div>
           <div>
             Route: <span className="font-mono">{env.host ?? "—"}</span> <StatusBadge value={env.routeStatus} />
+            {avail.manualRoute ? <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">{avail.note}</span> : null}
           </div>
           <div>
             SSO: <span className="font-mono">{env.ssoClientId ?? "—"}</span> <StatusBadge value={env.ssoStatus} />
@@ -107,9 +112,10 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
                 Host (wajib untuk demo){" "}
                 <input name="host" defaultValue={suggestedHost} maxLength={253} className={input} />
               </label>
-              <button type="submit" className={btn} disabled={busy("odoo_db_provision")}>
+              <button type="submit" className={btn} disabled={!avail.dbProvision || busy("odoo_db_provision")}>
                 1. Provision DB
               </button>
+              {avail.dbProvision ? null : manualNote}
             </form>
 
             <form action={renderRouteAction} className="flex flex-wrap items-center gap-2">
@@ -117,9 +123,10 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
               <label className="text-sm">
                 Host <input name="host" defaultValue={suggestedHost} maxLength={253} className={input} />
               </label>
-              <button type="submit" className={btn} disabled={busy("odoo_route")}>
+              <button type="submit" className={btn} disabled={!avail.route || busy("odoo_route")}>
                 2. Render route
               </button>
+              {avail.route ? null : manualNote}
             </form>
 
             <form action={ssoProvisionAction} className="flex flex-wrap items-center gap-3">
@@ -131,9 +138,10 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
               <label className="text-sm">
                 <input type="checkbox" name="skip_smoke" /> skip smoke (host default, sebelum route)
               </label>
-              <button type="submit" className={btn} disabled={busy("odoo_sso_provision")}>
+              <button type="submit" className={btn} disabled={!avail.sso || busy("odoo_sso_provision")}>
                 3. Aktifkan SSO
               </button>
+              {avail.sso ? null : manualNote}
             </form>
 
             {canAdmin ? (
@@ -145,9 +153,10 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
                   <label className="text-sm">
                     <input type="checkbox" name="dry_run" /> dry-run
                   </label>
-                  <button type="submit" className={btnDanger} disabled={busy("odoo_sso_provision")}>
+                  <button type="submit" className={btnDanger} disabled={!avail.sso || busy("odoo_sso_provision")}>
                     Rotasi secret SSO
                   </button>
+                  {avail.sso ? null : manualNote}
                 </form>
                 <form action={ssoDisableAction} className="flex flex-wrap items-center gap-2">
                   <input type="hidden" name="environmentId" value={env.id} />
@@ -155,16 +164,18 @@ export default async function EnvironmentPage(props: PageProps<"/environments/[i
                   <label className="text-sm">
                     <input type="checkbox" name="dry_run" /> dry-run
                   </label>
-                  <button type="submit" className={btnDanger} disabled={busy("odoo_sso_disable")}>
+                  <button type="submit" className={btnDanger} disabled={!avail.sso || busy("odoo_sso_disable")}>
                     Nonaktifkan SSO
                   </button>
+                  {avail.sso ? null : manualNote}
                 </form>
                 <form action={removeRouteAction} className="flex flex-wrap items-center gap-2">
                   <input type="hidden" name="environmentId" value={env.id} />
                   <input name="confirm" placeholder={env.slug} required maxLength={30} className={input} />
-                  <button type="submit" className={btnDanger} disabled={busy("odoo_route")}>
+                  <button type="submit" className={btnDanger} disabled={!avail.route || busy("odoo_route")}>
                     Hapus route
                   </button>
+                  {avail.route ? null : manualNote}
                 </form>
               </div>
             ) : null}

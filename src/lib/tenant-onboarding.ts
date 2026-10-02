@@ -235,12 +235,14 @@ export type RetryIssue =
 
 /**
  * Aksi audit asal rantai yang boleh diulang dari halaman tenant (audit `metadata.chain_id`): onboarding (dan ulangan
- * onboarding) SAJA. Tidak boleh (QA ronde 2, keputusan Lead):
+ * onboarding) dan pendaftaran tenant lama (`tenant.register_existing`: hanya kc_org_ensure/odoo_tenant_config — tanpa
+ * langkah route/SSO/DB; rantai juga menolak langkah itu untuk environment route manual) SAJA. Tidak boleh (QA ronde 2,
+ * keputusan Lead):
  * - rantai Users (`user.*`) — aturan authorizeUserMutation hanya berlaku lewat aksi Users itu sendiri;
  * - `realm.sync_*` (N1) — sync realm hanya lewat /realm (decideRealmSync: rencana segar tanpa blocker + approve prod);
  * - `tenant.suspend|resume` (N3) — ulang manual lewat tombol berkonfirmasi slug (cek kebalikan aktif).
  */
-export const RETRYABLE_CHAIN_ORIGINS = ["tenant.onboard", "chain.retry"] as const;
+export const RETRYABLE_CHAIN_ORIGINS = ["tenant.onboard", "chain.retry", "tenant.register_existing"] as const;
 
 export function retryableOrigin(action: string | null | undefined): boolean {
   return typeof action === "string" && (RETRYABLE_CHAIN_ORIGINS as readonly string[]).includes(action);

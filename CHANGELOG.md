@@ -10,6 +10,17 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **Migrasi prod M8 — "Daftarkan tenant yang sudah ada"** (`/clients`, superadmin `clients:manage`; plan → juga
+  `billing:manage`): tenant yang sudah hidup (DB, route — boleh host kustom —, SSO) dicatat ke `clients` +
+  `environments` dengan status deklarasi (db `provisioned`, route `active`, sso `active|none`) tanpa provisioning;
+  `db_name` wajib konvensi `<slug '-'→'_'>_<env>`; slug `platform`/slug terpakai/host terpakai ditolak; plan Odoo
+  opsional → langganan `implementation`. Satu transaksi + audit `tenant.register_existing` (tanpa PII) + rantai
+  `kc_org_ensure` [→ `odoo_tenant_config(compat)` per env ber-SSO aktif] sesuai allowlist `INFRA_JOBS_TYPES` (tidak
+  diizinkan → baris data saja + pemberitahuan). Rantai ini bisa diulang dari langkah gagal.
+- **Route manual** (diturunkan dari regex HOST job-contract, tanpa kolom/migrasi): environment ber-host di luar host
+  platform env-nya → tombol Provision DB/route/SSO di halaman environment nonaktif ("Route manual — diadopsi di Fase
+  2") dan layanan menolak `odoo_db_provision|odoo_route|odoo_sso_provision|odoo_sso_disable` (job tunggal maupun
+  rantai) dengan kode `route_manual` (diaudit).
 - **SaaS Fase 1 W5 — Domains**: CRUD domain per tenant di halaman tenant (superadmin, izin `domains:manage`, audit),
   tautan environment odoo/web milik tenant yang sama, DKIM untuk mail, status `pending_dns`, token verifikasi acak
   server; checklist DNS yang digenerate (A tanpa AAAA ke `PLATFORM_PUBLIC_IPV4`; MX/SPF/DKIM/DMARC untuk mail) di

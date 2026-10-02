@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
 import { getWebEnv } from "@/env";
-import { enqueueBridgeJob, retryBridgeJob, type EnqueueOutcome } from "@/jobs/service";
+import { enqueueBridgeJob, enqueueOutcomeCode, retryBridgeJob, type EnqueueOutcome } from "@/jobs/service";
 import { requirePermission } from "@/lib/authz";
 import { defaultHost, type BridgeJobType } from "@/lib/job-contract";
 import { parseForm, type FormName } from "@/lib/job-forms";
@@ -31,8 +31,7 @@ function back(envId: string | null, code: ActionResultCode, jobId?: string): nev
 }
 
 function outcomeCode(o: EnqueueOutcome): ActionResultCode {
-  if (o.ok) return "queued";
-  return o.reason === "invalid" ? "invalid" : o.reason;
+  return enqueueOutcomeCode(o);
 }
 
 async function runEnqueue<N extends FormName>(

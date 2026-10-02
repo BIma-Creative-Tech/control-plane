@@ -17,12 +17,23 @@ import { isUniqueViolation, safeErrorMessage } from "@/db/errors";
 import { auditLogs, clients, environments, provisionJobs } from "@/db/schema";
 import { getWebEnv } from "@/env";
 import { requirePermission } from "@/lib/authz";
-import { onboardTenant, retryChainFrom, setTenantState, tenantOutcomeCode, tenantOutcomeLog, type TenantActionOutcome } from "@/jobs/tenants";
+import {
+  onboardTenant,
+  registerExistingTenant,
+  registerOutcomeCode,
+  retryChainFrom,
+  setTenantState,
+  tenantOutcomeCode,
+  tenantOutcomeLog,
+  type RegisterOutcome,
+  type TenantActionOutcome,
+} from "@/jobs/tenants";
 import { defaultHost, envAllowedForInstance, instanceJobTypes, isValidHostForEnv } from "@/lib/job-contract";
 import { parseForm } from "@/lib/job-forms";
 import type { ActionResultCode } from "@/lib/job-list-params";
 import { logger } from "@/lib/logger";
 import { environmentRowValues, parseOnboardingForm, parseTenantForm } from "@/lib/tenant-onboarding";
+import { parseRegisterExistingForm } from "@/lib/tenant-register";
 import { getSendFn } from "@/server/boss";
 import { actorFromSession, assertSameOrigin, requestMeta } from "@/server/context";
 
@@ -166,6 +177,41 @@ export async function onboardTenantAction(formData: FormData): Promise<void> {
   revalidatePath("/clients");
   if (outcome.ok) backTo(`/clients/${parsed.data.slug}`, "queued", outcome.chainId);
   backTo("/clients", tenantOutcomeCode(outcome));
+}
+
+/**
+ * "Daftarkan tenant yang sudah ada" (migrasi prod M8, superadmin) — tenant + environment instance ini dengan status
+ * deklarasi (tanpa provisioning) + rantai kc_org_ensure [+ odoo_tenant_config compat] bila diizinkan allowlist.
+ */
+export async function registerExistingTenantAction(formData: FormData): Promise<void> {
+  const session = await requirePermission("clients:manage");
+  if (!(await assertSameOrigin())) backTo("/clients", "origin");
+  const env = getWebEnv();
+  const instance = env.INFRA_JOBS_INSTANCE;
+  if (!instance) backTo("/clients", "disabled");
+  const parsed = parseRegisterExistingForm(instance, formData.entries(), env.PLATFORM_DOMAINS);
+  if (!parsed.success) backTo("/clients", parsed.issue);
+  const actor = await actorFromSession(session);
+  if (!actor) backTo("/clients", "reauth");
+  const meta = await requestMeta();
+  let outcome: RegisterOutcome;
+  try {
+    outcome = await registerExistingTenant(getDb(), await getSendFn(), {
+      instance,
+      allowedTypes: instanceJobTypes(env.INFRA_JOBS_TYPES),
+      actor,
+      meta,
+      form: parsed.data,
+      platformDomains: env.PLATFORM_DOMAINS,
+    });
+  } catch (err) {
+    logger.error({ err: safeErrorMessage(err) }, "pendaftaran tenant gagal");
+    backTo("/clients", "error");
+  }
+  if (!outcome.ok && outcome.reason === "error") logger.error({ err: outcome.message }, "pendaftaran tenant gagal");
+  revalidatePath("/clients");
+  if (outcome.ok) backTo(`/clients/${parsed.data.slug}`, registerOutcomeCode(outcome), outcome.chainId ?? undefined);
+  backTo("/clients", registerOutcomeCode(outcome));
 }
 
 /** Suspend/Resume override (superadmin, ketik slug) → tenant_suspend|tenant_resume per environment instance ini. */
