@@ -9,6 +9,19 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-02
+
+### Added
+- **Biaya produksi & margin per SPK** (plan infra 19, hanya untuk hak nilai): panel di detail SPK — nilai SPK tanpa PPN,
+  PPN, material (terpakai lewat MO/permintaan barang vs PO barang ber-SPK), jasa/sewa/subkon (tagihan vendor vs PO jasa),
+  tenaga kerja dari absensi kiosk/timesheet (+ peringatan jam yang belum bertarif), total biaya, margin Rp & % dan bar
+  komposisi. Kolom **Margin** di daftar Dashboard SPK. Sumber kolom baru `mart.mart_spk` (`cost_*`, `margin`,
+  `margin_pct`, …) — material & jasa = nilai terbesar antara realisasi dan PO (komitmen PO ikut, tanpa hitung ganda).
+- **Status tanda tangan BAST**: badge BAST (belum TTD / TTD n/m / lengkap) di daftar dan header detail SPK, kartu KPI
+  "BAST ditandatangani" (+ SPK menunggu TTD), panel BAST di detail SPK (jenis, lokasi, penanda tangan kedua pihak +
+  waktu, tautan peta GPS & akurasi bila terekam). Sumber `mart.mart_spk.bast_*` dan `mart.mart_spk_bast`.
+- Toleran data mart lama: kolom dibaca lewat `to_jsonb`, tabel BAST dicek `to_regclass` (tidak ada → tanpa panel).
+
 ## [0.7.0] - 2026-10-02
 
 ### Added

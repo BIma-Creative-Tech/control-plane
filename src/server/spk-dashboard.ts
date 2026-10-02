@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { withMart } from "@/db/datamart";
 import type { DocTraceIssue } from "@/lib/doc-trace";
 import type { ScmDoc, VendorPayment } from "@/lib/scm";
+import { costFromMart, type BastDoc, type SpkCost } from "@/lib/spk-cost-bast";
 import type { SpkListParams } from "@/lib/spk-params";
 import { MART_SPK } from "@/server/mart-spk";
 
@@ -86,18 +87,28 @@ export type SpkRow = {
   crewHours: number;
   /** Isu link dokumen terbuka (plan 18). */
   issueCount: number;
+  /** BAST tidak batal / lengkap (kedua pihak TTD) / TTD satu pihak (plan 19). */
+  bast: { count: number; completed: number; partial: number };
   value?: number;
   invoiced?: number;
   paid?: number;
   due?: number;
   isMockup?: boolean;
+  /** Total biaya & margin (plan 19) — hanya canSeeValue; null bila data mart lama. */
+  costTotal?: number | null;
+  margin?: number | null;
+  marginPct?: number | null;
 };
 
 export type SpkDashboard = {
   rows: SpkRow[];
   total: number;
   refreshedAt: Date | null;
-  kpi: { spk: number; quotations: number; quotationsSent: number; locations: number; done: number; waitingBast: number; inProgress: number };
+  kpi: {
+    spk: number; quotations: number; quotationsSent: number; locations: number; done: number; waitingBast: number; inProgress: number;
+    /** SPK dengan semua BAST lengkap / SPK dengan BAST yang belum lengkap ditandatangani (plan 19). */
+    bastSigned: number; bastWaiting: number;
+  };
   stages: { stage: string; seq: number; count: number }[];
   value?: { total: number; invoiced: number; paid: number; due: number; isMockup: boolean };
   valueByCustomer?: { customer: string; value: number }[];
@@ -123,6 +134,7 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
     lastStatusAt: (x.last_status_at as Date) ?? null,
     crewHours: Number(x.crew_hours),
     issueCount: Number(x.issues ?? 0),
+    bast: { count: Number(x.bast_n ?? 0), completed: Number(x.bast_done ?? 0), partial: Number(x.bast_half ?? 0) },
   };
   if (withValue) {
     row.value = Number(x.value);
@@ -130,13 +142,17 @@ function mapRow(x: Record<string, unknown>, withValue: boolean): SpkRow {
     row.paid = Number(x.paid);
     row.due = Number(x.due);
     row.isMockup = x.is_mockup === true;
+    const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    row.costTotal = n(x.cost_sum);
+    row.margin = n(x.margin_amt);
+    row.marginPct = n(x.margin_rate);
   }
   return row;
 }
 
 const BASE_COLS = `so_id, spk_no, legacy_ref, status, q_state, date_order, customer, brand, ae, locations, stage, stage_seq,
-  progress_pct, last_status, last_status_at, crew_hours, issues`;
-const VALUE_COLS = `, value, invoiced, paid, due, is_mockup`;
+  progress_pct, last_status, last_status_at, crew_hours, issues, bast_n, bast_done, bast_half`;
+const VALUE_COLS = `, value, invoiced, paid, due, is_mockup, cost_sum, margin_amt, margin_rate`;
 
 export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkListParams): Promise<SpkDashboard> {
   const withValue = access.canSeeValue;
@@ -159,6 +175,8 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
               count(*) FILTER (WHERE status = 'spk' AND stage IN ('BAST', 'Selesai'))::int AS done,
               count(*) FILTER (WHERE status = 'spk' AND stage = 'Laporan')::int AS waiting_bast,
               count(*) FILTER (WHERE status = 'spk' AND stage NOT IN ('BAST', 'Selesai', 'Laporan'))::int AS in_progress,
+              count(*) FILTER (WHERE status = 'spk' AND bast_n > 0 AND bast_done >= bast_n)::int AS bast_signed,
+              count(*) FILTER (WHERE status = 'spk' AND bast_n > bast_done)::int AS bast_waiting,
               max(refreshed_at) AS refreshed_at
          FROM ${MART_SPK} WHERE ${FILTER}`,
       args,
@@ -186,6 +204,8 @@ export async function getSpkDashboard(sub: string, access: ClientAccess, p: SpkL
         done: a.done,
         waitingBast: a.waiting_bast,
         inProgress: a.in_progress,
+        bastSigned: a.bast_signed,
+        bastWaiting: a.bast_waiting,
       },
       stages: stages.rows.map((x) => ({ stage: x.stage, seq: x.seq, count: x.count })),
       customers: customers.rows.map((x) => x.customer as string),
@@ -262,6 +282,10 @@ export type SpkDetail = {
   vendorPayments?: VendorPayment[];
   /** Isu link dokumen (plan 18): terbuka + diperbaiki otomatis 30 hari terakhir; [] bila mart belum punya tabelnya. */
   issues: DocTraceIssue[];
+  /** BAST SPK ini (plan 19, semua peran — tanpa nominal); [] bila mart belum punya tabelnya. */
+  basts: BastDoc[];
+  /** Biaya produksi & margin (plan 19) — hanya canSeeValue; null bila data mart lama. */
+  cost?: SpkCost | null;
   /** Pembayaran per invoice — hanya untuk yang berhak melihat nilai. */
   payments?: {
     paymentId: number;
@@ -279,7 +303,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
   const aeLogin = aeOnly(access) ? access.login : "";
   return withMart({ sub, client: access.client }, async (c, env) => {
     const head = await c.query(
-      `SELECT ${BASE_COLS}${withValue ? VALUE_COLS : ""}, quotation_name, track FROM ${MART_SPK}
+      `SELECT ${BASE_COLS}${withValue ? `${VALUE_COLS}, j` : ""}, quotation_name, track FROM ${MART_SPK}
         WHERE env = $1 AND so_id = $2 AND ($3::text = '' OR ae_login = $3)`,
       [env, soId, aeLogin],
     );
@@ -311,6 +335,7 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
     );
     const vpays = withValue ? await queryVendorPayments(c, env, soId) : null;
     const issues = await queryIssues(c, env, soId);
+    const basts = await queryBasts(c, env, soId);
     const pays = withValue
       ? await c.query(
           `SELECT payment_id, payment_no, date, journal, memo, invoice_no, amount FROM mart.mart_spk_payment
@@ -357,6 +382,8 @@ export async function getSpkDetail(sub: string, access: ClientAccess, soId: numb
       scm,
       products: Object.fromEntries(prods.rows.map((x) => [`${x.kind}:${x.doc_id}`, String(x.products)])),
       issues,
+      basts,
+      ...(withValue ? { cost: costFromMart(h.j) } : {}),
       ...(vpays ? { vendorPayments: vpays } : {}),
       ...(pays
         ? {
@@ -421,6 +448,41 @@ async function queryIssues(c: PoolClient, env: string, soId: number): Promise<Do
     firstSeen: x.first_seen ?? null,
     lastSeen: x.last_seen ?? null,
     fixedAt: x.fixed_at ?? null,
+  }));
+}
+
+/**
+ * BAST SPK (mart_spk_bast, plan 19). Tabel belum ada (data mart lama) → []. Tanpa nominal; akses = detail SPK.
+ * gps_accuracy dibaca lewat to_jsonb (kolom bisa belum ada di mart).
+ */
+async function queryBasts(c: PoolClient, env: string, soId: number): Promise<BastDoc[]> {
+  const has = await c.query(`SELECT to_regclass('mart.mart_spk_bast') IS NOT NULL AS ok`);
+  if (!has.rows[0]?.ok) return [];
+  const r = await c.query(
+    `SELECT b.bast_id, b.bast_no, b.kind, b.state, b.location, b.date_handover, b.party_from, b.party_to,
+            b.from_signed_at, b.from_signed_by, b.to_signed_at, b.to_signed_by, b.gps_latitude, b.gps_longitude,
+            to_jsonb(b) ->> 'gps_accuracy' AS gps_accuracy
+       FROM mart.mart_spk_bast b WHERE b.env = $1 AND b.so_id = $2
+      ORDER BY (b.state = 'voided'), b.date_handover DESC NULLS LAST, b.bast_id DESC LIMIT 100`,
+    [env, soId],
+  );
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return r.rows.map((x) => ({
+    bastId: Number(x.bast_id),
+    bastNo: String(x.bast_no),
+    kind: String(x.kind),
+    state: String(x.state),
+    location: x.location ?? null,
+    dateHandover: x.date_handover ?? null,
+    partyFrom: x.party_from ?? null,
+    partyTo: x.party_to ?? null,
+    fromSignedAt: x.from_signed_at ?? null,
+    fromSignedBy: x.from_signed_by ?? null,
+    toSignedAt: x.to_signed_at ?? null,
+    toSignedBy: x.to_signed_by ?? null,
+    gpsLatitude: n(x.gps_latitude),
+    gpsLongitude: n(x.gps_longitude),
+    gpsAccuracy: n(x.gps_accuracy),
   }));
 }
 
