@@ -32,7 +32,7 @@ import { defaultHost, envAllowedForInstance, instanceJobTypes, isValidHostForEnv
 import { parseForm } from "@/lib/job-forms";
 import type { ActionResultCode } from "@/lib/job-list-params";
 import { logger } from "@/lib/logger";
-import { environmentRowValues, parseOnboardingForm, parseTenantForm } from "@/lib/tenant-onboarding";
+import { environmentRowValues, onboardingInvalidFields, parseOnboardingForm, parseTenantForm } from "@/lib/tenant-onboarding";
 import { parseRegisterExistingForm } from "@/lib/tenant-register";
 import { getSendFn } from "@/server/boss";
 import { actorFromSession, assertSameOrigin, requestMeta } from "@/server/context";
@@ -155,7 +155,12 @@ export async function onboardTenantAction(formData: FormData): Promise<void> {
   const instance = env.INFRA_JOBS_INSTANCE;
   if (!instance) backTo("/clients", "disabled");
   const parsed = parseOnboardingForm(instance, formData.entries());
-  if (!parsed.success) backTo("/clients", parsed.issue);
+  if (!parsed.success) {
+    if (parsed.issue === "invalid") {
+      logger.warn({ fields: onboardingInvalidFields(instance, formData.entries()) }, "onboarding tenant: form tidak valid");
+    }
+    backTo("/clients", parsed.issue);
+  }
   const actor = await actorFromSession(session);
   if (!actor) backTo("/clients", "reauth");
   const meta = await requestMeta();

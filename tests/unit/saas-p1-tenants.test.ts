@@ -19,6 +19,7 @@ import {
   confirmMatches,
   decideRealmSync,
   environmentRowValues,
+  onboardingInvalidFields,
   parseOnboardingForm,
   parseTenantForm,
   realmNameForEnv,
@@ -250,6 +251,14 @@ describe("form onboarding (slug, host per aturan HOST)", () => {
     [{ extra: "x" }, "invalid"],
   ] as [Record<string, string>, string][])("prod-inst %j → %s", (patch, issue) => {
     expect(parseOnboardingForm("prod", entries({ ...base, ...patch }))).toEqual({ success: false, issue });
+  });
+
+  it("onboardingInvalidFields: nama field gagal (tanpa nilai), kunci asing berawalan +", () => {
+    expect(onboardingInvalidFields("staging", entries(base))).toEqual([]);
+    expect(onboardingInvalidFields("staging", entries({ ...base, slug: "-acme" }))).toEqual(["slug"]);
+    expect(onboardingInvalidFields("staging", entries({ ...base, staging_host: "https://acme.staging.bimacreative.tech/" }))).toEqual(["staging_host"]);
+    expect(onboardingInvalidFields("staging", entries({ ...base, prod_host: "" }))).toEqual(["+prod_host"]);
+    expect(onboardingInvalidFields("prod", entries({ ...base, admin_email: "Bukan Email" }))).toEqual(["admin_email"]);
   });
 
   it("staging-inst: hanya env staging; host harus *.staging.bimacreative.tech; field prod/demo ditolak", () => {
