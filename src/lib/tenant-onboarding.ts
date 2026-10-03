@@ -160,6 +160,23 @@ export function parseOnboardingForm(
   };
 }
 
+/**
+ * Diagnosa (log saja) saat parseOnboardingForm → `invalid`: NAMA field yang gagal skema, tidak pernah nilainya. Kunci
+ * tak dikenal (strict) diberi awalan `+` dan dipotong (nama kunci berasal dari klien). Urutan stabil, tanpa duplikat.
+ */
+export function onboardingInvalidFields(instance: Instance, entries: Iterable<[string, FormDataEntryValue]>): string[] {
+  const obj = formToObject(entries);
+  if (!obj) return ["(form: field ganda/berkas)"];
+  const r = onboardingSchemas[instance].safeParse(obj);
+  if (r.success) return [];
+  const out = new Set<string>();
+  for (const issue of r.error.issues) {
+    if (issue.code === "unrecognized_keys") for (const k of issue.keys.slice(0, 10)) out.add(`+${String(k).slice(0, 40)}`);
+    else out.add(String(issue.path[0] ?? "(form)"));
+  }
+  return [...out];
+}
+
 // ---------------------------------------------------------------------------
 // Komposisi rantai
 // ---------------------------------------------------------------------------
