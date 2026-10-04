@@ -78,7 +78,7 @@ export interface OnboardingInput {
   planId: string | null;
 }
 
-export type OnboardingFormIssue = "invalid" | "slug_reserved" | "name_invalid" | "host_invalid";
+export type OnboardingFormIssue = "invalid" | "slug_reserved" | "slug_invalid" | "email_invalid" | "name_invalid" | "host_invalid";
 
 const checkbox = z
   .union([z.literal("on"), z.literal("true")])
@@ -128,7 +128,7 @@ export function parseOnboardingForm(
   const obj = formToObject(entries);
   if (!obj) return { success: false, issue: "invalid" };
   const r = onboardingSchemas[instance].safeParse(obj);
-  if (!r.success) return { success: false, issue: "invalid" };
+  if (!r.success) return { success: false, issue: issueForFields(failedFields(r.error.issues)) };
   const d = r.data as z.infer<(typeof onboardingSchemas)["prod"]> & z.infer<(typeof onboardingSchemas)["staging"]>;
   if (d.slug === PLATFORM_SLUG) return { success: false, issue: "slug_reserved" };
   const adminName = asciiName(d.admin_name);
@@ -160,6 +160,27 @@ export function parseOnboardingForm(
   };
 }
 
+const HOST_FIELDS: ReadonlySet<string> = new Set(["prod_host", "demo_host", "staging_host"]);
+
+/** Nama field gagal skema (bukan nilai); kunci asing (strict) berawalan `+`, dipotong. */
+function failedFields(issues: readonly z.core.$ZodIssue[]): string[] {
+  const out = new Set<string>();
+  for (const issue of issues) {
+    if (issue.code === "unrecognized_keys") for (const k of issue.keys.slice(0, 10)) out.add(`+${String(k).slice(0, 40)}`);
+    else out.add(String(issue.path[0] ?? "(form)"));
+  }
+  return [...out];
+}
+
+/** Pesan spesifik bila SEMUA field gagal satu jenis (host / slug / email); selain itu `invalid` umum. */
+function issueForFields(fields: readonly string[]): OnboardingFormIssue {
+  if (fields.length === 0) return "invalid";
+  if (fields.every((f) => HOST_FIELDS.has(f))) return "host_invalid";
+  if (fields.every((f) => f === "slug")) return "slug_invalid";
+  if (fields.every((f) => f === "admin_email")) return "email_invalid";
+  return "invalid";
+}
+
 /**
  * Diagnosa (log saja) saat parseOnboardingForm → `invalid`: NAMA field yang gagal skema, tidak pernah nilainya. Kunci
  * tak dikenal (strict) diberi awalan `+` dan dipotong (nama kunci berasal dari klien). Urutan stabil, tanpa duplikat.
@@ -168,13 +189,7 @@ export function onboardingInvalidFields(instance: Instance, entries: Iterable<[s
   const obj = formToObject(entries);
   if (!obj) return ["(form: field ganda/berkas)"];
   const r = onboardingSchemas[instance].safeParse(obj);
-  if (r.success) return [];
-  const out = new Set<string>();
-  for (const issue of r.error.issues) {
-    if (issue.code === "unrecognized_keys") for (const k of issue.keys.slice(0, 10)) out.add(`+${String(k).slice(0, 40)}`);
-    else out.add(String(issue.path[0] ?? "(form)"));
-  }
-  return [...out];
+  return r.success ? [] : failedFields(r.error.issues);
 }
 
 // ---------------------------------------------------------------------------
