@@ -13,6 +13,7 @@ import {
   INSTANCE_ENVS,
   NAME_MAX,
   PLATFORM_SLUG,
+  TENANT_CHECK_MODES,
   asciiName,
   dbNameFor,
   defaultHost,
@@ -51,6 +52,8 @@ export const ONBOARDING_TYPES: readonly BridgeJobType[] = [
 ];
 export const TENANT_STATE_TYPES: readonly BridgeJobType[] = ["tenant_suspend", "tenant_resume"];
 export const REALM_SYNC_TYPES: readonly BridgeJobType[] = ["kc_realm_sync"];
+/** "Sinkronkan tenant" (tenant terdaftar, 2026-10-04): org Keycloak + tenant_check per env ber-SSO aktif. */
+export const TENANT_SYNC_TYPES: readonly BridgeJobType[] = ["kc_org_ensure", "odoo_tenant_config"];
 
 export function typesEnabled(allowed: readonly BridgeJobType[], need: readonly BridgeJobType[]): boolean {
   return need.every((t) => allowed.includes(t));
@@ -274,7 +277,7 @@ export type RetryIssue =
  * - `realm.sync_*` (N1) — sync realm hanya lewat /realm (decideRealmSync: rencana segar tanpa blocker + approve prod);
  * - `tenant.suspend|resume` (N3) — ulang manual lewat tombol berkonfirmasi slug (cek kebalikan aktif).
  */
-export const RETRYABLE_CHAIN_ORIGINS = ["tenant.onboard", "chain.retry", "tenant.register_existing"] as const;
+export const RETRYABLE_CHAIN_ORIGINS = ["tenant.onboard", "chain.retry", "tenant.register_existing", "tenant.sync"] as const;
 
 export function retryableOrigin(action: string | null | undefined): boolean {
   return typeof action === "string" && (RETRYABLE_CHAIN_ORIGINS as readonly string[]).includes(action);
@@ -359,10 +362,29 @@ export function decideRealmSync(p: {
 // ---------------------------------------------------------------------------
 const uuidField = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 
+/**
+ * Rantai "Sinkronkan tenant" (murni): `kc_org_ensure` (realm instance) → `odoo_tenant_config(<mode>)` per env ber-SSO aktif.
+ * Untuk tenant yang sudah terdaftar (registrasi/onboarding tidak bisa diulang: `exists`) — mis. org yang belum ada (tenant lama)
+ * atau pindah compat → strict (M10). Skrip menolak strict bila modul < 19.0.1.4.0 / org platform tidak ada.
+ */
+export function buildTenantSyncSteps(p: {
+  tenantId: string;
+  realmEnv: TenantEnv;
+  envs: readonly { kind: TenantEnv; ssoStatus: string }[];
+  tenantCheck: (typeof TENANT_CHECK_MODES)[number];
+}): ChainStep[] {
+  const steps: ChainStep[] = [{ type: "kc_org_ensure", env: p.realmEnv, args: { tenant_id: p.tenantId } }];
+  for (const e of p.envs) {
+    if (e.ssoStatus === "active") steps.push({ type: "odoo_tenant_config", env: e.kind, args: { tenant_check: p.tenantCheck } });
+  }
+  return steps;
+}
+
 export const tenantFormSchemas = {
   tenantState: z
     .object({ clientId: uuidField, action: z.enum(["suspend", "resume"]), confirm: z.string().max(64) })
     .strict(),
+  tenantSync: z.object({ clientId: uuidField, tenant_check: z.enum(TENANT_CHECK_MODES) }).strict(),
   realmPlan: z.object({}).strict(),
   realmApply: z.object({ confirm: z.string().max(64), approve: checkbox }).strict(),
 } as const;

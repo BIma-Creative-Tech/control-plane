@@ -23,6 +23,7 @@ import {
   registerOutcomeCode,
   retryChainFrom,
   setTenantState,
+  syncTenant,
   tenantOutcomeCode,
   tenantOutcomeLog,
   type RegisterOutcome,
@@ -243,6 +244,33 @@ export async function tenantStateAction(formData: FormData): Promise<void> {
       clientId: parsed.data.clientId,
       action: parsed.data.action,
       confirm: parsed.data.confirm,
+    }),
+  );
+}
+
+/** "Sinkronkan tenant" — org Keycloak + tenant_check per env ber-SSO aktif (tenant terdaftar, superadmin). */
+export async function syncTenantAction(formData: FormData): Promise<void> {
+  const session = await requirePermission("clients:manage");
+  if (!(await assertSameOrigin())) backTo("/clients", "origin");
+  const env = getWebEnv();
+  const instance = env.INFRA_JOBS_INSTANCE;
+  if (!instance) backTo("/clients", "disabled");
+  const parsed = parseTenantForm("tenantSync", formData.entries());
+  if (!parsed.success) backTo("/clients", "invalid");
+  const client = (await getDb().select({ slug: clients.slug }).from(clients).where(eq(clients.id, parsed.data.clientId)).limit(1))[0];
+  if (!client) backTo("/clients", "not_found");
+  const path = `/clients/${client.slug}`;
+  const actor = await actorFromSession(session);
+  if (!actor) backTo(path, "reauth");
+  const meta = await requestMeta();
+  await runTenant(path, async () =>
+    syncTenant(getDb(), await getSendFn(), {
+      instance,
+      allowedTypes: instanceJobTypes(env.INFRA_JOBS_TYPES),
+      actor,
+      meta,
+      clientId: parsed.data.clientId,
+      tenantCheck: parsed.data.tenant_check,
     }),
   );
 }
