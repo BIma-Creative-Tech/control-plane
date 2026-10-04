@@ -10,6 +10,8 @@ import { MANUAL_ROUTE_NOTE, REGISTER_EXISTING_TYPES } from "@/lib/tenant-registe
 import { listPlans } from "@/server/billing-queries";
 import { ResultBanner, StatusBadge } from "../jobs/components";
 import { Nav } from "../nav";
+import { SubmitButton } from "@/components/submit-button";
+
 import { createClientAction, onboardTenantAction, registerExistingTenantAction } from "./actions";
 import { PAGE_SIZE, listClients } from "./query";
 
@@ -63,9 +65,7 @@ function OnboardingForm({ instance, plans }: { instance: Instance; plans: { id: 
           <input name="staging_host" maxLength={253} placeholder="host override (default <slug>.staging.bimacreative.tech)" className={`${input} w-96`} />
         </div>
       )}
-      <button type="submit" className="rounded border px-3 py-1 hover:bg-slate-100">
-        Buat tenant &amp; jalankan provisioning
-      </button>
+      <SubmitButton className="rounded border px-3 py-1 hover:bg-slate-100">Buat tenant &amp; jalankan provisioning</SubmitButton>
       <p className="text-xs text-slate-500">
         Satu rantai job: kc_org_ensure → per env [odoo_db_provision → odoo_route → odoo_sso_provision → odoo_tenant_config
         (compat)] → kc_user_ensure (undangan admin) → kc_user_set_roles (tenant-admin, Odoo admin) per env → odoo_user_ensure
@@ -150,9 +150,7 @@ function RegisterExistingForm({
           (baris data tetap dicatat).
         </p>
       ) : null}
-      <button type="submit" className="rounded border px-3 py-1 hover:bg-slate-100">
-        Daftarkan tenant
-      </button>
+      <SubmitButton className="rounded border px-3 py-1 hover:bg-slate-100">Daftarkan tenant</SubmitButton>
       <p className="text-xs text-slate-500">
         Rantai job: kc_org_ensure → odoo_tenant_config (compat) per env ber-SSO aktif. Satu transaksi + audit
         tenant.register_existing.

@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { ChainView } from "@/db/tenant-queries";
 import { retryableOrigin } from "@/lib/tenant-onboarding";
 import { StatusBadge } from "../jobs/components";
+import { SubmitButton } from "@/components/submit-button";
+
 import { retryChainStepAction } from "./actions";
 
 const fmt = (d: Date) => d.toISOString().replace("T", " ").slice(0, 16);
@@ -42,9 +44,7 @@ export function ChainList({ chains, canRetry, highlight }: { chains: ChainView[]
                   {retryable && firstBad?.id === s.id ? (
                     <form action={retryChainStepAction}>
                       <input type="hidden" name="jobId" value={s.id} />
-                      <button type="submit" className="rounded border px-2 py-0.5 text-xs hover:bg-slate-100">
-                        Ulangi dari langkah ini
-                      </button>
+                      <SubmitButton className="rounded border px-2 py-0.5 text-xs hover:bg-slate-100">Ulangi dari langkah ini</SubmitButton>
                     </form>
                   ) : null}
                 </li>

@@ -62,6 +62,8 @@ export const ACTION_RESULT_CODES = [
   "plan_inactive",
   // Tenant (Fase 1 W5): onboarding, suspend/resume, sync realm
   "slug_reserved",
+  "slug_invalid",
+  "email_invalid",
   "host_invalid",
   "host_taken",
   "state_busy",
@@ -125,6 +127,9 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   future_date: "Tanggal tidak boleh di masa depan.",
   plan_inactive: "Plan tidak aktif atau belum punya layanan.",
   slug_reserved: "Slug `platform` dicadangkan untuk tenant internal.",
+  slug_invalid:
+    "Slug tidak valid: 3–30 karakter huruf kecil, angka, dan tanda hubung; harus diawali dan diakhiri huruf/angka (mis. uji-q, bukan uji- atau -uji).",
+  email_invalid: "Email tidak valid: gunakan format nama@domain (huruf kecil; tanpa spasi).",
   host_invalid:
     "Host tidak valid: prod/demo harus <label>.erp.bimacreative.tech, staging <label>.staging.bimacreative.tech; demo wajib host dan berbeda dari prod.",
   host_taken: "Host sudah dipakai environment lain.",
