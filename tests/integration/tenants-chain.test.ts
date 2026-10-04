@@ -20,7 +20,7 @@ import { listClientChains, listRealmSyncJobs, listUnboundUsers, queryAudit } fro
 import { enqueueChain } from "@/jobs/chain";
 import { INFRA_JOB_QUEUE_OPTIONS, QUEUE_INFRA_JOB } from "@/jobs/queue";
 import type { Actor, SendFn } from "@/jobs/service";
-import { onboardTenant, requestRealmSync, retryChainFrom, setTenantState } from "@/jobs/tenants";
+import { onboardTenant, requestRealmSync, retryChainFrom, setTenantState, syncTenant } from "@/jobs/tenants";
 import { parseAuditParams } from "@/lib/audit-params";
 import { jakartaDate } from "@/lib/billing";
 import { BRIDGE_JOB_TYPES, LEGACY_JOB_TYPES, emailHash, type JobFile } from "@/lib/job-contract";
@@ -482,6 +482,34 @@ describe.skipIf(!URL_)("Tenant: onboarding/suspend/retry/realm ⇄ dispatcher pa
     if (r1.ok) await settleAll(r1.jobIds);
   });
 
+  it("sinkronkan tenant: org + tenant_check(mode) per env ber-SSO aktif; ops/platform ditolak; diaudit", async () => {
+    await ageActorRate();
+    const base = { ...svc(), clientId: acmeId };
+    expect(await syncTenant(db, send, { ...base, actor: OPS, tenantCheck: "compat" })).toEqual({ ok: false, reason: "forbidden" });
+    expect(await syncTenant(db, send, { ...base, clientId: platformId, tenantCheck: "compat" })).toMatchObject({
+      ok: false,
+      reason: "invalid",
+      issue: "platform_forbidden",
+    });
+    seen.length = 0;
+    const s1 = await syncTenant(db, send, { ...base, tenantCheck: "strict" });
+    expect(s1.ok).toBe(true);
+    if (!s1.ok) return;
+    const rows = ordered(await settleAll(s1.jobIds), s1.jobIds);
+    // kuota total 60 job/jam: job uji ini dimundurkan agar tidak memakan jatah tes berikutnya
+    await db.update(provisionJobs).set({ createdAt: sql`created_at - interval '2 hours'` }).where(inArray(provisionJobs.id, s1.jobIds));
+    expect(rows.map((x) => `${x.type}@${x.env}:${x.status}`)).toEqual([
+      "kc_org_ensure@prod:succeeded",
+      "odoo_tenant_config@prod:succeeded",
+      "odoo_tenant_config@demo:succeeded",
+    ]);
+    const cfg = seen.filter((j) => j.type === "odoo_tenant_config");
+    expect(cfg.length).toBe(2);
+    expect(cfg.every((j) => (j.args as { tenant_check?: string }).tenant_check === "strict")).toBe(true);
+    const audits = await db.select().from(auditLogs).where(eq(auditLogs.action, "tenant.sync"));
+    expect(audits.map((a) => a.result).sort()).toEqual(["rejected", "rejected", "success"]);
+  });
+
   it("kc_realm_sync: apply tanpa rencana → plan_required; rencana dry-run; apply prod wajib ketik realm + approve → approve=true", async () => {
     await ageActorRate();
     const base = svc();
@@ -540,7 +568,7 @@ describe.skipIf(!URL_)("Tenant: onboarding/suspend/retry/realm ⇄ dispatcher pa
     expect(byTenant.rows.every((a) => a.tenant === "acme-co")).toBe(true);
     const byAction = await queryAudit(db, parseAuditParams({ action: "tenant." }));
     expect(byAction.rows.every((a) => a.action.startsWith("tenant."))).toBe(true);
-    expect(new Set(byAction.rows.map((a) => a.action))).toEqual(new Set(["tenant.create", "tenant.onboard", "tenant.suspend", "tenant.resume"]));
+    expect(new Set(byAction.rows.map((a) => a.action))).toEqual(new Set(["tenant.create", "tenant.onboard", "tenant.suspend", "tenant.resume", "tenant.sync"]));
     const byActor = await queryAudit(db, parseAuditParams({ actor: "ops" }));
     expect(byActor.rows.length).toBeGreaterThan(0);
     expect(byActor.rows.every((a) => a.actor === "user:ops-sub")).toBe(true);

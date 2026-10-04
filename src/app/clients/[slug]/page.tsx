@@ -8,12 +8,13 @@ import { INSTANCE_ENVS, UUID_REGEX, envAllowedForInstance, instanceJobTypes, rou
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { ROLE_LABELS, can } from "@/lib/roles";
 import { isValidSlug } from "@/lib/slug";
-import { TENANT_STATE_TYPES, typesEnabled } from "@/lib/tenant-onboarding";
+import { TENANT_STATE_TYPES, TENANT_SYNC_TYPES, typesEnabled } from "@/lib/tenant-onboarding";
 import { MANUAL_ROUTE_NOTE } from "@/lib/tenant-register";
 import { listEnvironmentsForClient, listJobs } from "@/server/queries";
 import { JobTable, ResultBanner, StatusBadge } from "../../jobs/components";
 import { Nav } from "../../nav";
-import { createEnvironmentAction, tenantStateAction } from "../actions";
+import { SubmitButton } from "@/components/submit-button";
+import { createEnvironmentAction, syncTenantAction, tenantStateAction } from "../actions";
 import { createDomainAction, deleteDomainAction, updateDomainAction } from "../domain-actions";
 import { DnsChecklistTable } from "../../domains/checklist";
 import { DOMAIN_PURPOSES, ENV_LINK_PURPOSES } from "@/lib/domains";
@@ -61,6 +62,14 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
     !client.terminatedAt &&
     instanceEnvs.length > 0 &&
     typesEnabled(instanceJobTypes(env.INFRA_JOBS_TYPES), TENANT_STATE_TYPES);
+  const syncOn =
+    canManage &&
+    instance !== undefined &&
+    !client.isPlatform &&
+    !client.terminatedAt &&
+    instanceEnvs.length > 0 &&
+    typesEnabled(instanceJobTypes(env.INFRA_JOBS_TYPES), TENANT_SYNC_TYPES);
+  const currentCheck = instanceEnvs.find((e) => e.ssoStatus === "active" && e.tenantCheck)?.tenantCheck ?? "compat";
 
   return (
     <>
@@ -166,6 +175,31 @@ export default async function ClientPage(props: PageProps<"/clients/[slug]">) {
             </form>
           ) : null}
         </section>
+
+        {syncOn ? (
+          <section className="space-y-2 rounded border bg-white p-4 text-sm">
+            <h2 className="font-semibold">Sinkronkan tenant</h2>
+            <p className="text-xs text-slate-500">
+              Rantai <span className="font-mono">kc_org_ensure</span> → <span className="font-mono">odoo_tenant_config</span> untuk env
+              ber-SSO aktif ({instanceEnvs.filter((e) => e.ssoStatus === "active").map((e) => e.kind).join(", ") || "tidak ada"}):
+              membuat organization Keycloak bila belum ada dan menulis mode <span className="font-mono">tenant_check</span> (+ tenant
+              platform agar staf tetap bisa masuk). <span className="font-mono">strict</span> ditolak skrip bila modul Odoo &lt; 19.0.1.4.0;
+              aktifkan hanya setelah observasi <span className="font-mono">compat</span> bersih.
+            </p>
+            <form action={syncTenantAction} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="clientId" value={client.id} />
+              <label>
+                tenant_check{" "}
+                <select name="tenant_check" defaultValue={currentCheck} className={input}>
+                  <option value="off">off</option>
+                  <option value="compat">compat</option>
+                  <option value="strict">strict</option>
+                </select>
+              </label>
+              <SubmitButton className={btn}>Sinkronkan</SubmitButton>
+            </form>
+          </section>
+        ) : null}
 
         {stateOn ? (
           <section className="space-y-2 rounded border border-red-200 bg-white p-4 text-sm">

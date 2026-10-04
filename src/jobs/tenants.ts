@@ -23,8 +23,10 @@ import {
   ONBOARDING_TYPES,
   REALM_SYNC_TYPES,
   TENANT_STATE_TYPES,
+  TENANT_SYNC_TYPES,
   buildOnboardingSteps,
   buildTenantStateSteps,
+  buildTenantSyncSteps,
   confirmMatches,
   decideRealmSync,
   environmentRowValues,
@@ -401,6 +403,58 @@ export async function setTenantState(
     meta: input.meta,
     audit: { action: auditAction, targetType: "client", targetId: t.id, metadata: { ...md, envs: envs.map((e) => e.kind) } },
     prelude,
+  });
+  if (!out.ok) return out;
+  return { ok: true, chainId: out.chainId, jobIds: out.jobIds, clientId: t.id };
+}
+
+// ---------------------------------------------------------------------------
+// Sinkronkan tenant terdaftar (org + tenant_check)
+// ---------------------------------------------------------------------------
+/**
+ * Platform-admin: rantai `kc_org_ensure` + `odoo_tenant_config(<mode>)` per env ber-SSO aktif di instance ini, untuk tenant
+ * yang SUDAH terdaftar (2026-10-04: tenant lama tanpa org, mis. `demo`; compat → strict M10 tanpa terminal). Idempoten —
+ * job yang sama sedang aktif dipakai ulang (idempotency_key). Tenant `platform` / terminated ditolak; audit `tenant.sync`.
+ */
+export async function syncTenant(
+  db: Db,
+  send: SendFn,
+  input: TenantServiceInput & { clientId: string; tenantCheck: "off" | "compat" | "strict" },
+): Promise<TenantActionOutcome> {
+  const action = "tenant.sync";
+  const t = await loadTenant(db, input.clientId);
+  if (!t) return { ok: false, reason: "not_found" };
+  const md = { slug: t.slug, tenant_check: input.tenantCheck };
+  if (!(await gate(db, input, "clients:manage", action, t.id, md))) return { ok: false, reason: "forbidden" };
+  if (!typesEnabled(input.allowedTypes, TENANT_SYNC_TYPES)) return { ok: false, reason: "disabled" };
+  if (t.isPlatform) {
+    await auditRejected(db, input, action, t.id, { ...md, reason: "platform" });
+    return { ok: false, reason: "invalid", issue: "platform_forbidden", step: 0 };
+  }
+  if (t.terminatedAt) return { ok: false, reason: "tenant_inactive" };
+  const envRows = await db
+    .select({ kind: environments.kind, ssoStatus: environments.ssoStatus })
+    .from(environments)
+    .where(eq(environments.clientId, t.id))
+    .orderBy(environments.kind);
+  const envs = envRows.filter((e) => envAllowedForInstance(input.instance, e.kind as TenantEnv)) as { kind: TenantEnv; ssoStatus: string }[];
+  if (envs.length === 0) {
+    await auditRejected(db, input, action, t.id, { ...md, reason: "no_env" });
+    return { ok: false, reason: "precondition", detail: "no_env" };
+  }
+  const out = await enqueueChain(db, send, {
+    instance: input.instance,
+    allowedTypes: input.allowedTypes,
+    client: { id: t.id, slug: t.slug },
+    steps: buildTenantSyncSteps({ tenantId: t.id, realmEnv: realmEnvForInstance(input.instance), envs, tenantCheck: input.tenantCheck }),
+    actor: input.actor,
+    meta: input.meta,
+    audit: {
+      action,
+      targetType: "client",
+      targetId: t.id,
+      metadata: { ...md, envs: envs.filter((e) => e.ssoStatus === "active").map((e) => e.kind) },
+    },
   });
   if (!out.ok) return out;
   return { ok: true, chainId: out.chainId, jobIds: out.jobIds, clientId: t.id };
