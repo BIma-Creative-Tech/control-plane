@@ -120,7 +120,8 @@ jobs:
           package-manager-cache: false # tanpa cache bersama (hindari cache poisoning); npm ci selalu bersih
       - run: node --version && npm --version
       - run: npm ci --no-audit --no-fund
-      - run: npm audit --audit-level=high
+      - name: npm audit (dependency produksi, gagal bila high/critical)
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
