@@ -5,7 +5,7 @@ Odoo, antrean provisioning). Scaffold T12 — `docs/plans/02-platform-bringup.md
 
 | Komponen | Versi (pin exact) | Catatan |
 |---|---|---|
-| Node.js | `node:24.21.0-alpine@sha256:ebfe2f90…` (Alpine 3.24, semua stage) | revisi ADR 0001 (bookworm-slim → alpine) |
+| Node.js | `node:24.22.1-alpine@sha256:06d7adf3…` (Alpine 3.24, semua stage) | revisi ADR 0001 (bookworm-slim → alpine) |
 | Next.js | `16.3.6` (App Router, Turbopack, `output: 'standalone'`) | `proxy.ts` (bukan `middleware.ts`) |
 | Auth.js | `next-auth@5.0.0-beta.32` (`@auth/core 0.41.3`) | peer `next ^16`; v5 masih beta (dist-tag `beta`) |
 | Drizzle | `drizzle-orm 0.45.3`, `drizzle-kit 0.31.11`, `pg 8.23.0` | |
@@ -33,7 +33,7 @@ tests/unit/              Vitest; e2e/ Playwright (smoke, skip bila PLAYWRIGHT_BA
 ## Perintah (tanpa Node di host — pakai container)
 
 ```bash
-alias nrun='docker run --rm -v "$PWD":/app -w /app -e NEXT_TELEMETRY_DISABLED=1 node:24.21.0-alpine'
+alias nrun='docker run --rm -v "$PWD":/app -w /app -e NEXT_TELEMETRY_DISABLED=1 node:24.22.1-alpine'
 nrun npm ci
 nrun npm run lint        # eslint flat config (next core-web-vitals + typescript), 0 warning
 nrun npm run typecheck   # next typegen && tsc --noEmit
@@ -42,9 +42,9 @@ nrun npm run build       # next build (standalone) + esbuild worker & migrate �
 nrun npm audit --audit-level=high
 nrun npm run db:generate -- --name <nama>   # setelah ubah src/db/schema.ts
 # Varian tanpa npm ci (node_modules checkout utama di-mount read-only, mis. dari worktree): image glibc
-# (node:24.21.0-bookworm-slim, bukan alpine), tmpfs untuk cache vite, dan vitest wajib `--configLoader runner`:
+# (node:24.22.1-bookworm-slim, bukan alpine), tmpfs untuk cache vite, dan vitest wajib `--configLoader runner`:
 #   docker run --rm --network none -v "$PWD":/app -v /opt/src/control-plane/node_modules:/app/node_modules:ro \
-#     --tmpfs /app/node_modules/.vite-temp --tmpfs /app/node_modules/.vite -w /app node:24.21.0-bookworm-slim \
+#     --tmpfs /app/node_modules/.vite-temp --tmpfs /app/node_modules/.vite -w /app node:24.22.1-bookworm-slim \
 #     npx vitest run --configLoader runner
 ```
 
@@ -207,7 +207,7 @@ tanpa admin → billing saja), idempoten per (subscription, jenis, periode) di `
 docker network create cp-int-test
 docker run -d --name cp-int-pg --network cp-int-test -e POSTGRES_PASSWORD=testonly -e POSTGRES_DB=cp_test postgres:16.15-bookworm
 docker run --rm --network cp-int-test -v "$PWD":/app -w /app \
-  -e TEST_DATABASE_URL=postgresql://postgres:testonly@cp-int-pg:5432/cp_test node:24.21.0-alpine npm run test:integration
+  -e TEST_DATABASE_URL=postgresql://postgres:testonly@cp-int-pg:5432/cp_test node:24.22.1-alpine npm run test:integration
 docker rm -f cp-int-pg && docker network rm cp-int-test
 ```
 
