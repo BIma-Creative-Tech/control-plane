@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@/db";
 import { portalEnvironments, portalOpenInvoices, portalSubscriptions } from "@/db/portal-queries";
-import { formatAmount } from "@/lib/billing";
 import { PORTAL_SUBSCRIPTION_LABELS } from "@/lib/portal";
 import { can } from "@/lib/roles";
 import { requirePortal } from "@/server/portal";
@@ -9,6 +8,7 @@ import { BillingBadge } from "../billing/components";
 import { StatusBadge } from "../jobs/components";
 import { Nav } from "../nav";
 import { ScopeNotice } from "./scope-notice";
+import { InvoiceAmount } from "@/app/billing/invoice-amount";
 
 /**
  * Portal tenant — Ringkasan (W6, read-only): layanan/environment + status, langganan (implementasi/garansi/aktif/lewat
@@ -157,7 +157,7 @@ export default async function PortalPage() {
                     <tr key={i.id} className="border-t">
                       <td className="p-2 font-mono">{i.number}</td>
                       <td className="p-2">{i.kind === "implementation" ? "implementasi" : "maintenance"}</td>
-                      <td className="p-2 whitespace-nowrap">{formatAmount(i.amount, i.currency)}</td>
+                      <td className="p-2 whitespace-nowrap"><InvoiceAmount amount={i.amount} currency={i.currency} taxScheme={i.taxScheme} ppnAmount={i.ppnAmount} pph23Amount={i.pph23Amount} totalAmount={i.totalAmount} /></td>
                       <td className="p-2 whitespace-nowrap">{i.dueAt ?? "—"}</td>
                       <td className="p-2">
                         <BillingBadge value={i.status} />

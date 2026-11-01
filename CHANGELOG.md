@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne — paket, tampilan PPN, ingest pemakaian (ADR 0019):** seed idempoten `bctone-free/umkm/bisnis` + kuota
+  (`ensureBctonePlans`, saat migrate); kolom Jumlah di /invoices dan portal menampilkan DPP + PPN = total (+ PPh 23 →
+  transfer) untuk invoice berpajak; `POST /api/bctone/usage` (HMAC per tenant, ±300 s, seq anti-replay) — nonaktif (404)
+  sampai `USAGE_INGEST_SECRET` di-set.
 - **BCTOne — kuota & pajak (ADR 0019, usulan):** tabel `plan_quotas` (batas per plan; seed `lib/bctone-quota.ts`) dan
   `tenant_usage_daily` (pemakaian harian dari addon tenant), kolom pajak invoice `tax_scheme`/`ppn_amount`/`pph23_amount`/
   `total_amount` + CHECK konsistensi, `clients.withholds_pph23` (migrasi aditif `0007`). Invoice maintenance `self_serve`
