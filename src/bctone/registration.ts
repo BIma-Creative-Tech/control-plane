@@ -226,13 +226,52 @@ export async function provisionRegistration(
   return { ok: true, chainId: out.chainId, clientId: out.clientId };
 }
 
-/** Status rantai provisioning untuk halaman "Selesai" (registran) — ringkas, tanpa detail teknis. */
-export async function registrationProgress(db: Db, r: Registration): Promise<{ total: number; done: number; failed: number; host: string | null }> {
-  if (!r.chainId || !r.clientId) return { total: 0, done: 0, failed: 0, host: null };
-  const rows = await db.execute<{ status: string }>(sql`SELECT status FROM provision_jobs WHERE chain_id = ${r.chainId}`);
+/**
+ * Progres provisioning (halaman "Selesai" + penutupan registrasi): status job TERBARU per (tipe, env) tenant — "Ulangi
+ * dari langkah ini" membuat rantai baru, jadi rantai awal saja tidak cukup. Ringkas, tanpa detail teknis.
+ */
+export async function registrationProgress(
+  db: Db,
+  r: Pick<Registration, "clientId">,
+): Promise<{ total: number; done: number; failed: number; active: number; host: string | null }> {
+  if (!r.clientId) return { total: 0, done: 0, failed: 0, active: 0, host: null };
+  const rows = await db.execute<{ status: string }>(sql`
+    SELECT DISTINCT ON (type, env) status FROM provision_jobs
+    WHERE client_id = ${r.clientId} AND dry_run = false
+    ORDER BY type, env, created_at DESC`);
   const st = rows.rows.map((x) => x.status);
   const env = (await db.select({ host: environments.host }).from(environments).where(eq(environments.clientId, r.clientId)).limit(1))[0];
-  return { total: st.length, done: st.filter((s) => s === "succeeded").length, failed: st.filter((s) => s === "failed" || s === "cancelled").length, host: env?.host ?? null };
+  return {
+    total: st.length,
+    done: st.filter((s) => s === "succeeded").length,
+    failed: st.filter((s) => s === "failed" || s === "cancelled").length,
+    active: st.filter((s) => s === "queued" || s === "dispatched" || s === "running").length,
+    host: env?.host ?? null,
+  };
+}
+
+/** Worker: registrasi `provisioning` yang semua langkah terbarunya sukses → `done`. Return jumlah yang ditutup. */
+export async function settleRegistrations(db: Db): Promise<number> {
+  const open = await db
+    .select({ id: bctoneRegistrations.id, clientId: bctoneRegistrations.clientId, email: bctoneRegistrations.email })
+    .from(bctoneRegistrations)
+    .where(and(eq(bctoneRegistrations.status, "provisioning"), sql`${bctoneRegistrations.clientId} IS NOT NULL`))
+    .limit(50);
+  let n = 0;
+  for (const r of open) {
+    const p = await registrationProgress(db, r);
+    if (p.total === 0 || p.active > 0 || p.failed > 0 || p.done !== p.total) continue;
+    const u = await db
+      .update(bctoneRegistrations)
+      .set({ status: "done", updatedAt: new Date() })
+      .where(and(eq(bctoneRegistrations.id, r.id), eq(bctoneRegistrations.status, "provisioning")))
+      .returning({ id: bctoneRegistrations.id });
+    if (u.length === 1) {
+      n++;
+      await audit(db, r, "registration.done", "success", { steps: p.total }, { ip: null, requestId: null });
+    }
+  }
+  return n;
 }
 
 /** Owner menolak registrasi review/waitlist. */

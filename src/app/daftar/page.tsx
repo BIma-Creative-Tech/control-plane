@@ -364,13 +364,14 @@ async function SummaryStep(reg: Registration, suffix: string) {
 
 async function DoneStep(reg: Registration) {
   const pr = await registrationProgress(getDb(), reg);
+  const ready = pr.total > 0 && pr.done === pr.total;
   const msg: Record<string, string> = {
     review: "Pendaftaran diterima dan sedang ditinjau tim kami. Kami menghubungi Anda lewat email dalam 1 hari kerja.",
     waitlist: "Kapasitas pendaftaran baru sedang penuh. Anda masuk daftar tunggu; kami mengabari lewat email begitu slot tersedia.",
     rejected: "Pendaftaran tidak dapat kami proses. Detail dikirim lewat email.",
     failed: "Penyiapan ERP mengalami kendala. Tim kami sudah diberi tahu dan akan menghubungi Anda.",
     provisioning:
-      pr.total > 0 && pr.done === pr.total
+      ready
         ? "ERP Anda siap. Cek email untuk undangan login."
         : `ERP Anda sedang disiapkan (${pr.done}/${pr.total || "…"} langkah). Halaman ini bisa dimuat ulang.`,
     done: "ERP Anda siap. Cek email untuk undangan login.",
@@ -378,7 +379,7 @@ async function DoneStep(reg: Registration) {
   return (
     <section className="space-y-2 rounded border bg-white p-6 text-sm" data-testid="register-done">
       <p>{msg[reg.status] ?? "Pendaftaran tercatat."}</p>
-      {pr.host && pr.total > 0 && pr.done === pr.total ? (
+      {pr.host && ready ? (
         <p>
           Alamat ERP:{" "}
           <a className="font-mono underline" href={`https://${pr.host}`}>
@@ -386,7 +387,7 @@ async function DoneStep(reg: Registration) {
           </a>
         </p>
       ) : null}
-      {pr.failed > 0 ? <p className="text-red-700">Sebagian langkah gagal; tim kami menindaklanjuti.</p> : null}
+      {pr.failed > 0 && pr.active === 0 ? <p className="text-red-700">Sebagian langkah gagal; tim kami menindaklanjuti.</p> : null}
     </section>
   );
 }
