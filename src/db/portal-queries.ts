@@ -105,6 +105,40 @@ export async function portalBctone(db: Db, clientId: string, today: string) {
   };
 }
 
+/** Console › Tagihan: semua invoice tenant (terbaru dulu, maks. 50) + status pajak klien. */
+export async function portalInvoices(db: Db, clientId: string) {
+  const [rows, c] = await Promise.all([
+    db
+      .select({
+        id: invoices.id,
+        number: invoices.number,
+        kind: invoices.kind,
+        status: invoices.status,
+        amount: invoices.amount,
+        currency: invoices.currency,
+        issuedAt: invoices.issuedAt,
+        dueAt: invoices.dueAt,
+        paidAt: invoices.paidAt,
+        periodStart: invoices.periodStart,
+        periodEnd: invoices.periodEnd,
+        taxScheme: invoices.taxScheme,
+        ppnAmount: invoices.ppnAmount,
+        pph23Amount: invoices.pph23Amount,
+        totalAmount: invoices.totalAmount,
+        proofReference: invoices.proofReference,
+      })
+      .from(invoices)
+      .where(and(eq(invoices.clientId, clientId), ne(invoices.status, "void")))
+      .orderBy(desc(invoices.issuedAt))
+      .limit(50),
+    db.select({ withholdsPph23: clients.withholdsPph23 }).from(clients).where(eq(clients.id, clientId)).limit(1),
+  ]);
+  return {
+    withholdsPph23: c[0]?.withholdsPph23 ?? false,
+    invoices: rows.map((r) => ({ ...r, issuedAt: timestampToDate(r.issuedAt), dueAt: timestampToDate(r.dueAt), paidAt: timestampToDate(r.paidAt) })),
+  };
+}
+
 /** Invoice terbuka (unpaid/awaiting_confirmation) tenant — tanpa referensi pembayaran/bukti. */
 export async function portalOpenInvoices(db: Db, clientId: string) {
   const rows = await db

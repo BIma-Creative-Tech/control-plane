@@ -10,6 +10,11 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne email registrasi + Console › Tagihan `/portal/billing`:** worker mengirim email (sekali per key
+  `notification_log`): owner saat registrasi review/waitlist, sambutan + alamat login saat `done`, pemberitahuan saat
+  ditolak. Tenant-admin melihat invoice (DPP, PPN, potongan PPh 23, jumlah transfer) dan melaporkan pembayaran manual →
+  `awaiting_confirmation` (BR-18); nomor bukti potong wajib bila klien memotong PPh 23. Env baru: `CP_PUBLIC_URL`
+  (worker), `PAYMENT_INSTRUCTIONS` (web, opsional).
 - **BCTOne registrasi self-serve `/daftar` (publik, migrasi `0010`):** wizard 7 langkah (akun → OTP email → bisnis →
   modul + badge tier → paket & harga + PPN dari `plans` → consent AI tanpa default → ringkasan). Paket minimum dihitung
   dari modul & outlet. Free/UMKM langsung diprovision (rantai onboarding + `bctone_tenant_config` pack + consent

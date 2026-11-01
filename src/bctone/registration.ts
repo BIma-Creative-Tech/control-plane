@@ -24,7 +24,7 @@ import {
   type BctoneTier,
   type Industry,
 } from "../lib/bctone-register";
-import { defaultHost, envAllowedForInstance, realmEnvForInstance, type BridgeJobType, type Instance } from "../lib/job-contract";
+import { defaultHost, envAllowedForInstance, envRouteHost, realmEnvForInstance, type BridgeJobType, type Instance } from "../lib/job-contract";
 import type { AiConsent } from "../lib/ai-gateway";
 import { onboardTenant, type TenantActionOutcome } from "../jobs/tenants";
 import type { Actor, RequestMeta, SendFn } from "../jobs/service";
@@ -240,13 +240,13 @@ export async function registrationProgress(
     WHERE client_id = ${r.clientId} AND dry_run = false
     ORDER BY type, env, created_at DESC`);
   const st = rows.rows.map((x) => x.status);
-  const env = (await db.select({ host: environments.host }).from(environments).where(eq(environments.clientId, r.clientId)).limit(1))[0];
+  const env = (await db.select({ host: environments.host, url: environments.url }).from(environments).where(eq(environments.clientId, r.clientId)).limit(1))[0];
   return {
     total: st.length,
     done: st.filter((s) => s === "succeeded").length,
     failed: st.filter((s) => s === "failed" || s === "cancelled").length,
     active: st.filter((s) => s === "queued" || s === "dispatched" || s === "running").length,
-    host: env?.host ?? null,
+    host: env ? envRouteHost(env) : null,
   };
 }
 
