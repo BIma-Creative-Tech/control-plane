@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne — kuota & pajak (ADR 0019, usulan):** tabel `plan_quotas` (batas per plan; seed `lib/bctone-quota.ts`) dan
+  `tenant_usage_daily` (pemakaian harian dari addon tenant), kolom pajak invoice `tax_scheme`/`ppn_amount`/`pph23_amount`/
+  `total_amount` + CHECK konsistensi, `clients.withholds_pph23` (migrasi aditif `0007`). Invoice maintenance `self_serve`
+  otomatis dikenai PPN DPP nilai lain (BR-16) dan PPh 23 bila klien memotong (BR-17); invoice lama tetap `none`.
 - **BCTOne — siklus langganan `self_serve` (ADR 0019, usulan; menunggu GATE 1):** kolom `subscriptions.lifecycle`
   (`implementation` default = perilaku ADR 0018 tidak berubah | `self_serve`) dan `purge_due_at` (migrasi aditif `0006`).
   Tick: `active → past_due` (grace 7 hari) → `suspended` (ditahan bila ada invoice `awaiting_confirmation`) → penanda

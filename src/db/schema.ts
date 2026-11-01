@@ -8,6 +8,7 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -51,6 +52,12 @@ export const subscriptionStatus = pgEnum("subscription_status", [
 
 /** ADR 0019 (BCTOne, migrasi 0006): siklus langganan — `implementation` (ADR 0018) | `self_serve` (daftar sendiri). */
 export const subscriptionLifecycle = pgEnum("subscription_lifecycle", ["implementation", "self_serve"]);
+
+/** ADR 0019 (migrasi 0007): skema pajak invoice. `none` = perilaku lama (tanpa PPN). */
+export const invoiceTaxScheme = pgEnum("invoice_tax_scheme", ["none", "ppn_dpp_nilai_lain"]);
+
+/** ADR 0019 (migrasi 0007): metrik kuota BCTOne — sama dengan lib/bctone-quota.ts QUOTA_METRICS. */
+export const quotaMetric = pgEnum("quota_metric", ["users", "devices", "outlets", "trx_per_month", "omzet_per_month", "ai_prompts_per_day"]);
 
 /** ADR 0018 D7 (migrasi 0005): layanan yang dijual per plan. */
 export const planService = pgEnum("plan_service", ["odoo", "insight", "mail", "web"]);
@@ -165,6 +172,8 @@ export const clients = pgTable(
     kcOrgId: text("kc_org_id"),
     /** Tenant internal `platform` (user superadmin/ops) — tepat satu baris (partial unique index). */
     isPlatform: boolean("is_platform").notNull().default(false),
+    /** ADR 0019 (migrasi 0007): klien badan usaha memotong PPh 23 atas tagihan BCTOne (BR-17). */
+    withholdsPph23: boolean("withholds_pph23").notNull().default(false),
   },
   (t) => [
     uniqueIndex("clients_slug_uq").on(t.slug),
@@ -323,6 +332,12 @@ export const invoices = pgTable(
     /** Periode maintenance yang ditagih (tanggal WIB); NULL untuk invoice implementasi. */
     periodStart: date("period_start", { mode: "string" }),
     periodEnd: date("period_end", { mode: "string" }),
+    // --- ADR 0019 (migrasi 0007, aditif): pajak BCTOne (BR-16/17). Baris lama: `none`, nol, total = amount. ---
+    taxScheme: invoiceTaxScheme("tax_scheme").notNull().default("none"),
+    ppnAmount: numeric("ppn_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+    pph23Amount: numeric("pph23_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** amount + PPN. NULL hanya untuk baris lama (`none`) — tampilan memakai `amount`. */
+    totalAmount: numeric("total_amount", { precision: 14, scale: 2 }),
   },
   (t) => [
     uniqueIndex("invoices_number_uq").on(t.number),
@@ -342,6 +357,58 @@ export const invoices = pgTable(
     check("invoices_period_order", sql`${t.periodStart} IS NULL OR (${t.periodEnd} IS NOT NULL AND ${t.periodEnd} > ${t.periodStart})`),
     // QA N4 (migrasi 0005, keputusan Lead): tidak ada invoice nol di Fase 1 (implementasi maupun maintenance).
     check("invoices_amount_positive", sql`${t.amount} > 0`),
+    // ADR 0019 (migrasi 0007): total = amount + PPN; PPh 23 ≤ amount.
+    check(
+      "invoices_tax_consistent",
+      sql`${t.taxScheme} = 'none' OR (${t.totalAmount} = ${t.amount} + ${t.ppnAmount} AND ${t.pph23Amount} <= ${t.amount})`,
+    ),
+  ],
+);
+
+/**
+ * ADR 0019 (migrasi 0007): batas kuota per plan BCTOne. Tidak ada baris = tanpa batas. Nilai = lib/bctone-quota.ts
+ * BCTONE_PLAN_QUOTAS (seed), bisa diubah lewat BCT Admin.
+ */
+export const planQuotas = pgTable(
+  "plan_quotas",
+  {
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    metric: quotaMetric("metric").notNull(),
+    limitValue: bigint("limit_value", { mode: "number" }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("plan_quotas_plan_metric_uq").on(t.planId, t.metric), check("plan_quotas_limit_nonneg", sql`${t.limitValue} >= 0`)],
+);
+
+/**
+ * ADR 0019 (migrasi 0007): pemakaian harian tenant, dikirim addon `bct_tenant_agent` (HMAC). Idempoten per
+ * (client, tanggal): kiriman ulang menimpa dengan `seq` lebih besar. trx/omzet = akumulasi bulan berjalan (WIB).
+ */
+export const tenantUsageDaily = pgTable(
+  "tenant_usage_daily",
+  {
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    usageDate: date("usage_date", { mode: "string" }).notNull(),
+    seq: integer("seq").notNull().default(0),
+    users: integer("users").notNull().default(0),
+    devices: integer("devices").notNull().default(0),
+    outlets: integer("outlets").notNull().default(0),
+    trxMonthGross: integer("trx_month_gross").notNull().default(0),
+    omzetMonthNet: numeric("omzet_month_net", { precision: 16, scale: 2 }).notNull().default("0"),
+    aiPrompts: integer("ai_prompts").notNull().default(0),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tenant_usage_daily_uq").on(t.clientId, t.usageDate),
+    check(
+      "tenant_usage_daily_nonneg",
+      sql`${t.users} >= 0 AND ${t.devices} >= 0 AND ${t.outlets} >= 0 AND ${t.trxMonthGross} >= 0 AND ${t.omzetMonthNet} >= 0 AND ${t.aiPrompts} >= 0 AND ${t.seq} >= 0`,
+    ),
   ],
 );
 

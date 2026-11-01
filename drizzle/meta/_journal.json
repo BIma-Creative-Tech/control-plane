@@ -50,6 +50,13 @@
       "when": 1793525682215,
       "tag": "0006_bctone_self_serve",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793527091233,
+      "tag": "0007_bctone_quota_tax",
+      "breakpoints": true
     }
   ]
 }
