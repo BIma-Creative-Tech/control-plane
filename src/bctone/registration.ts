@@ -120,7 +120,7 @@ export async function verifyOtp(db: Db, id: string, code: string, meta: RequestM
 export async function saveStep(
   db: Db,
   id: string,
-  patch: Partial<{ industry: Industry; outlets: number; modules: string[]; extraNeeds: string | null; tier: BctoneTier; aiConsent: AiConsent }>,
+  patch: Partial<{ industry: Industry; outlets: number; modules: string[] | null; extraNeeds: string | null; tier: BctoneTier | null; aiConsent: AiConsent }>,
   now = new Date(),
 ): Promise<boolean> {
   const r = await db
