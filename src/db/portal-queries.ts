@@ -4,10 +4,11 @@
  */
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "./client";
-import { clients, environments, invoices, plans, subscriptions, tenantUserAccess, users } from "./schema";
+import { aiConsentLog, clients, environments, invoices, planQuotas, plans, subscriptions, tenantAiDaily, tenantUsageDaily, tenantUserAccess, users } from "./schema";
 import { listTenantDomains } from "./tenant-queries";
 import { timestampToDate } from "../lib/billing";
 import type { PortalTenantRow, PortalUserRow } from "../lib/portal";
+import type { QuotaMetric } from "../lib/bctone-quota";
 
 /** Baris users sesi (by sub Keycloak) + tenant-nya — bahan decidePortalScope. Read-only (tidak membuat baris). */
 export async function loadPortalIdentity(db: Db, sub: string): Promise<{ user: PortalUserRow | null; tenant: PortalTenantRow | null }> {
@@ -61,6 +62,47 @@ export async function portalSubscriptions(db: Db, clientId: string) {
     .where(and(eq(subscriptions.clientId, clientId), ne(subscriptions.status, "terminated")))
     .orderBy(asc(plans.service), desc(subscriptions.createdAt));
   return rows.map((r) => ({ ...r, endsAt: timestampToDate(r.endsAt), graceUntil: timestampToDate(r.graceUntil) }));
+}
+
+/**
+ * BCTOne Console — paket self-serve aktif + batas kuota + pemakaian terakhir (laporan agen) + prompt AI hari ini (WIB) +
+ * consent AI berlaku. null = tenant tanpa langganan BCTOne (halaman menampilkan info saja).
+ */
+export async function portalBctone(db: Db, clientId: string, today: string) {
+  const sub = (
+    await db
+      .select({ planId: plans.id, code: plans.code, name: plans.name, status: subscriptions.status, endsAt: subscriptions.currentPeriodEnd })
+      .from(subscriptions)
+      .innerJoin(plans, eq(plans.id, subscriptions.planId))
+      .where(and(eq(subscriptions.clientId, clientId), eq(subscriptions.lifecycle, "self_serve"), ne(subscriptions.status, "terminated")))
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(1)
+  )[0];
+  if (!sub) return null;
+  const [quotas, usage, ai, client, history] = await Promise.all([
+    db.select({ metric: planQuotas.metric, limit: planQuotas.limitValue }).from(planQuotas).where(eq(planQuotas.planId, sub.planId)),
+    db.select().from(tenantUsageDaily).where(eq(tenantUsageDaily.clientId, clientId)).orderBy(desc(tenantUsageDaily.usageDate)).limit(1),
+    db
+      .select({ prompts: tenantAiDaily.prompts })
+      .from(tenantAiDaily)
+      .where(and(eq(tenantAiDaily.clientId, clientId), eq(tenantAiDaily.usageDate, today)))
+      .limit(1),
+    db.select({ consent: clients.aiConsent }).from(clients).where(eq(clients.id, clientId)).limit(1),
+    db
+      .select({ consent: aiConsentLog.consent, createdAt: aiConsentLog.createdAt, hash: aiConsentLog.hash })
+      .from(aiConsentLog)
+      .where(eq(aiConsentLog.clientId, clientId))
+      .orderBy(desc(aiConsentLog.id))
+      .limit(5),
+  ]);
+  return {
+    plan: { code: sub.code, name: sub.name, status: sub.status, endsAt: timestampToDate(sub.endsAt) },
+    limits: Object.fromEntries(quotas.map((q) => [q.metric, q.limit])) as Partial<Record<QuotaMetric, number>>,
+    usage: usage[0] ?? null,
+    aiToday: ai[0]?.prompts ?? 0,
+    consent: client[0]?.consent ?? null,
+    history,
+  };
 }
 
 /** Invoice terbuka (unpaid/awaiting_confirmation) tenant — tanpa referensi pembayaran/bukti. */

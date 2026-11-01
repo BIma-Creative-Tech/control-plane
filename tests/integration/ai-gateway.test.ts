@@ -14,6 +14,8 @@ import type { Actor, SendFn } from "@/jobs/service";
 import { verifyConsentChain } from "@/lib/ai-gateway";
 import { BRIDGE_JOB_TYPES } from "@/lib/job-contract";
 import { runAiPrompt } from "@/ai/gateway";
+import { portalSetAiConsent } from "@/ai/portal-consent";
+import { portalBctone } from "@/db/portal-queries";
 
 const URL_ = process.env.TEST_DATABASE_URL;
 const REQ = { request_id: "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f", feature: "assistant" as const, messages: [{ role: "user" as const, content: "email saya a@b.co, ibukota?" }], max_tokens: 64 };
@@ -82,9 +84,15 @@ describe.skipIf(!URL_)("BCTOne AI gateway", () => {
   });
 
   it("jalur tolak: ollama-local + key deny, PII dimasking; kuota Free 3/hari atomik di bawah paralel", async () => {
+    // paralel: slot Ollama tunggal → sebagian 429 busy; kuota tidak pernah terlampaui; slot busy dikembalikan
     const rs = await Promise.all(Array.from({ length: 6 }, () => runAiPrompt(db, "kopi-ai", REQ, up, NOW)));
-    expect(rs.filter((r) => r.ok)).toHaveLength(3);
-    expect(rs.filter((r) => !r.ok && r.status === 429)).toHaveLength(3);
+    const okN = rs.filter((r) => r.ok).length;
+    expect(okN).toBeGreaterThanOrEqual(1);
+    expect(okN).toBeLessThanOrEqual(3);
+    for (const r of rs) if (!r.ok) expect([r.status, ["busy", "quota_exceeded"].includes(r.code)]).toEqual([429, true]);
+    // berurutan sampai kuota habis: tepat 3 sukses total, berikutnya quota_exceeded
+    for (let i = okN; i < 3; i++) expect((await runAiPrompt(db, "kopi-ai", REQ, up, NOW)).ok).toBe(true);
+    expect(await runAiPrompt(db, "kopi-ai", REQ, up, NOW)).toEqual({ ok: false, status: 429, code: "quota_exceeded" });
     expect(calls).toHaveLength(3);
     for (const c of calls) {
       expect(c.model).toBe("ollama-local/qwen2.5:3b");
@@ -93,7 +101,8 @@ describe.skipIf(!URL_)("BCTOne AI gateway", () => {
       expect(c.body).toContain("[email]");
     }
     const d = (await db.select().from(tenantAiDaily).where(eq(tenantAiDaily.clientId, cid)))[0]!;
-    expect([d.usageDate, d.prompts, d.denied]).toEqual(["2026-11-01", 3, 3]);
+    expect([d.usageDate, d.prompts]).toEqual(["2026-11-01", 3]);
+    expect(d.denied).toBeGreaterThanOrEqual(1);
     // hari berikutnya (WIB) reset
     const next = await runAiPrompt(db, "kopi-ai", REQ, up, new Date("2026-11-01T17:00:00Z"));
     expect(next.ok).toBe(true);
@@ -113,6 +122,47 @@ describe.skipIf(!URL_)("BCTOne AI gateway", () => {
       status: 502,
       code: "route_unconfigured",
     });
+  });
+
+  it("konkurensi jalur deny: slot Ollama tunggal → request bersamaan ditolak 429 busy, slot kuota dikembalikan", async () => {
+    await setClientAiConsent(db, svc(), { clientId: cid, consent: "deny" });
+    let releaseUp: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (releaseUp = r));
+    const slowFetch = (async () => {
+      await gate;
+      return Response.json({ choices: [{ message: { content: "ok" } }] });
+    }) as unknown as typeof fetch;
+    const day = new Date("2026-11-05T03:00:00Z");
+    const first = runAiPrompt(db, "kopi-ai", REQ, { ...up, fetchImpl: slowFetch }, day);
+    await new Promise((r) => setTimeout(r, 150));
+    const second = await runAiPrompt(db, "kopi-ai", REQ, { ...up, fetchImpl: slowFetch }, day);
+    expect(second).toEqual({ ok: false, status: 429, code: "busy" });
+    releaseUp();
+    expect((await first).ok).toBe(true);
+    const d = (await db.select().from(tenantAiDaily).where(eq(tenantAiDaily.usageDate, "2026-11-05")))[0]!;
+    expect(d.prompts).toBe(1);
+    // slot dilepas → request berikutnya lolos
+    expect((await runAiPrompt(db, "kopi-ai", REQ, up, day)).ok).toBe(true);
+  });
+
+  it("Console: tenant-admin mengubah consent tenantnya sendiri; user lain/tenant lain ditolak", async () => {
+    const other = (await db.insert(clients).values({ slug: "lain-co", name: "Lain" }).returning())[0]!.id;
+    const [adm] = await db.insert(users).values({ keycloakSub: "adm-sub", role: "client_admin", clientId: cid, status: "active" }).returning();
+    const [usr] = await db.insert(users).values({ keycloakSub: "usr-sub", role: "client_user", clientId: cid, status: "active" }).returning();
+    const meta = { ip: null, requestId: "req-portal" };
+    const A = { sub: "adm-sub", userId: adm!.id, roles: ["client_admin" as const] };
+    expect(await portalSetAiConsent(db, { clientId: cid, userId: usr!.id, actor: { ...A, sub: "usr-sub", userId: usr!.id }, meta, consent: "allow" })).toEqual({ ok: false, reason: "forbidden" });
+    expect(await portalSetAiConsent(db, { clientId: other, userId: adm!.id, actor: A, meta, consent: "allow" })).toEqual({ ok: false, reason: "forbidden" });
+    expect(await portalSetAiConsent(db, { clientId: cid, userId: adm!.id, actor: A, meta, consent: "allow" })).toEqual({ ok: true, changed: true });
+    const rows = await db.select().from(aiConsentLog).orderBy(asc(aiConsentLog.id));
+    expect(rows.at(-1)!.actor).toBe("user:adm-sub");
+    expect(verifyConsentChain(rows)).toBe(-1);
+    const q = await portalBctone(db, cid, "2026-11-05");
+    expect(q?.plan.code).toBe("bctone-free");
+    expect(q?.consent).toBe("allow");
+    expect(q?.limits.ai_prompts_per_day).toBe(3);
+    expect(q?.aiToday).toBe(2);
+    expect(await portalBctone(db, other, "2026-11-05")).toBeNull();
   });
 
   it("jalur izinkan: model cc/ + key allow", async () => {

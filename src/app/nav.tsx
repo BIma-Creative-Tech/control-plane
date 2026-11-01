@@ -16,6 +16,7 @@ export function Nav({ session }: { session: Session }) {
         </Link>
         {/* Portal tenant (W6): tenant-admin/tenant-user; halaman platform di bawah hanya tampil untuk izin platform. */}
         {can(session.roles, "portal:view") ? <Link href="/portal" className={ITEM}><Icon name="chart-2" className="size-4" />Ringkasan</Link> : null}
+        {can(session.roles, "portal:view") ? <Link href="/portal/bctone" className={ITEM}><Icon name="chart-2" className="size-4" />BCTOne</Link> : null}
         {can(session.roles, "portal:admin") ? <Link href="/portal/users" className={ITEM}><Icon name="people" className="size-4" />Users</Link> : null}
         {can(session.roles, "portal:admin") ? <Link href="/portal/domains" className={ITEM}><Icon name="gps" className="size-4" />Domain</Link> : null}
         <Link href="/dashboard" className={ITEM}><Icon name="category" className="size-4" />Dashboard</Link>

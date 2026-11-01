@@ -5,10 +5,10 @@
  * `result=rejected` di luar transaksi (yang di-rollback). Tidak ada aksi infra langsung: suspend/resume hanya
  * enqueue job (jobs/tenant-state.ts, outbox di transaksi yang sama).
  */
-import { and, desc, eq, inArray, like, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
-import { aiConsentLog, auditLogs, clients, invoices, planQuotas, plans, subscriptions, users } from "../db/schema";
+import { auditLogs, clients, invoices, planQuotas, plans, subscriptions, users } from "../db/schema";
 import {
   dateToTimestamp,
   effectivePrice,
@@ -29,7 +29,8 @@ import type { BridgeJobType, Instance } from "../lib/job-contract";
 import type { ActionResultCode } from "../lib/job-list-params";
 import { computeInvoiceTax, type TaxScheme } from "../lib/bctone-tax";
 import { isBctonePlanCode, selfServeStart } from "../lib/bctone-plans";
-import { consentHash, type AiConsent } from "../lib/ai-gateway";
+import type { AiConsent } from "../lib/ai-gateway";
+import { writeAiConsentTx } from "../ai/consent";
 import { enqueueBctoneConfigTx, type BctoneConfigOutcome } from "../jobs/bctone-config";
 import { QUOTA_METRICS, type QuotaMetric } from "../lib/bctone-quota";
 import { can, type Permission } from "../lib/roles";
@@ -804,13 +805,7 @@ export async function setClientAiConsent(db: Db, input: BillingServiceInput, p: 
     const c = (await tx.select({ id: clients.id, cur: clients.aiConsent, isPlatform: clients.isPlatform }).from(clients).where(eq(clients.id, p.clientId)).for("update").limit(1))[0];
     if (!c) throw new Abort({ reason: "not_found" });
     if (c.isPlatform) throw new Abort({ reason: "invalid" });
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('bctone_ai_consent_chain'))`);
-    const last = (await tx.select({ hash: aiConsentLog.hash }).from(aiConsentLog).orderBy(desc(aiConsentLog.id)).limit(1))[0];
-    const at = input.now ?? new Date();
-    const actor = actorLabel(input.actor);
-    const hash = consentHash(last?.hash ?? null, c.id, p.consent, actor, at);
-    await tx.insert(aiConsentLog).values({ clientId: c.id, consent: p.consent, actor, createdAt: at, prevHash: last?.hash ?? null, hash });
-    await tx.update(clients).set({ aiConsent: p.consent, updatedAt: sql`now()` }).where(eq(clients.id, c.id));
+    const hash = await writeAiConsentTx(tx, c.id, p.consent, actorLabel(input.actor), input.now ?? new Date());
     await auditOk(tx, input, t, { consent: { from: c.cur, to: p.consent }, hash });
     return { id: c.id };
   });

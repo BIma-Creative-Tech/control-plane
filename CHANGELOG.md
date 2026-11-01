@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne Console `/portal/bctone`:** Beranda kuota (pemakaian terakhir agen vs batas paket, status aman/hampir
+  penuh/tenggang/penuh, prompt AI hari ini) dan Privasi (US-13: tenant-admin memilih consent AI tanpa default, tercatat
+  hash-chain + audit kanal portal). AI gateway: batas konkurensi upstream (Ollama 1 slot global, Claude 2 per tenant;
+  penuh → 429 `busy`, slot kuota dikembalikan).
 - **BCTOne AI gateway (`POST /api/bctone/ai`, migrasi `0009`):** consent dua jalur (allow → `cc/*`, deny →
   `ollama-local/*` dengan key 9router terpisah, tanpa fallback), log consent append-only hash-chain (trigger tolak
   UPDATE/DELETE/TRUNCATE), kuota prompt/hari WIB dari `plan_quotas` (atomik, slot dikembalikan bila upstream gagal),
