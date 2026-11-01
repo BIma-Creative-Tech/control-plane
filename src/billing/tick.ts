@@ -110,6 +110,7 @@ async function applyTransition(d: TickDeps, tx: Tx, s: LockedSubscription, t: Tr
             currency: s.price.currency,
             dueAt: t.invoicePeriod.end,
             period: t.invoicePeriod,
+            tax: s.tax,
           },
           d.now,
         );

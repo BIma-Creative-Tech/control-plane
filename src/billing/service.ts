@@ -27,6 +27,7 @@ import {
 } from "../lib/billing";
 import type { BridgeJobType, Instance } from "../lib/job-contract";
 import type { ActionResultCode } from "../lib/job-list-params";
+import { computeInvoiceTax, type TaxScheme } from "../lib/bctone-tax";
 import { can, type Permission } from "../lib/roles";
 import type { Actor, RequestMeta, SendFn, Tx } from "../jobs/service";
 import { TenantStateError, enqueueTenantStateTx, type TenantStateOutcome } from "../jobs/tenant-state";
@@ -187,6 +188,8 @@ export interface InvoiceDraft {
   currency: string;
   dueAt: IsoDate;
   period: { start: IsoDate; end: IsoDate } | null;
+  /** ADR 0019: pajak BCTOne. Tidak diisi = `none` (perilaku lama, tanpa PPN). */
+  tax?: { scheme: TaxScheme; withholdPph23: boolean } | undefined;
 }
 
 /** Terbitkan invoice di transaksi `tx` (pemanggil sudah mengunci subscription bila ada). Maintenance per periode unik. */
@@ -207,6 +210,7 @@ export async function issueInvoiceTx(tx: Tx, draft: InvoiceDraft, now: Date): Pr
     if (dup.length > 0) return "exists";
   }
   const number = await allocateInvoiceNumber(tx, jakartaDate(now));
+  const tax = draft.tax && draft.tax.scheme !== "none" ? computeInvoiceTax(draft.amount, draft.tax) : null;
   const row = (
     await tx
       .insert(invoices)
@@ -222,6 +226,9 @@ export async function issueInvoiceTx(tx: Tx, draft: InvoiceDraft, now: Date): Pr
         dueAt: dateToTimestamp(draft.dueAt),
         periodStart: draft.period?.start ?? null,
         periodEnd: draft.period?.end ?? null,
+        ...(tax
+          ? { taxScheme: tax.scheme, ppnAmount: tax.ppnAmount, pph23Amount: tax.pph23Amount, totalAmount: tax.totalAmount }
+          : {}),
       })
       .returning({ id: invoices.id })
   )[0];
@@ -256,6 +263,7 @@ export async function lockSubscription(tx: Tx, subscriptionId: string) {
         periodMonths: plans.billingPeriodMonths,
         slug: clients.slug,
         isPlatform: clients.isPlatform,
+        withholdsPph23: clients.withholdsPph23,
       })
       .from(subscriptions)
       .innerJoin(plans, eq(plans.id, subscriptions.planId))
@@ -270,6 +278,8 @@ export async function lockSubscription(tx: Tx, subscriptionId: string) {
     status: row.status as SubscriptionStatus,
     /** Harga invoice maintenance otomatis (override langganan → harga plan → null). */
     price: effectivePrice({ subscriptionPrice: row.subPrice, subscriptionCurrency: row.subCurrency, planPrice: row.planPrice, planCurrency: row.planCurrency }),
+    /** ADR 0019: tagihan self_serve (BCTOne) dikenai PPN; siklus implementasi tetap tanpa pajak otomatis. */
+    tax: row.lifecycle === "self_serve" ? ({ scheme: "ppn_dpp_nilai_lain", withholdPph23: row.withholdsPph23 } as const) : undefined,
     snapshot: {
       status: row.status as SubscriptionStatus,
       warrantyUntil: row.warrantyUntil,
@@ -563,6 +573,7 @@ export async function markInvoicePaid(
             currency: s.price.currency,
             dueAt: plan.nextInvoicePeriod.end,
             period: plan.nextInvoicePeriod,
+            tax: s.tax,
           },
           now,
         );
