@@ -10,6 +10,10 @@ export const INFRA_JOB_QUEUE_OPTIONS = {
   expireInSeconds: 120,
 } as const;
 
+/** BCTOne registrasi: worker membuat & mengirim OTP (pesan = id registrasi saja). */
+export const QUEUE_BCTONE_OTP = "bctone-otp";
+export const BCTONE_OTP_QUEUE_OPTIONS = { retryLimit: 0, expireInSeconds: 120 } as const;
+
 export interface InfraJobMessage {
   provisionJobId: string;
 }
