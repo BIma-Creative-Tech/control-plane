@@ -8,7 +8,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { getWorkerEnv } from "../env";
 import { logger } from "../lib/logger";
 import { createDb } from "./client";
-import { ensureInitialPlans } from "./plans";
+import { ensureBctonePlans, ensureInitialPlans } from "./plans";
 import { ensurePlatformTenant } from "./platform";
 
 async function main(): Promise<void> {
@@ -24,6 +24,9 @@ async function main(): Promise<void> {
     // ADR 0018 D7: 7 plan awal (harga NULL), idempoten — plan yang sudah ada tidak diubah.
     const pl = await ensureInitialPlans(db);
     logger.info(pl, "plan awal siap");
+    // ADR 0019: paket BCTOne + kuota (idempoten).
+    const bp = await ensureBctonePlans(db);
+    logger.info(bp, "plan BCTOne siap");
   } finally {
     await pool.end();
   }

@@ -161,6 +161,11 @@ export const webEnvSchema = baseEnvSchema
      * Plan infra 15 — link "Buka Odoo" di dashboard: `slug=https://host` dipisah koma
      * (mis. `expomedia=https://erp.expomedia.id`). Opsional; client tanpa entri = tanpa link.
      */
+    /**
+     * ADR 0019 #3: rahasia master ingest pemakaian BCTOne (`/api/bctone/usage`). Kosong = endpoint nonaktif (404).
+     * Kunci per tenant diturunkan darinya (lib/usage-ingest.ts tenantUsageKey).
+     */
+    USAGE_INGEST_SECRET: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(32, "minimal 32 karakter").optional()),
     DASHBOARD_ODOO_URLS: z
       .string()
       .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")

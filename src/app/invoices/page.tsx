@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/authz";
-import { addDays, formatAmount, isBillable, jakartaDate, type SubscriptionStatus } from "@/lib/billing";
+import { addDays, isBillable, jakartaDate, type SubscriptionStatus } from "@/lib/billing";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
 import { SLUG_REGEX } from "@/lib/slug";
@@ -9,6 +9,7 @@ import { BillingBadge, btn, btnDanger, input } from "../billing/components";
 import { ResultBanner } from "../jobs/components";
 import { Nav } from "../nav";
 import { issueInvoiceAction, markInvoicePaidAction, voidInvoiceAction } from "./actions";
+import { InvoiceAmount } from "@/app/billing/invoice-amount";
 
 const OPEN = new Set(["unpaid", "awaiting_confirmation"]);
 
@@ -109,7 +110,7 @@ export default async function InvoicesPage(props: PageProps<"/invoices">) {
                   </td>
                   <td className="p-2">{i.kind === "implementation" ? "implementasi" : "maintenance"}</td>
                   <td className="p-2 whitespace-nowrap">{i.periodStart && i.periodEnd ? `${i.periodStart} → ${i.periodEnd}` : "—"}</td>
-                  <td className="p-2 whitespace-nowrap">{formatAmount(i.amount, i.currency)}</td>
+                  <td className="p-2 whitespace-nowrap"><InvoiceAmount amount={i.amount} currency={i.currency} taxScheme={i.taxScheme} ppnAmount={i.ppnAmount} pph23Amount={i.pph23Amount} totalAmount={i.totalAmount} /></td>
                   <td className="p-2">
                     <BillingBadge value={i.status} />
                   </td>

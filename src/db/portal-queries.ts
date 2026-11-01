@@ -66,7 +66,7 @@ export async function portalSubscriptions(db: Db, clientId: string) {
 /** Invoice terbuka (unpaid/awaiting_confirmation) tenant — tanpa referensi pembayaran/bukti. */
 export async function portalOpenInvoices(db: Db, clientId: string) {
   const rows = await db
-    .select({ id: invoices.id, number: invoices.number, kind: invoices.kind, status: invoices.status, amount: invoices.amount, currency: invoices.currency, dueAt: invoices.dueAt })
+    .select({ id: invoices.id, number: invoices.number, kind: invoices.kind, status: invoices.status, amount: invoices.amount, currency: invoices.currency, dueAt: invoices.dueAt, taxScheme: invoices.taxScheme, ppnAmount: invoices.ppnAmount, pph23Amount: invoices.pph23Amount, totalAmount: invoices.totalAmount })
     .from(invoices)
     .where(and(eq(invoices.clientId, clientId), inArray(invoices.status, ["unpaid", "awaiting_confirmation"])))
     .orderBy(asc(invoices.dueAt));
