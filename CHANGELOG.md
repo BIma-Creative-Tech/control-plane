@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne AI gateway (`POST /api/bctone/ai`, migrasi `0009`):** consent dua jalur (allow → `cc/*`, deny →
+  `ollama-local/*` dengan key 9router terpisah, tanpa fallback), log consent append-only hash-chain (trigger tolak
+  UPDATE/DELETE/TRUNCATE), kuota prompt/hari WIB dari `plan_quotas` (atomik, slot dikembalikan bila upstream gagal),
+  masking PII, HMAC per tenant domain `bctone-ai:`. Form consent di `/subscriptions`. Nonaktif bila `AI_UPSTREAM_URL` kosong.
 - **BCTOne — job `bctone_tenant_config` (ADR 0019 #4, dispatcher ≥ 1.4.0):** tipe job baru (migrasi `0008`, enum aditif),
   kontrak = fixture dispatcher `dc1ba4d`. Otomatis diantrekan: (a) onboarding dengan paket `bctone-*` (langkah tepat setelah
   `odoo_db_provision`, pilihan pack F&B/Retail), (b) langganan `bctone-*` pada tenant ber-DB, (c) ubah kuota paket →

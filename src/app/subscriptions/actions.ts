@@ -7,6 +7,7 @@
 import {
   createSubscription,
   goLiveSubscription,
+  setClientAiConsent,
   setClientWithholding,
   setSubscriptionPrice,
   terminateSubscription,
@@ -60,5 +61,12 @@ export async function updatePlanAction(formData: FormData): Promise<void> {
 export async function setClientWithholdingAction(formData: FormData): Promise<void> {
   await handleBillingAction("setClientWithholding", "billing:manage", "/subscriptions", formData, (svc, d) =>
     setClientWithholding(getDb(), svc, { clientId: d.clientId, withholdsPph23: d.withholds_pph23 === "true" }),
+  );
+}
+
+/** BCTOne BR-05/06/07: consent AI tenant (dicatat hash-chain). Sementara via admin sampai Console › Privasi (US-13). */
+export async function setClientAiConsentAction(formData: FormData): Promise<void> {
+  await handleBillingAction("setClientAiConsent", "billing:manage", "/subscriptions", formData, (svc, d) =>
+    setClientAiConsent(getDb(), svc, { clientId: d.clientId, consent: d.consent }),
   );
 }

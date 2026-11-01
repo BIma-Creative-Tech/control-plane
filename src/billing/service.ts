@@ -5,10 +5,10 @@
  * `result=rejected` di luar transaksi (yang di-rollback). Tidak ada aksi infra langsung: suspend/resume hanya
  * enqueue job (jobs/tenant-state.ts, outbox di transaksi yang sama).
  */
-import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
-import { auditLogs, clients, invoices, planQuotas, plans, subscriptions, users } from "../db/schema";
+import { aiConsentLog, auditLogs, clients, invoices, planQuotas, plans, subscriptions, users } from "../db/schema";
 import {
   dateToTimestamp,
   effectivePrice,
@@ -29,6 +29,7 @@ import type { BridgeJobType, Instance } from "../lib/job-contract";
 import type { ActionResultCode } from "../lib/job-list-params";
 import { computeInvoiceTax, type TaxScheme } from "../lib/bctone-tax";
 import { isBctonePlanCode, selfServeStart } from "../lib/bctone-plans";
+import { consentHash, type AiConsent } from "../lib/ai-gateway";
 import { enqueueBctoneConfigTx, type BctoneConfigOutcome } from "../jobs/bctone-config";
 import { QUOTA_METRICS, type QuotaMetric } from "../lib/bctone-quota";
 import { can, type Permission } from "../lib/roles";
@@ -790,6 +791,27 @@ export async function setClientWithholding(
       await tx.update(clients).set({ withholdsPph23: p.withholdsPph23, updatedAt: sql`now()` }).where(eq(clients.id, c.id));
     }
     await auditOk(tx, input, t, { withholds_pph23: { from: c.w, to: p.withholdsPph23 } });
+    return { id: c.id };
+  });
+}
+
+/**
+ * BCTOne consent AI (BR-05/06/07): dicatat append-only hash-chain + cache clients.ai_consent, satu transaksi dengan audit.
+ * Diserialkan dengan advisory lock rantai global (prev_hash deterministik).
+ */
+export async function setClientAiConsent(db: Db, input: BillingServiceInput, p: { clientId: string; consent: AiConsent }): Promise<BillingOutcome> {
+  return run(db, input, "billing:manage", { action: "ai.consent", targetType: "subscription", targetId: null, clientId: p.clientId }, async (tx, t) => {
+    const c = (await tx.select({ id: clients.id, cur: clients.aiConsent, isPlatform: clients.isPlatform }).from(clients).where(eq(clients.id, p.clientId)).for("update").limit(1))[0];
+    if (!c) throw new Abort({ reason: "not_found" });
+    if (c.isPlatform) throw new Abort({ reason: "invalid" });
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('bctone_ai_consent_chain'))`);
+    const last = (await tx.select({ hash: aiConsentLog.hash }).from(aiConsentLog).orderBy(desc(aiConsentLog.id)).limit(1))[0];
+    const at = input.now ?? new Date();
+    const actor = actorLabel(input.actor);
+    const hash = consentHash(last?.hash ?? null, c.id, p.consent, actor, at);
+    await tx.insert(aiConsentLog).values({ clientId: c.id, consent: p.consent, actor, createdAt: at, prevHash: last?.hash ?? null, hash });
+    await tx.update(clients).set({ aiConsent: p.consent, updatedAt: sql`now()` }).where(eq(clients.id, c.id));
+    await auditOk(tx, input, t, { consent: { from: c.cur, to: p.consent }, hash });
     return { id: c.id };
   });
 }

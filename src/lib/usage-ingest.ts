@@ -16,7 +16,14 @@ export const USAGE_MAX_BODY_BYTES = 2048;
 const SLUG_RE = /^[a-z0-9-]{3,30}$/;
 
 export function tenantUsageKey(masterSecret: string, slug: string): Buffer {
-  return createHmac("sha256", masterSecret).update(`bctone-usage:${slug}`, "utf8").digest();
+  return tenantKey(masterSecret, "bctone-usage", slug);
+}
+
+/** Domain kunci per layanan (kunci ingest ≠ kunci AI; bocornya satu tidak membuka yang lain). */
+export type TenantKeyDomain = "bctone-usage" | "bctone-ai";
+
+export function tenantKey(masterSecret: string, domain: TenantKeyDomain, slug: string): Buffer {
+  return createHmac("sha256", masterSecret).update(`${domain}:${slug}`, "utf8").digest();
 }
 
 export function signUsage(key: Buffer, ts: string, rawBody: string): string {
@@ -31,13 +38,24 @@ export function verifyUsageRequest(
   rawBody: string,
   nowSeconds: number,
 ): { ok: true; slug: string } | { ok: false; reason: VerifyFailure } {
+  return verifyTenantRequest(masterSecret, "bctone-usage", h, rawBody, nowSeconds, USAGE_MAX_BODY_BYTES);
+}
+
+export function verifyTenantRequest(
+  masterSecret: string,
+  domain: TenantKeyDomain,
+  h: { tenant: string | null; ts: string | null; sig: string | null },
+  rawBody: string,
+  nowSeconds: number,
+  maxBodyBytes: number,
+): { ok: true; slug: string } | { ok: false; reason: VerifyFailure } {
   if (!h.tenant || !h.ts || !h.sig) return { ok: false, reason: "missing_header" };
   if (!SLUG_RE.test(h.tenant)) return { ok: false, reason: "bad_slug" };
   if (!/^[0-9]{9,11}$/.test(h.ts)) return { ok: false, reason: "bad_ts" };
   if (Math.abs(nowSeconds - Number(h.ts)) > USAGE_MAX_SKEW_SECONDS) return { ok: false, reason: "skew" };
-  if (Buffer.byteLength(rawBody, "utf8") > USAGE_MAX_BODY_BYTES) return { ok: false, reason: "too_large" };
+  if (Buffer.byteLength(rawBody, "utf8") > maxBodyBytes) return { ok: false, reason: "too_large" };
   if (!/^[0-9a-f]{64}$/.test(h.sig)) return { ok: false, reason: "bad_sig" };
-  const expected = Buffer.from(signUsage(tenantUsageKey(masterSecret, h.tenant), h.ts, rawBody), "hex");
+  const expected = Buffer.from(signUsage(tenantKey(masterSecret, domain, h.tenant), h.ts, rawBody), "hex");
   const got = Buffer.from(h.sig, "hex");
   if (!timingSafeEqual(expected, got)) return { ok: false, reason: "bad_sig" };
   return { ok: true, slug: h.tenant };
