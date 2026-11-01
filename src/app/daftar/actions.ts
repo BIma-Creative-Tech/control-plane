@@ -121,7 +121,8 @@ export async function registerBusinessAction(formData: FormData): Promise<void> 
   if (!p.success) go("bisnis", "invalid");
   const r = await requireReg(secret, "verified");
   // ganti industri → pilihan modul lama tidak berlaku
-  const reset = r.industry !== p.data.industry ? { modules: [] as string[], extraNeeds: null } : {};
+  // ganti industri → modul & paket lama tidak berlaku (null = belum diisi; halaman memakai default modul gratis)
+  const reset = r.industry && r.industry !== p.data.industry ? { modules: null, extraNeeds: null, tier: null } : {};
   await saveStep(getDb(), r.id, { industry: p.data.industry, outlets: p.data.outlets, ...reset });
   go("modul");
 }

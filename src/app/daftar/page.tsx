@@ -215,7 +215,7 @@ export default async function DaftarPage(props: { searchParams: Promise<Record<s
           <div className="grid gap-2 sm:grid-cols-2">
             {MODULES.filter((m) => m.industries.includes(reg.industry as Industry)).map((m) => (
               <label key={m.code} className="flex gap-2 rounded border p-3 text-sm">
-                <input type="checkbox" name={`m_${m.code}`} defaultChecked={reg.modules ? reg.modules.includes(m.code) : m.tier === "free"} />
+                <input type="checkbox" name={`m_${m.code}`} defaultChecked={reg.modules?.length ? reg.modules.includes(m.code) : m.tier === "free"} />
                 <span>
                   <span className="font-medium">{m.name}</span> <Badge tier={m.tier} />
                   <span className="block text-xs text-slate-500">{m.desc}</span>
