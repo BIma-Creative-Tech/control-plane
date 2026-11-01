@@ -26,6 +26,7 @@ import {
   type WizardStep,
 } from "@/lib/bctone-register";
 import { eq } from "drizzle-orm";
+import { defaultHost, realmEnvForInstance } from "@/lib/job-contract";
 import {
   registerBusinessAction,
   registerConsentAction,
@@ -110,6 +111,8 @@ export default async function DaftarPage(props: { searchParams: Promise<Record<s
   const e = typeof sp.e === "string" && ERR[sp.e] ? sp.e : null;
   const id = verifyRegCookie(env.AUTH_SECRET, (await cookies()).get(REG_COOKIE)?.value);
   const reg: Registration | null = id ? await loadRegistration(getDb(), id) : null;
+  // suffix host = aturan HOST instance ini (prod: .erp.bimacreative.tech, staging: .staging.bimacreative.tech)
+  const suffix = env.INFRA_JOBS_INSTANCE ? (defaultHost("x", realmEnvForInstance(env.INFRA_JOBS_INSTANCE)) ?? "").slice(1) : ".erp.bimacreative.tech";
 
   // Langkah ditentukan status registrasi; parameter `s` hanya boleh mundur ke langkah yang sudah diisi.
   let step: WizardStep = "akun";
@@ -156,7 +159,7 @@ export default async function DaftarPage(props: { searchParams: Promise<Record<s
             Alamat ERP
             <span className="flex items-center gap-1">
               <input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,28}[a-z0-9]" className={input} placeholder="kopi-senja" />
-              <span className="whitespace-nowrap text-xs text-slate-500">.erp.bimacreative.tech</span>
+              <span className="whitespace-nowrap text-xs text-slate-500">{suffix}</span>
             </span>
           </label>
           <label className="flex gap-2 text-sm">
@@ -252,7 +255,7 @@ export default async function DaftarPage(props: { searchParams: Promise<Record<s
         </form>
       ) : null}
 
-      {step === "ringkasan" && reg ? await SummaryStep(reg) : null}
+      {step === "ringkasan" && reg ? await SummaryStep(reg, suffix) : null}
 
       {step === "selesai" && reg ? await DoneStep(reg) : null}
     </main>
@@ -302,7 +305,7 @@ async function PlanStep(reg: Registration) {
   );
 }
 
-async function SummaryStep(reg: Registration) {
+async function SummaryStep(reg: Registration, suffix: string) {
   const tier = reg.tier as BctoneTier;
   const q = await quoteFor(tier);
   const review = needsReview(tier, reg.extraNeeds);
@@ -311,7 +314,10 @@ async function SummaryStep(reg: Registration) {
       <dl className="grid grid-cols-[10rem_1fr] gap-y-1">
         <dt className="text-slate-500">Bisnis</dt>
         <dd>
-          {reg.businessName} — <span className="font-mono">{reg.slug}.erp.bimacreative.tech</span>
+          {reg.businessName} — <span className="font-mono">
+            {reg.slug}
+            {suffix}
+          </span>
         </dd>
         <dt className="text-slate-500">Jenis usaha</dt>
         <dd>
