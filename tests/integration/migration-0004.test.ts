@@ -3,6 +3,7 @@
  * 0000..0003 dari salinan folder ./drizzle yang journal-nya dipotong → seed baris → migrasi penuh (hanya 0004 yang
  * jalan) → data lama utuh, default kolom baru benar, constraint baru aktif. Postgres SEKALI PAKAI (skema di-DROP).
  */
+import { readFileSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +13,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "@/db/client";
 import { ensurePlatformTenant } from "@/db/platform";
 
+/** Jumlah migrasi dibaca dari journal (ADR 0019 menambah 0006/0007), bukan angka tetap. */
+const JOURNAL_ENTRIES = (JSON.parse(readFileSync("./drizzle/meta/_journal.json", "utf8")) as { entries: unknown[] }).entries.length;
 const URL_ = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!URL_)("migrasi 0004 di atas DB 0003 berisi data", () => {
@@ -60,12 +63,12 @@ describe.skipIf(!URL_)("migrasi 0004 di atas DB 0003 berisi data", () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
-  it("journal drizzle: semua migrasi (0000..0005) tercatat; 0004 tidak diterapkan dua kali", async () => {
+  it("journal drizzle: semua migrasi journal tercatat; 0004 tidak diterapkan dua kali", async () => {
     const r = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
-    expect(r.rows[0]!.n).toBe(6);
+    expect(r.rows[0]!.n).toBe(JOURNAL_ENTRIES);
     await migrate(db, { migrationsFolder: "./drizzle" });
     const r2 = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
-    expect(r2.rows[0]!.n).toBe(6);
+    expect(r2.rows[0]!.n).toBe(JOURNAL_ENTRIES);
   });
 
   it("data lama utuh + default kolom baru", async () => {

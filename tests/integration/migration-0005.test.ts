@@ -3,6 +3,7 @@
  * (2) 0005 di atas DB yang SUDAH di 0004 berisi data (meniru prod/staging) → data lama utuh, kolom/enum/indeks baru,
  * FK aktor audit/job menjadi RESTRICT. Postgres SEKALI PAKAI (skema di-DROP).
  */
+import { readFileSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +15,8 @@ import { ensureInitialPlans } from "@/db/plans";
 import { pgErrorInfo } from "@/db/errors";
 import { ensurePlatformTenant } from "@/db/platform";
 
+/** ADR 0019 menambah migrasi 0006/0007: jumlah dibaca dari journal, bukan angka tetap. */
+const JOURNAL_ENTRIES = (JSON.parse(readFileSync("./drizzle/meta/_journal.json", "utf8")) as { entries: unknown[] }).entries.length;
 const URL_ = process.env.TEST_DATABASE_URL;
 /** SQLSTATE + constraint dari error (DrizzleQueryError membungkus error pg). */
 async function pgError(p: Promise<unknown>) {
@@ -47,9 +50,9 @@ describe.skipIf(!URL_)("migrasi 0005 (ADR 0018)", () => {
       await migrate(db, { migrationsFolder: "./drizzle" });
     });
 
-    it("6 migrasi; langkah boot idempoten: platform + 7 plan harga NULL", async () => {
+    it("semua migrasi journal; langkah boot idempoten: platform + 7 plan harga NULL", async () => {
       const r = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
-      expect(r.rows[0]!.n).toBe(6);
+      expect(r.rows[0]!.n).toBe(JOURNAL_ENTRIES);
       await ensurePlatformTenant(db);
       expect(await ensureInitialPlans(db)).toEqual({ created: 7, total: 7 });
       expect(await ensureInitialPlans(db)).toEqual({ created: 0, total: 7 });
@@ -107,12 +110,12 @@ describe.skipIf(!URL_)("migrasi 0005 (ADR 0018)", () => {
       await migrate(db, { migrationsFolder: "./drizzle" });
     });
 
-    it("hanya 0005 yang diterapkan; idempoten", async () => {
+    it("migrasi ≥ 0005 diterapkan; idempoten", async () => {
       const r = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
-      expect(r.rows[0]!.n).toBe(6);
+      expect(r.rows[0]!.n).toBe(JOURNAL_ENTRIES);
       await migrate(db, { migrationsFolder: "./drizzle" });
       const r2 = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations`);
-      expect(r2.rows[0]!.n).toBe(6);
+      expect(r2.rows[0]!.n).toBe(JOURNAL_ENTRIES);
     });
 
     it("data lama utuh + default/NULL kolom baru", async () => {

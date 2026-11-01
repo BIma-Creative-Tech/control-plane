@@ -6,6 +6,7 @@ import { z } from "zod";
 import { CURRENCY_REGEX, isIsoDate, isPositiveAmount } from "./billing";
 import { UUID_REGEX } from "./job-contract";
 import { formToObject } from "./job-forms";
+import { QUOTA_METRICS } from "./bctone-quota";
 
 const uuid = z.string().regex(UUID_REGEX);
 const isoDate = z.string().trim().refine(isIsoDate, "tanggal YYYY-MM-DD");
@@ -25,6 +26,12 @@ const optionalAmount = z
   .pipe(z.string().refine(isPositiveAmount, "nominal > 0").optional())
   .optional();
 const currency = z.string().trim().toUpperCase().regex(CURRENCY_REGEX);
+/** Batas kuota: "" = tanpa batas (null), selain itu bilangan bulat 0..999.999.999.999. */
+const optionalLimit = z
+  .string()
+  .trim()
+  .regex(/^(|0|[1-9][0-9]{0,11})$/)
+  .transform((v) => (v === "" ? null : Number(v)));
 const optionalUuid = z
   .string()
   .transform((v) => (v === "" ? undefined : v))
@@ -62,6 +69,19 @@ export const billingFormSchemas = {
     })
     .strict(),
   voidInvoice: z.object({ invoiceId: uuid, reason: line(3, 500) }).strict(),
+  /**
+   * D-1: ubah paket (harga, aktif, kuota) dari form. Harga "" = belum ditetapkan (Free). limit_<metric> "" = tanpa batas.
+   * Checkbox `is_active` hanya terkirim bila dicentang.
+   */
+  updatePlan: z
+    .object({
+      planId: uuid,
+      price_amount: optionalAmount,
+      is_active: z.literal("on").optional(),
+      ...Object.fromEntries(QUOTA_METRICS.map((m) => [`limit_${m}`, optionalLimit])),
+    })
+    .strict(),
+  setClientWithholding: z.object({ clientId: uuid, withholds_pph23: z.enum(["true", "false"]) }).strict(),
   markInvoicePaid: z
     .object({
       invoiceId: uuid,
