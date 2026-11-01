@@ -27,6 +27,10 @@ import { BRIDGE_JOB_TYPES } from "@/lib/job-contract";
 import { otpHash } from "@/lib/bctone-register";
 import type { Mailer, MailMessage } from "@/billing/mailer";
 import { sendRegistrationOtp } from "@/worker/bctone-otp";
+import { notifyRegistrations } from "@/bctone/notify";
+import { portalReportPayment } from "@/billing/portal-payment";
+import { createSubscription, type BillingServiceInput } from "@/billing/service";
+import { invoices, notificationLog, plans, users } from "@/db/schema";
 
 const URL_ = process.env.TEST_DATABASE_URL;
 const META = { ip: "203.0.113.50", requestId: "req-reg" };
@@ -182,5 +186,59 @@ describe.skipIf(!URL_)("BCTOne registrasi self-serve", () => {
     expect((await loadRegistration(db, id))!.status).toBe("failed");
     expect((await db.select().from(clients).where(eq(clients.slug, "toko-c"))).length).toBe(0);
     expect((await db.select().from(bctoneRegistrations).where(eq(bctoneRegistrations.status, "failed"))).length).toBe(1);
+  });
+
+  it("notifikasi: owner untuk review/waitlist, sambutan saat done, tolak ke pendaftar — sekali per key", async () => {
+    const quiet = { info: () => undefined, warn: () => undefined, error: () => undefined };
+    sent.length = 0;
+    const d = { db, mailer, logger: quiet, ownerEmail: "billing@bimacreative.tech", adminUrl: "https://cp.example" };
+    // registrasi review baru (resto-a sudah disetujui → bukan review lagi)
+    const rid = await startVerified("bakery-z", "bakery@example.co.id", "192.0.2.13");
+    await fill(rid, "bisnis", null, ["pos", "accounting"]);
+    expect(await submitRegistration(db, rid, ctx())).toEqual({ ok: true, status: "review" });
+    sent.length = 0; // abaikan email OTP bakery-z
+    const n1 = await notifyRegistrations(d);
+    const subjects = sent.map((m) => `${m.to[0]}|${m.subject}`).sort();
+    expect(subjects).toEqual([
+      "billing@bimacreative.tech|[BCTOne] Pendaftaran menunggu review: Usaha bakery-z",
+      "kopi-senja@example.co.id|ERP BCTOne Anda siap",
+      "tokob@example.co.id|Pendaftaran BCTOne Anda",
+    ]);
+    expect(n1).toBe(3);
+    expect(sent.find((m) => m.to[0] === "kopi-senja@example.co.id")!.text).toContain("https://kopi-senja.staging.bimacreative.tech");
+    expect(await notifyRegistrations(d)).toBe(0); // dedupe
+    expect((await db.select().from(notificationLog)).every((x) => x.status === "sent")).toBe(true);
+  });
+
+  it("Console › Tagihan: tenant-admin lapor bayar → awaiting_confirmation; PPh 23 wajib bila memotong; tenant lain not_found", async () => {
+    const c = (await db.select().from(clients).where(eq(clients.slug, "kopi-senja")))[0]!;
+    const other = (await db.select().from(clients).where(eq(clients.slug, "resto-a")))[0]!;
+    const [sa] = await db.insert(users).values({ keycloakSub: "sa-bill", role: "superadmin" }).returning();
+    const SA = { sub: "sa-bill", userId: sa!.id, roles: ["superadmin" as const] };
+    const svc: BillingServiceInput = { actor: SA, meta: META, instance: "staging", allowedTypes: [...BRIDGE_JOB_TYPES], send };
+    // ganti ke UMKM berbayar: akhiri langganan Free lalu buat UMKM (invoice pertama berpajak)
+    await db.update(subscriptions).set({ status: "terminated" }).where(eq(subscriptions.clientId, c.id));
+    await db.update(clients).set({ withholdsPph23: true }).where(eq(clients.id, c.id));
+    const umkm = (await db.select().from(plans).where(eq(plans.code, "bctone-umkm")))[0]!;
+    expect((await createSubscription(db, svc, { clientId: c.id, planId: umkm.id })).ok).toBe(true);
+    const inv = (await db.select().from(invoices).where(eq(invoices.clientId, c.id)))[0]!;
+    expect([inv.amount, inv.ppnAmount, inv.pph23Amount, inv.totalAmount]).toEqual(["199000.00", "21890.00", "3980.00", "220890.00"]);
+    const [adm] = await db.insert(users).values({ keycloakSub: "adm-ks", role: "client_admin", clientId: c.id, status: "active" }).returning();
+    const [usr] = await db.insert(users).values({ keycloakSub: "usr-ks", role: "client_user", clientId: c.id, status: "active" }).returning();
+    const A = { sub: "adm-ks", userId: adm!.id, roles: ["client_admin" as const] };
+    const form = { invoiceId: inv.id, paid_on: "2026-11-01", bank_reference: "BCA 0111 INV" };
+    const now = new Date("2026-11-02T03:00:00Z");
+    expect(await portalReportPayment(db, { clientId: c.id, userId: usr!.id, actor: A, meta: META, form, now })).toEqual({ ok: false, reason: "forbidden" });
+    expect(await portalReportPayment(db, { clientId: other.id, userId: adm!.id, actor: A, meta: META, form, now })).toEqual({ ok: false, reason: "forbidden" });
+    expect(await portalReportPayment(db, { clientId: c.id, userId: adm!.id, actor: A, meta: META, form: { ...form, paid_on: "2026-11-05" }, now })).toEqual({ ok: false, reason: "future_date" });
+    expect(await portalReportPayment(db, { clientId: c.id, userId: adm!.id, actor: A, meta: META, form, now })).toEqual({ ok: false, reason: "pph23_required" });
+    expect(await portalReportPayment(db, { clientId: c.id, userId: adm!.id, actor: A, meta: META, form: { ...form, pph23_reference: "BP-2026-0001" }, now })).toEqual({ ok: true });
+    const after = (await db.select().from(invoices).where(eq(invoices.id, inv.id)))[0]!;
+    expect(after.status).toBe("awaiting_confirmation");
+    expect(after.proofReference).toBe("transfer 2026-11-01: BCA 0111 INV | bukti potong PPh 23: BP-2026-0001");
+    expect(await portalReportPayment(db, { clientId: c.id, userId: adm!.id, actor: A, meta: META, form: { ...form, pph23_reference: "x12" }, now })).toEqual({ ok: false, reason: "invoice_state" });
+    // invoice tenant lain dari admin ini → not_found
+    const [adm2] = await db.insert(users).values({ keycloakSub: "adm-ra", role: "client_admin", clientId: other.id, status: "active" }).returning();
+    expect(await portalReportPayment(db, { clientId: other.id, userId: adm2!.id, actor: { ...A, sub: "adm-ra", userId: adm2!.id }, meta: META, form, now })).toEqual({ ok: false, reason: "not_found" });
   });
 });

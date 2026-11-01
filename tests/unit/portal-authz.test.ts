@@ -181,7 +181,7 @@ describe("inventaris gerbang halaman & Server Action (URL langsung / POST action
       }
       expect(perms.length, `${r}: tanpa gerbang izin literal`).toBeGreaterThan(0);
       for (const p of perms) {
-        if (r === "/portal/users" || r === "/portal/bctone") {
+        if (r === "/portal/users" || r === "/portal/bctone" || r === "/portal/billing") {
           expect(p).toBe("users:manage_own");
         } else {
           expect(can(["client_admin"], p) || can(["client_user"], p), `${r} (${p}) terbuka untuk role tenant`).toBe(false);

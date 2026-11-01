@@ -75,6 +75,8 @@ export const workerEnvSchema = baseEnvSchema
     SMTP_FROM: z.email().default("noreply@bimacreative.tech"),
     /** Alamat billing internal (penerima pengingat + laporan cek tenant-admin). */
     BILLING_EMAIL: z.email().default("billing@bimacreative.tech"),
+    /** URL publik CP untuk tautan di email worker (mis. https://cp.staging.bimacreative.tech). */
+    CP_PUBLIC_URL: z.url({ protocol: /^https$/ }).default("https://cp.bimacreative.tech"),
   })
   .superRefine((env, ctx) => {
     if ((env.SMTP_USER === undefined) !== (env.SMTP_PASSWORD_FILE === undefined)) {
@@ -180,6 +182,8 @@ export const webEnvSchema = baseEnvSchema
      */
     BCTONE_REGISTER_ENABLED: z.enum(["0", "1"]).default("0"),
     BCTONE_CAPACITY: z.coerce.number().int().min(0).max(1000).default(15),
+    /** Instruksi transfer di Console › Tagihan (bukan secret; mis. "BCA 123… a.n. PT Bima Creative Tech"). Kosong = tidak tampil. */
+    PAYMENT_INSTRUCTIONS: z.preprocess((v) => (v === "" ? undefined : v), z.string().max(300).optional()),
     DASHBOARD_ODOO_URLS: z
       .string()
       .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")

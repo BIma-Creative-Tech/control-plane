@@ -82,6 +82,9 @@ export const ACTION_RESULT_CODES = [
   "route_manual",
   "registered_partial",
   "registered_no_jobs",
+  // BCTOne Console › Tagihan
+  "pph23_required",
+  "payment_reported",
 ] as const;
 export type ActionResultCode = (typeof ACTION_RESULT_CODES)[number];
 
@@ -137,6 +140,8 @@ export const ACTION_RESULT_TEXT: Record<ActionResultCode, string> = {
   no_env: "Tenant tidak punya environment yang dilayani instance ini.",
   plan_required: "Jalankan \"Rencana sync realm\" dulu: rencana terakhir harus sukses (≤ 24 jam) tanpa blocker.",
   approve_required: "Realm prod/demo: centang persetujuan eksplisit sebelum menerapkan.",
+  pph23_required: "Perusahaan Anda memotong PPh 23: isi nomor bukti potong.",
+  payment_reported: "Pembayaran dilaporkan. Tim kami akan mengonfirmasi setelah dana diterima (biasanya 1 hari kerja).",
   plan_limit: "Batas jumlah user paket langganan tercapai (user aktif + undangan + yang sedang diproses). Hubungi admin platform untuk menaikkan paket.",
   updated: "Perubahan tersimpan.",
   deleted: "Data dihapus.",

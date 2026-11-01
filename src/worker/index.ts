@@ -19,6 +19,7 @@ import { logger } from "../lib/logger";
 import { QUEUE_SUBSCRIPTION_TICK, mailerFromEnv, registerSubscriptionTick } from "./billing";
 import { QUEUE_BCTONE_OTP, registerOtpWorker } from "./bctone-otp";
 import { settleRegistrations } from "../bctone/registration";
+import { notifyRegistrations } from "../bctone/notify";
 import { createBridge } from "./bridge";
 import { registerInfraJobWorker } from "./register";
 import { QUEUE_NOOP, handleNoop, parseNoopPayload } from "./jobs";
@@ -67,10 +68,21 @@ async function main(): Promise<void> {
   await registerSubscriptionTick(boss, { db, env, logger });
   // BCTOne registrasi self-serve: kirim OTP (kode dibuat di worker, hanya hash di DB).
   await registerOtpWorker(boss, { db, mailer: mailerFromEnv(env), logger });
+  const regMailer = mailerFromEnv(env);
+  let regBusy = false;
   const settleTimer = setInterval(() => {
-    void settleRegistrations(db)
-      .then((n) => (n > 0 ? logger.info({ closed: n }, "registrasi BCTOne selesai") : undefined))
-      .catch((err: unknown) => logger.warn({ err: err instanceof Error ? err.name : "error" }, "settle registrasi gagal"));
+    if (regBusy) return;
+    regBusy = true;
+    void (async () => {
+      const closed = await settleRegistrations(db);
+      if (closed > 0) logger.info({ closed }, "registrasi BCTOne selesai");
+      const sent = await notifyRegistrations({ db, mailer: regMailer, logger, ownerEmail: env.BILLING_EMAIL, adminUrl: env.CP_PUBLIC_URL.replace(/\/$/, "") });
+      if (sent > 0) logger.info({ sent }, "email registrasi BCTOne terkirim");
+    })()
+      .catch((err: unknown) => logger.warn({ err: err instanceof Error ? err.name : "error" }, "settle/notify registrasi gagal"))
+      .finally(() => {
+        regBusy = false;
+      });
   }, 30_000);
 
   const queues = [QUEUE_NOOP, QUEUE_SUBSCRIPTION_TICK, QUEUE_BCTONE_OTP];
