@@ -166,6 +166,14 @@ export const webEnvSchema = baseEnvSchema
      * Kunci per tenant diturunkan darinya (lib/usage-ingest.ts tenantUsageKey).
      */
     USAGE_INGEST_SECRET: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(32, "minimal 32 karakter").optional()),
+    /**
+     * BCTOne AI gateway (`/api/bctone/ai`): base URL OpenAI-compatible 9router (mis. https://9router.bimacreative.tech/v1).
+     * Kosong = gateway nonaktif (404). AI_KEY_ALLOW = key jalur izinkan (Claude); AI_KEY_DENY = key jalur tolak yang di
+     * 9router dibatasi `ollama-local/*` (tanpa fallback Claude). Key kosong = jalur itu 502 route_unconfigured.
+     */
+    AI_UPSTREAM_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().startsWith("https://").optional()),
+    AI_KEY_ALLOW: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(16).optional()),
+    AI_KEY_DENY: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(16).optional()),
     DASHBOARD_ODOO_URLS: z
       .string()
       .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")

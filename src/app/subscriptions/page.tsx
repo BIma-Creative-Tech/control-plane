@@ -13,6 +13,7 @@ import { Nav } from "../nav";
 import {
   createSubscriptionAction,
   goLiveAction,
+  setClientAiConsentAction,
   setClientWithholdingAction,
   setSubscriptionPriceAction,
   terminateSubscriptionAction,
@@ -246,6 +247,30 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
               Simpan
             </button>
             <p className="w-full text-xs text-slate-500">Berlaku untuk invoice BCTOne berikutnya; invoice yang sudah terbit tidak berubah.</p>
+          </form>
+        ) : null}
+
+        {canManage && selected && selectedActive ? (
+          <form action={setClientAiConsentAction} className="flex flex-wrap items-center gap-2 rounded border bg-white p-4 text-sm">
+            <span className="font-semibold">
+              Consent AI <span className="font-mono">{selected.slug}</span>
+            </span>
+            <span className="text-xs text-slate-500">
+              saat ini: {selected.aiConsent === "allow" ? "Izinkan (Claude)" : selected.aiConsent === "deny" ? "Tidak izinkan (Ollama VPS)" : "belum memilih — AI ditolak"}
+            </span>
+            <input type="hidden" name="back" value={tenantParam} />
+            <input type="hidden" name="clientId" value={selected.id} />
+            <select name="consent" defaultValue="" required className={input}>
+              <option value="" disabled>
+                — pilih —
+              </option>
+              <option value="allow">Izinkan: Claude via 9router</option>
+              <option value="deny">Tidak izinkan: Ollama di VPS BCT, tanpa fallback</option>
+            </select>
+            <button type="submit" className={btn}>
+              Catat
+            </button>
+            <p className="w-full text-xs text-slate-500">Tercatat append-only (hash-chain) atas nama Anda; berlaku mulai request AI berikutnya.</p>
           </form>
         ) : null}
 

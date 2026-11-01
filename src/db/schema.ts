@@ -141,6 +141,8 @@ export const mailboxStatus = pgEnum("mailbox_status", ["active", "suspended", "d
 
 /** ADR 0018 D1 (migrasi 0004): status tenant & model isolasi. */
 export const tenantStatus = pgEnum("tenant_status", ["active", "suspended", "terminated"]);
+/** BCTOne consent AI (migrasi 0009): allow → Claude, deny → Ollama VPS, tanpa fallback. */
+export const aiConsent = pgEnum("ai_consent", ["allow", "deny"]);
 export const tenantIsolation = pgEnum("tenant_isolation", ["shared", "dedicated"]);
 /**
  * ADR 0018 D1 (migrasi 0004): `invited` = dibuat lewat job `kc_user_ensure` (belum pernah login),
@@ -176,6 +178,8 @@ export const clients = pgTable(
     isPlatform: boolean("is_platform").notNull().default(false),
     /** ADR 0019 (migrasi 0007): klien badan usaha memotong PPh 23 atas tagihan BCTOne (BR-17). */
     withholdsPph23: boolean("withholds_pph23").notNull().default(false),
+    /** BCTOne consent AI terakhir (cache dari ai_consent_log; null = belum memilih → AI ditolak, BR-05). Migrasi 0009. */
+    aiConsent: aiConsent("ai_consent"),
   },
   (t) => [
     uniqueIndex("clients_slug_uq").on(t.slug),
@@ -694,4 +698,43 @@ export const mailboxes = pgTable(
     check("mailboxes_local_part_format", sql`${t.localPart} ~ '^[a-z0-9._-]{1,64}$'`),
     check("mailboxes_quota_pos", sql`${t.quotaMb} > 0`),
   ],
+);
+
+/**
+ * BCTOne (migrasi 0009) — log consent AI append-only, hash-chain global (BR-07, retensi 5 tahun). UPDATE/DELETE ditolak
+ * trigger. Baris terakhir per client = consent berlaku (di-cache ke clients.ai_consent dalam transaksi yang sama).
+ */
+export const aiConsentLog = pgTable(
+  "ai_consent_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "restrict" }),
+    consent: aiConsent("consent").notNull(),
+    actor: text("actor").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull(),
+    prevHash: text("prev_hash"),
+    hash: text("hash").notNull(),
+  },
+  (t) => [
+    uniqueIndex("ai_consent_log_hash_uq").on(t.hash),
+    uniqueIndex("ai_consent_log_prev_uq").on(t.prevHash),
+    index("ai_consent_log_client_idx").on(t.clientId, t.id),
+    check("ai_consent_log_hash_fmt", sql`${t.hash} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
+/** BCTOne (migrasi 0009) — hitungan prompt AI per tenant per hari WIB (kuota BR-11, ditegakkan atomik di gateway). */
+export const tenantAiDaily = pgTable(
+  "tenant_ai_daily",
+  {
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    usageDate: date("usage_date", { mode: "string" }).notNull(),
+    prompts: integer("prompts").notNull().default(0),
+    denied: integer("denied").notNull().default(0),
+  },
+  (t) => [uniqueIndex("tenant_ai_daily_uq").on(t.clientId, t.usageDate), check("tenant_ai_daily_nonneg", sql`${t.prompts} >= 0 AND ${t.denied} >= 0`)],
 );
