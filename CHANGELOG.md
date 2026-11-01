@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne — siklus langganan `self_serve` (ADR 0019, usulan; menunggu GATE 1):** kolom `subscriptions.lifecycle`
+  (`implementation` default = perilaku ADR 0018 tidak berubah | `self_serve`) dan `purge_due_at` (migrasi aditif `0006`).
+  Tick: `active → past_due` (grace 7 hari) → `suspended` (ditahan bila ada invoice `awaiting_confirmation`) → penanda
+  `purge_due_at` 14 hari setelah suspend. Tidak ada penghapusan otomatis; invoice lunas menghapus penanda.
 - **Migrasi prod M8 — "Daftarkan tenant yang sudah ada"** (`/clients`, superadmin `clients:manage`; plan → juga
   `billing:manage`): tenant yang sudah hidup (DB, route — boleh host kustom —, SSO) dicatat ke `clients` +
   `environments` dengan status deklarasi (db `provisioned`, route `active`, sso `active|none`) tanpa provisioning;

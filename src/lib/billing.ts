@@ -62,6 +62,15 @@ export function isBillable(s: SubscriptionStatus): boolean {
 export const WARRANTY_MONTHS = 2;
 export const GRACE_MONTHS = 2;
 
+/**
+ * ADR 0019 (BCTOne, keputusan owner K-13 + BR-22): siklus tenant self-serve.
+ * jatuh tempo (ends_at) → past_due; ends_at + 7 hari → suspended; suspended + 14 hari → purge_due.
+ */
+export const SUBSCRIPTION_LIFECYCLES = ["implementation", "self_serve"] as const;
+export type SubscriptionLifecycle = (typeof SUBSCRIPTION_LIFECYCLES)[number];
+export const SELF_SERVE_GRACE_DAYS = 7;
+export const SELF_SERVE_RETENTION_DAYS = 14;
+
 /** Label UI (bahasa Indonesia). */
 export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
   implementation: "implementasi",
@@ -191,6 +200,17 @@ export interface SubscriptionSnapshot {
   graceUntil: IsoDate | null;
   /** plans.billing_period_months (> 0). */
   periodMonths: number;
+  /**
+   * ADR 0019 (BCTOne, migrasi 0006): `implementation` (default, tabel ADR 0018) | `self_serve` (tenant daftar sendiri).
+   * Opsional demi kompatibilitas pemanggil lama: tidak diisi = `implementation`.
+   */
+  lifecycle?: SubscriptionLifecycle;
+  /** Tanggal WIB subscription disuspend (self_serve: acuan retensi 14 hari). */
+  suspendedOn?: IsoDate | null;
+  /** Tanggal WIB penanda purge sudah ditetapkan (self_serve) — null = belum. */
+  purgeDueOn?: IsoDate | null;
+  /** Ada invoice `awaiting_confirmation` (bukti bayar menunggu konfirmasi) — BR-18: tidak boleh memicu suspend. */
+  hasPendingProof?: boolean;
 }
 
 export type Transition =
@@ -203,14 +223,20 @@ export type Transition =
       invoicePeriod: { start: IsoDate; end: IsoDate };
     }
   | { from: "active"; to: "past_due"; graceUntil: IsoDate }
-  | { from: "past_due"; to: "suspended"; enqueueSuspend: true };
+  | { from: "past_due"; to: "suspended"; enqueueSuspend: true }
+  /**
+   * ADR 0019 (self_serve): retensi 14 hari setelah suspend habis → tenant ditandai siap dihapus. TIDAK mengubah status
+   * dan TIDAK menghapus apa pun: penghapusan (`tenant_purge`) butuh persetujuan platform-admin (ADR 0019 #4).
+   */
+  | { from: "suspended"; to: "purge_due"; purgeDueOn: IsoDate };
 
 export type TickAnomaly =
   | "deprecated_status"
   | "warranty_without_until"
   | "active_without_period"
   | "past_due_without_grace"
-  | "invalid_period";
+  | "invalid_period"
+  | "suspended_without_date";
 
 export interface TickPlan {
   transitions: Transition[];
@@ -224,6 +250,7 @@ export interface TickPlan {
  */
 export function planTransitions(s: SubscriptionSnapshot, today: IsoDate): TickPlan {
   parts(today);
+  if (s.lifecycle === "self_serve") return planSelfServeTransitions(s, today);
   if (isDeprecatedStatus(s.status)) return { transitions: [], final: s, anomaly: "deprecated_status" };
   if (!Number.isInteger(s.periodMonths) || s.periodMonths < 1 || s.periodMonths > 36) {
     return { transitions: [], final: s, anomaly: "invalid_period" };
@@ -257,6 +284,54 @@ export function planTransitions(s: SubscriptionSnapshot, today: IsoDate): TickPl
         break;
       }
       // implementation/warranty-sebelum-habis/suspended/terminated: tidak ada transisi otomatis.
+      default:
+        return { transitions, final: cur, anomaly: null };
+    }
+  }
+  return { transitions, final: cur, anomaly: null };
+}
+
+/**
+ * Tabel transisi self_serve (ADR 0019 #2, BR-18, BR-22) — murni, titik tetap seperti planTransitions:
+ *   active    → past_due   today > ends_at                       (grace_until = ends_at + 7 hari)
+ *   past_due  → suspended  today > grace_until DAN tanpa bukti bayar menunggu konfirmasi
+ *   suspended → purge_due  today > suspended_on + 14 hari DAN purge belum ditandai
+ * Tanpa warranty/implementation: tenant self-serve langsung `active` saat provisioning.
+ */
+function planSelfServeTransitions(s: SubscriptionSnapshot, today: IsoDate): TickPlan {
+  if (isDeprecatedStatus(s.status)) return { transitions: [], final: s, anomaly: "deprecated_status" };
+  if (!Number.isInteger(s.periodMonths) || s.periodMonths < 1 || s.periodMonths > 36) {
+    return { transitions: [], final: s, anomaly: "invalid_period" };
+  }
+  const transitions: Transition[] = [];
+  let cur: SubscriptionSnapshot = { ...s };
+  for (let i = 0; i < 3; i++) {
+    switch (cur.status) {
+      case "active": {
+        if (!cur.endsAt) return { transitions, final: cur, anomaly: "active_without_period" };
+        if (!isAfter(today, cur.endsAt)) return { transitions, final: cur, anomaly: null };
+        const graceUntil = addDays(cur.endsAt, SELF_SERVE_GRACE_DAYS);
+        transitions.push({ from: "active", to: "past_due", graceUntil });
+        cur = { ...cur, status: "past_due", graceUntil };
+        break;
+      }
+      case "past_due": {
+        if (!cur.graceUntil) return { transitions, final: cur, anomaly: "past_due_without_grace" };
+        if (!isAfter(today, cur.graceUntil) || cur.hasPendingProof) return { transitions, final: cur, anomaly: null };
+        transitions.push({ from: "past_due", to: "suspended", enqueueSuspend: true });
+        // Tanggal suspend = hari tick (bukan grace_until) — retensi dihitung dari suspend NYATA.
+        cur = { ...cur, status: "suspended", suspendedOn: today };
+        break;
+      }
+      case "suspended": {
+        if (cur.purgeDueOn) return { transitions, final: cur, anomaly: null };
+        if (!cur.suspendedOn) return { transitions, final: cur, anomaly: "suspended_without_date" };
+        const purgeDueOn = addDays(cur.suspendedOn, SELF_SERVE_RETENTION_DAYS);
+        if (!isAfter(today, purgeDueOn)) return { transitions, final: cur, anomaly: null };
+        transitions.push({ from: "suspended", to: "purge_due", purgeDueOn });
+        cur = { ...cur, purgeDueOn };
+        return { transitions, final: cur, anomaly: null };
+      }
       default:
         return { transitions, final: cur, anomaly: null };
     }

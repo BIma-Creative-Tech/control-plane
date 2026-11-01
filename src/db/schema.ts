@@ -49,6 +49,9 @@ export const subscriptionStatus = pgEnum("subscription_status", [
   "past_due",
 ]);
 
+/** ADR 0019 (BCTOne, migrasi 0006): siklus langganan — `implementation` (ADR 0018) | `self_serve` (daftar sendiri). */
+export const subscriptionLifecycle = pgEnum("subscription_lifecycle", ["implementation", "self_serve"]);
+
 /** ADR 0018 D7 (migrasi 0005): layanan yang dijual per plan. */
 export const planService = pgEnum("plan_service", ["odoo", "insight", "mail", "web"]);
 
@@ -261,6 +264,14 @@ export const subscriptions = pgTable(
     priceAmount: numeric("price_amount", { precision: 14, scale: 2 }),
     /** Mata uang override — wajib terisi bersama `price_amount` (CHECK), NULL bila tanpa override. */
     priceCurrency: char("price_currency", { length: 3 }),
+    // --- ADR 0019 (migrasi 0006, aditif). ---
+    /** Siklus: baris lama otomatis `implementation` (perilaku ADR 0018 tidak berubah). */
+    lifecycle: subscriptionLifecycle("lifecycle").notNull().default("implementation"),
+    /**
+     * self_serve: tanggal WIB retensi 14 hari habis (ditetapkan tick). Penanda untuk antrean purge platform-admin;
+     * dihapus (NULL) saat invoice lunas/resume. Tidak pernah memicu penghapusan otomatis.
+     */
+    purgeDueAt: date("purge_due_at", { mode: "string" }),
   },
   (t) => [
     index("subscriptions_client_idx").on(t.clientId),
