@@ -125,6 +125,12 @@ async function applyTransition(d: TickDeps, tx: Tx, s: LockedSubscription, t: Tr
         .where(eq(subscriptions.id, s.id));
       md.grace_until = t.graceUntil;
       break;
+    case "purge_due": {
+      // ADR 0019 #4: hanya penanda — penghapusan lewat job tenant_purge dengan persetujuan platform-admin.
+      await tx.update(subscriptions).set({ purgeDueAt: t.purgeDueOn, updatedAt: sql`now()` }).where(eq(subscriptions.id, s.id));
+      md.purge_due_at = t.purgeDueOn;
+      break;
+    }
     case "suspended": {
       await tx.update(subscriptions).set({ status: "suspended", suspendedAt: d.now, updatedAt: sql`now()` }).where(eq(subscriptions.id, s.id));
       // ADR 0018 D6: hanya route Odoo yang disuspend (mail Fase 4, web tetap tayang). Tenant platform tidak pernah.
@@ -161,7 +167,17 @@ async function processTransitions(d: TickDeps, report: TickReport): Promise<void
     .select({ id: subscriptions.id })
     .from(subscriptions)
     .innerJoin(clients, eq(clients.id, subscriptions.clientId))
-    .where(and(inArray(subscriptions.status, ["warranty", "active", "past_due"]), ne(clients.status, "terminated"), isNull(clients.terminatedAt)))
+    .where(
+      and(
+        or(
+          inArray(subscriptions.status, ["warranty", "active", "past_due"]),
+          // ADR 0019: self_serve suspended dievaluasi untuk penanda retensi 14 hari.
+          and(eq(subscriptions.status, "suspended"), eq(subscriptions.lifecycle, "self_serve"), isNull(subscriptions.purgeDueAt)),
+        ),
+        ne(clients.status, "terminated"),
+        isNull(clients.terminatedAt),
+      ),
+    )
     .orderBy(subscriptions.createdAt);
   for (const c of candidates) {
     try {

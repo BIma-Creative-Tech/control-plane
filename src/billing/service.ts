@@ -242,6 +242,10 @@ export async function lockSubscription(tx: Tx, subscriptionId: string) {
         graceUntil: subscriptions.graceUntil,
         goLiveAt: subscriptions.goLiveAt,
         warrantyUntil: subscriptions.warrantyUntil,
+        lifecycle: subscriptions.lifecycle,
+        suspendedAt: subscriptions.suspendedAt,
+        purgeDueAt: subscriptions.purgeDueAt,
+        hasPendingProof: sql<boolean>`exists (select 1 from ${invoices} where ${invoices.subscriptionId} = ${subscriptions.id} and ${invoices.status} = 'awaiting_confirmation')`,
         planId: plans.id,
         planCode: plans.code,
         planService: plans.service,
@@ -273,6 +277,10 @@ export async function lockSubscription(tx: Tx, subscriptionId: string) {
       endsAt: timestampToDate(row.endsAt),
       graceUntil: timestampToDate(row.graceUntil),
       periodMonths: row.periodMonths,
+      lifecycle: row.lifecycle,
+      suspendedOn: timestampToDate(row.suspendedAt),
+      purgeDueOn: row.purgeDueAt,
+      hasPendingProof: row.hasPendingProof === true,
     },
   };
 }
@@ -537,6 +545,8 @@ export async function markInvoicePaid(
           currentPeriodEnd: dateToTimestamp(plan.endsAt),
           graceUntil: null,
           suspendedAt: null,
+          // ADR 0019: lunas membatalkan penanda purge self_serve.
+          purgeDueAt: null,
           updatedAt: sql`now()`,
         })
         .where(eq(subscriptions.id, s.id));
