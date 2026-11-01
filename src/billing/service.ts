@@ -8,7 +8,7 @@
 import { and, eq, like, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
-import { auditLogs, clients, invoices, plans, subscriptions, users } from "../db/schema";
+import { auditLogs, clients, invoices, planQuotas, plans, subscriptions, users } from "../db/schema";
 import {
   dateToTimestamp,
   effectivePrice,
@@ -28,6 +28,8 @@ import {
 import type { BridgeJobType, Instance } from "../lib/job-contract";
 import type { ActionResultCode } from "../lib/job-list-params";
 import { computeInvoiceTax, type TaxScheme } from "../lib/bctone-tax";
+import { isBctonePlanCode, selfServeStart } from "../lib/bctone-plans";
+import { QUOTA_METRICS, type QuotaMetric } from "../lib/bctone-quota";
 import { can, type Permission } from "../lib/roles";
 import type { Actor, RequestMeta, SendFn, Tx } from "../jobs/service";
 import { TenantStateError, enqueueTenantStateTx, type TenantStateOutcome } from "../jobs/tenant-state";
@@ -309,6 +311,10 @@ export interface CreateSubscriptionParams {
   priceCurrency?: string | undefined;
   /** Onboarding tenant: plan wajib layanan ini (mis. `odoo`). */
   requireService?: "odoo" | "insight" | "mail" | "web";
+  /** ADR 0019: tanggal mulai langganan self-serve (paket `bctone-*`). Default = hari ini (WIB). */
+  startsAt?: IsoDate | undefined;
+  /** Waktu acuan nomor/tanggal invoice (test). */
+  now?: Date | undefined;
 }
 
 /**
@@ -342,6 +348,7 @@ export async function createSubscriptionTx(tx: Tx, input: BillingAuditInput, p: 
     .where(and(eq(subscriptions.clientId, client.id), eq(plans.service, plan.service), ne(subscriptions.status, "terminated")))
     .limit(1);
   if (dup.length > 0) throw new Abort({ reason: "service_exists" });
+  if (isBctonePlanCode(plan.code)) return createSelfServeSubscriptionTx(tx, input, p, client, plan, t);
   const row = (
     await tx
       .insert(subscriptions)
@@ -360,6 +367,77 @@ export async function createSubscriptionTx(tx: Tx, input: BillingAuditInput, p: 
     to: "implementation",
     plan_code: plan.code,
     service: plan.service,
+    ...(p.priceAmount !== undefined ? { price_amount: p.priceAmount, price_currency: p.priceCurrency } : {}),
+  });
+  return { id: row.id };
+}
+
+/**
+ * ADR 0019 + D-1: langganan paket BCTOne dibuat dari form CP — lifecycle `self_serve`, langsung `active` dengan periode
+ * berjalan; paket berbayar langsung diterbitkan invoice pertama (PPN, PPh 23 bila klien memotong). Plan tanpa harga
+ * (Free) tanpa invoice.
+ */
+async function createSelfServeSubscriptionTx(
+  tx: Tx,
+  input: BillingAuditInput,
+  p: CreateSubscriptionParams,
+  client: { id: string },
+  plan: typeof plans.$inferSelect,
+  t: AuditTarget,
+): Promise<{ id: string }> {
+  const now = p.now ?? new Date();
+  const start = p.startsAt ?? jakartaDate(now);
+  const period = selfServeStart(start, plan.billingPeriodMonths);
+  const row = (
+    await tx
+      .insert(subscriptions)
+      .values({
+        clientId: client.id,
+        planId: plan.id,
+        status: "active",
+        lifecycle: "self_serve",
+        currentPeriodStart: dateToTimestamp(period.startsAt),
+        currentPeriodEnd: dateToTimestamp(period.endsAt),
+        notes: p.notes ?? null,
+        priceAmount: p.priceAmount ?? null,
+        priceCurrency: p.priceAmount !== undefined ? (p.priceCurrency ?? null) : null,
+      })
+      .returning({ id: subscriptions.id })
+  )[0];
+  if (!row) throw new Error("insert subscriptions tanpa id");
+  const price = effectivePrice({
+    subscriptionPrice: p.priceAmount ?? null,
+    subscriptionCurrency: p.priceAmount !== undefined ? (p.priceCurrency ?? null) : null,
+    planPrice: plan.priceAmount,
+    planCurrency: plan.currency,
+  });
+  let invoice: string = "free";
+  if (price) {
+    const withhold = (await tx.select({ w: clients.withholdsPph23 }).from(clients).where(eq(clients.id, client.id)).limit(1))[0]?.w === true;
+    const r = await issueInvoiceTx(
+      tx,
+      {
+        clientId: client.id,
+        subscriptionId: row.id,
+        kind: "maintenance",
+        amount: price.amount,
+        currency: price.currency,
+        dueAt: period.startsAt,
+        period: { start: period.startsAt, end: period.endsAt },
+        tax: { scheme: "ppn_dpp_nilai_lain", withholdPph23: withhold },
+      },
+      now,
+    );
+    invoice = r === "exists" ? "exists" : r.number;
+  }
+  await auditOk(tx, input, { ...t, targetId: row.id }, {
+    to: "active",
+    lifecycle: "self_serve",
+    plan_code: plan.code,
+    service: plan.service,
+    starts_at: period.startsAt,
+    ends_at: period.endsAt,
+    invoice,
     ...(p.priceAmount !== undefined ? { price_amount: p.priceAmount, price_currency: p.priceCurrency } : {}),
   });
   return { id: row.id };
@@ -603,6 +681,69 @@ export async function markInvoicePaid(
     }
     await auditOk(tx, input, t, md);
     return { id: inv.id, jobIds };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// D-1 (owner 2026-11-01): kelola paket, kuota, dan pajak klien lewat form CP (superadmin, `billing:manage`)
+// ---------------------------------------------------------------------------
+/** Plan sebagai target audit memakai targetType `subscription` = domain billing; id plan di metadata. */
+export async function updatePlan(
+  db: Db,
+  input: BillingServiceInput,
+  p: { planId: string; priceAmount: string | null; isActive: boolean; limits: Partial<Record<QuotaMetric, number | null>> },
+): Promise<BillingOutcome> {
+  return run(db, input, "billing:manage", { action: "plan.update", targetType: "subscription", targetId: null, clientId: null }, async (tx) => {
+    const plan = (await tx.select().from(plans).where(eq(plans.id, p.planId)).for("update").limit(1))[0];
+    if (!plan) throw new Abort({ reason: "not_found" });
+    if (p.priceAmount !== null && !isPositiveAmount(p.priceAmount)) throw new Abort({ reason: "invalid" });
+    const changes: Record<string, unknown> = {};
+    if ((plan.priceAmount ?? null) !== p.priceAmount) changes.price_amount = { from: plan.priceAmount, to: p.priceAmount };
+    if (plan.isActive !== p.isActive) changes.is_active = { from: plan.isActive, to: p.isActive };
+    if (Object.keys(changes).length > 0) {
+      await tx.update(plans).set({ priceAmount: p.priceAmount, isActive: p.isActive, updatedAt: sql`now()` }).where(eq(plans.id, plan.id));
+    }
+    const cur = await tx.select({ metric: planQuotas.metric, limit: planQuotas.limitValue }).from(planQuotas).where(eq(planQuotas.planId, plan.id));
+    const curMap = new Map(cur.map((r) => [r.metric, r.limit]));
+    for (const m of QUOTA_METRICS) {
+      if (!(m in p.limits)) continue;
+      const want = p.limits[m] ?? null;
+      const have = curMap.get(m) ?? null;
+      if (want === have) continue;
+      changes[`limit.${m}`] = { from: have, to: want };
+      if (want === null) {
+        await tx.delete(planQuotas).where(and(eq(planQuotas.planId, plan.id), eq(planQuotas.metric, m)));
+      } else {
+        await tx
+          .insert(planQuotas)
+          .values({ planId: plan.id, metric: m, limitValue: want })
+          .onConflictDoUpdate({ target: [planQuotas.planId, planQuotas.metric], set: { limitValue: want, updatedAt: sql`now()` } });
+      }
+    }
+    await auditOk(tx, input, { action: "plan.update", targetType: "subscription", targetId: null, clientId: null }, {
+      plan_id: plan.id,
+      plan_code: plan.code,
+      changes,
+    });
+    return { id: plan.id };
+  });
+}
+
+/** Penanda klien memotong PPh 23 (BR-17) — berlaku untuk invoice BCTOne berikutnya. */
+export async function setClientWithholding(
+  db: Db,
+  input: BillingServiceInput,
+  p: { clientId: string; withholdsPph23: boolean },
+): Promise<BillingOutcome> {
+  return run(db, input, "billing:manage", { action: "client.tax", targetType: "subscription", targetId: null, clientId: p.clientId }, async (tx, t) => {
+    const c = (await tx.select({ id: clients.id, w: clients.withholdsPph23, isPlatform: clients.isPlatform }).from(clients).where(eq(clients.id, p.clientId)).for("update").limit(1))[0];
+    if (!c) throw new Abort({ reason: "not_found" });
+    if (c.isPlatform) throw new Abort({ reason: "invalid" });
+    if (c.w !== p.withholdsPph23) {
+      await tx.update(clients).set({ withholdsPph23: p.withholdsPph23, updatedAt: sql`now()` }).where(eq(clients.id, c.id));
+    }
+    await auditOk(tx, input, t, { withholds_pph23: { from: c.w, to: p.withholdsPph23 } });
+    return { id: c.id };
   });
 }
 

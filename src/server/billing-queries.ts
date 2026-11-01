@@ -1,7 +1,8 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
-import { clients, invoices, plans, subscriptions } from "@/db/schema";
+import { clients, invoices, planQuotas, plans, subscriptions } from "@/db/schema";
+import type { QuotaMetric } from "@/lib/bctone-quota";
 import { timestampToDate } from "@/lib/billing";
 
 /**
@@ -12,7 +13,7 @@ import { timestampToDate } from "@/lib/billing";
 
 export async function listBillingTenants() {
   return getDb()
-    .select({ id: clients.id, slug: clients.slug, name: clients.name, status: clients.status, terminatedAt: clients.terminatedAt })
+    .select({ id: clients.id, slug: clients.slug, name: clients.name, status: clients.status, terminatedAt: clients.terminatedAt, withholdsPph23: clients.withholdsPph23 })
     .from(clients)
     .where(eq(clients.isPlatform, false))
     .orderBy(asc(clients.slug));
@@ -34,6 +35,14 @@ export async function listPlans() {
     .orderBy(asc(plans.service), asc(plans.code));
 }
 
+/** D-1: kuota semua plan (tidak ada baris = tanpa batas). */
+export async function listPlanQuotas(): Promise<Map<string, Partial<Record<QuotaMetric, number>>>> {
+  const rows = await getDb().select({ planId: planQuotas.planId, metric: planQuotas.metric, limit: planQuotas.limitValue }).from(planQuotas);
+  const out = new Map<string, Partial<Record<QuotaMetric, number>>>();
+  for (const r of rows) out.set(r.planId, { ...(out.get(r.planId) ?? {}), [r.metric]: r.limit });
+  return out;
+}
+
 export async function listSubscriptions(clientId: string | null) {
   const rows = await getDb()
     .select({
@@ -49,6 +58,8 @@ export async function listSubscriptions(clientId: string | null) {
       currency: plans.currency,
       subPriceAmount: subscriptions.priceAmount,
       subPriceCurrency: subscriptions.priceCurrency,
+      lifecycle: subscriptions.lifecycle,
+      purgeDueAt: subscriptions.purgeDueAt,
       goLiveAt: subscriptions.goLiveAt,
       warrantyUntil: subscriptions.warrantyUntil,
       startsAt: subscriptions.currentPeriodStart,

@@ -10,6 +10,11 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne Admin (D-1, owner 2026-11-01: Keycloak tetap sebagai IdP di belakang, pengelolaan lewat form CP):**
+  form paket `bctone-*` di /subscriptions (harga, aktif, 6 kuota; kosong = tanpa batas), form pajak klien (memotong
+  PPh 23), dan langganan paket `bctone-*` otomatis `self_serve` — langsung aktif, invoice pertama + PPN terbit saat
+  dibuat (Free tanpa invoice). Semua aksi `billing:manage` (superadmin) dan diaudit (`plan.update`, `client.tax`).
+- Test integrasi migrasi 0004/0005 membaca jumlah migrasi dari journal (sebelumnya angka tetap 6, gagal sejak 0006).
 - **BCTOne — paket, tampilan PPN, ingest pemakaian (ADR 0019):** seed idempoten `bctone-free/umkm/bisnis` + kuota
   (`ensureBctonePlans`, saat migrate); kolom Jumlah di /invoices dan portal menampilkan DPP + PPN = total (+ PPh 23 →
   transfer) untuk invoice berpajak; `POST /api/bctone/usage` (HMAC per tenant, ±300 s, seq anti-replay) — nonaktif (404)

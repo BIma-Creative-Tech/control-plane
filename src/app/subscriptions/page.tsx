@@ -4,11 +4,29 @@ import { SUBSCRIPTION_STATUS_LABELS, formatAmount, jakartaDate } from "@/lib/bil
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
 import { SLUG_REGEX } from "@/lib/slug";
-import { listBillingTenants, listPlans, listSubscriptions } from "@/server/billing-queries";
+import { QUOTA_METRICS } from "@/lib/bctone-quota";
+import { isBctonePlanCode } from "@/lib/bctone-plans";
+import { listBillingTenants, listPlanQuotas, listPlans, listSubscriptions } from "@/server/billing-queries";
 import { BillingBadge, btn, btnDanger, input } from "../billing/components";
 import { ResultBanner } from "../jobs/components";
 import { Nav } from "../nav";
-import { createSubscriptionAction, goLiveAction, setSubscriptionPriceAction, terminateSubscriptionAction } from "./actions";
+import {
+  createSubscriptionAction,
+  goLiveAction,
+  setClientWithholdingAction,
+  setSubscriptionPriceAction,
+  terminateSubscriptionAction,
+  updatePlanAction,
+} from "./actions";
+
+const METRIC_LABEL: Record<(typeof QUOTA_METRICS)[number], string> = {
+  users: "User",
+  devices: "Device",
+  outlets: "Outlet",
+  trx_per_month: "Trx/bln",
+  omzet_per_month: "Omzet/bln",
+  ai_prompts_per_day: "AI/hari",
+};
 
 /**
  * Subscriptions (ADR 0018 D4/D7, W5). Lihat: superadmin/ops (`billing:view`); buat/Go-live/akhiri: superadmin
@@ -25,7 +43,7 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
 
   const tenants = await listBillingTenants();
   const selected = tenantParam ? (tenants.find((t) => t.slug === tenantParam) ?? null) : null;
-  const [rows, plans] = await Promise.all([listSubscriptions(selected?.id ?? null), listPlans()]);
+  const [rows, plans, quotas] = await Promise.all([listSubscriptions(selected?.id ?? null), listPlans(), listPlanQuotas()]);
   const today = jakartaDate(new Date());
   const selectedActive = selected !== null && selected.status !== "terminated" && selected.terminatedAt === null;
 
@@ -107,6 +125,10 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
                   </td>
                   <td className="p-2">
                     <BillingBadge value={s.status} />
+                    {s.lifecycle === "self_serve" ? (
+                      <span className="ml-1 rounded bg-violet-100 px-1.5 py-0.5 text-xs text-violet-800">self-serve</span>
+                    ) : null}
+                    {s.purgeDueAt ? <p className="mt-1 text-xs text-red-700">siap dihapus sejak {s.purgeDueAt}</p> : null}
                   </td>
                   <td className="p-2 whitespace-nowrap">{s.goLiveAt ?? "—"}</td>
                   <td className="p-2 whitespace-nowrap">{s.warrantyUntil ?? "—"}</td>
@@ -196,15 +218,35 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
               <input name="price_currency" defaultValue="IDR" maxLength={3} pattern="[A-Z]{3}" className={`${input} w-16`} />
               <input name="notes" maxLength={1000} placeholder="catatan (opsional)" className={`${input} min-w-64`} />
               <button type="submit" className={btn}>
-                Buat (status {SUBSCRIPTION_STATUS_LABELS.implementation})
+                Buat langganan
               </button>
               <p className="w-full text-xs text-slate-500">
-                Satu langganan aktif per layanan per tenant. Invoice implementasi diterbitkan manual di halaman Invoices.
+                Satu langganan aktif per layanan per tenant. Plan biasa: status {SUBSCRIPTION_STATUS_LABELS.implementation}, invoice
+                implementasi diterbitkan manual. Paket <span className="font-mono">bctone-*</span>: langsung aktif (self-serve), invoice
+                pertama + PPN terbit otomatis (Free tanpa invoice).
               </p>
             </form>
           ) : (
             <p className="text-sm text-slate-500">Pilih satu tenant aktif (filter) untuk membuat langganan.</p>
           )
+        ) : null}
+
+        {canManage && selected && selectedActive ? (
+          <form action={setClientWithholdingAction} className="flex flex-wrap items-center gap-2 rounded border bg-white p-4 text-sm">
+            <span className="font-semibold">
+              Pajak klien <span className="font-mono">{selected.slug}</span>
+            </span>
+            <input type="hidden" name="back" value={tenantParam} />
+            <input type="hidden" name="clientId" value={selected.id} />
+            <select name="withholds_pph23" defaultValue={selected.withholdsPph23 ? "true" : "false"} className={input}>
+              <option value="false">Tidak memotong PPh 23</option>
+              <option value="true">Memotong PPh 23 (badan usaha)</option>
+            </select>
+            <button type="submit" className={btn}>
+              Simpan
+            </button>
+            <p className="w-full text-xs text-slate-500">Berlaku untuk invoice BCTOne berikutnya; invoice yang sudah terbit tidak berubah.</p>
+          </form>
         ) : null}
 
         <section className="space-y-2">
@@ -234,6 +276,56 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
               ))}
             </tbody>
           </table>
+          {canManage
+            ? plans
+                .filter((p) => isBctonePlanCode(p.code))
+                .map((p) => {
+                  const q = quotas.get(p.id) ?? {};
+                  return (
+                    <form key={p.id} action={updatePlanAction} className="flex flex-wrap items-end gap-2 rounded border bg-white p-3 text-sm">
+                      <input type="hidden" name="back" value={tenantParam} />
+                      <input type="hidden" name="planId" value={p.id} />
+                      <span className="w-full font-semibold">
+                        Paket <span className="font-mono">{p.code}</span> — {p.name}
+                      </span>
+                      <label className="flex flex-col text-xs">
+                        Harga/bln (tanpa PPN)
+                        <input
+                          name="price_amount"
+                          inputMode="decimal"
+                          defaultValue={p.priceAmount ?? ""}
+                          pattern="(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?"
+                          placeholder="kosong = gratis"
+                          className={`${input} w-36`}
+                        />
+                      </label>
+                      {QUOTA_METRICS.map((m) => (
+                        <label key={m} className="flex flex-col text-xs">
+                          {METRIC_LABEL[m]}
+                          <input
+                            name={`limit_${m}`}
+                            inputMode="numeric"
+                            defaultValue={q[m] ?? ""}
+                            pattern="(0|[1-9][0-9]{0,11})?"
+                            placeholder="∞"
+                            className={`${input} w-28`}
+                          />
+                        </label>
+                      ))}
+                      <label className="flex items-center gap-1 text-xs">
+                        <input type="checkbox" name="is_active" defaultChecked={p.isActive} /> aktif
+                      </label>
+                      <button type="submit" className={btn}>
+                        Simpan paket
+                      </button>
+                    </form>
+                  );
+                })
+            : null}
+          <p className="text-xs text-slate-500">
+            Kuota kosong = tanpa batas. Perubahan kuota berlaku untuk tenant saat konfigurasi tenant berikutnya dijalankan
+            (job bctone_tenant_config).
+          </p>
           <p className="text-xs text-slate-500">
             Invoice maintenance otomatis memakai harga override langganan, bila kosong harga plan. Keduanya NULL: tidak
             diterbitkan (dicatat di audit) — terbitkan manual di Invoices.
