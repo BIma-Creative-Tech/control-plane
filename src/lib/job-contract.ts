@@ -41,7 +41,10 @@ export const SAAS_P1_JOB_TYPES = [
   "tenant_resume",
 ] as const;
 
-export const BRIDGE_JOB_TYPES = [...LEGACY_JOB_TYPES, ...SAAS_P1_JOB_TYPES] as const;
+/** BCTOne self-serve (infra ADR 0019 #4, dispatcher ≥ 1.4.0). Aktif hanya bila ada di allowlist instance. */
+export const BCTONE_JOB_TYPES = ["bctone_tenant_config"] as const;
+
+export const BRIDGE_JOB_TYPES = [...LEGACY_JOB_TYPES, ...SAAS_P1_JOB_TYPES, ...BCTONE_JOB_TYPES] as const;
 export type BridgeJobType = (typeof BRIDGE_JOB_TYPES)[number];
 export type SaasP1JobType = (typeof SAAS_P1_JOB_TYPES)[number];
 
@@ -51,6 +54,10 @@ export function isBridgeJobType(v: unknown): v is BridgeJobType {
 
 export function isSaasP1JobType(v: unknown): v is SaasP1JobType {
   return typeof v === "string" && (SAAS_P1_JOB_TYPES as readonly string[]).includes(v);
+}
+
+export function isBctoneJobType(v: unknown): v is (typeof BCTONE_JOB_TYPES)[number] {
+  return typeof v === "string" && (BCTONE_JOB_TYPES as readonly string[]).includes(v);
 }
 
 /**
@@ -131,6 +138,8 @@ export const JOB_TIMEOUT_SECONDS: Record<BridgeJobType, number> = {
   odoo_tenant_config: 300,
   tenant_suspend: 60,
   tenant_resume: 60,
+  // ADR 0019 (= DEFAULT_TIMEOUTS dispatcher 1.4.0): install agen + pack modul.
+  bctone_tenant_config: 900,
 };
 /** Dry-run otomatis dispatcher sebelum apply (sso_provision/sso_disable/sso_user grant). */
 export const DRY_RUN_PREFLIGHT_SECONDS = 60;
@@ -254,6 +263,12 @@ export type OdooAccess = (typeof ODOO_ACCESS)[number];
 export const ODOO_USER_ROLES = ["user", "admin"] as const;
 export const KC_EMAIL_ACTIONS = ["UPDATE_PASSWORD", "VERIFY_EMAIL", "CONFIGURE_TOTP"] as const;
 export const TENANT_CHECK_MODES = ["off", "compat", "strict"] as const;
+/** ADR 0019 — = BCTONE_PLANS / BCTONE_METRICS / BCTONE_PACKS dispatcher. */
+export const BCTONE_PLAN_ARGS = ["bctone-free", "bctone-umkm", "bctone-bisnis"] as const;
+export const BCTONE_METRIC_ARGS = ["users", "devices", "outlets", "trx_per_month", "omzet_per_month", "ai_prompts_per_day"] as const;
+export const BCTONE_PACK_ARGS = ["fnb", "retail"] as const;
+export const BCTONE_LIMIT_MAX = 999_999_999_999;
+const bctoneLimit = z.number().int().min(0).max(BCTONE_LIMIT_MAX);
 /** kc_realm_sync apply di env ini wajib `approve=true`. */
 export const APPROVE_ENVS: readonly TenantEnv[] = ["prod", "demo"];
 
@@ -321,6 +336,15 @@ export const argsSchemas = {
   odoo_tenant_config: z.object({ tenant_check: z.enum(TENANT_CHECK_MODES) }).strict(),
   tenant_suspend: z.object({}).strict(),
   tenant_resume: z.object({}).strict(),
+  // ADR 0019 (= v_bctone_tenant_config dispatcher 1.4.0).
+  bctone_tenant_config: z
+    .object({
+      plan: z.enum(BCTONE_PLAN_ARGS),
+      enabled: z.boolean(),
+      limits: z.object(Object.fromEntries(BCTONE_METRIC_ARGS.map((m) => [m, bctoneLimit.optional()]))).strict().optional(),
+      pack: z.enum(BCTONE_PACK_ARGS).optional(),
+    })
+    .strict(),
 } as const satisfies Record<BridgeJobType, z.ZodType>;
 
 export type JobArgs = { [K in BridgeJobType]: z.infer<(typeof argsSchemas)[K]> };
@@ -447,6 +471,12 @@ export function validateJobRequest(instance: Instance, input: unknown): Contract
     case "tenant_suspend":
     case "tenant_resume":
       if (slug === PLATFORM_SLUG) return { ok: false, issue: "platform_forbidden" };
+      break;
+    case "bctone_tenant_config":
+      if (slug === PLATFORM_SLUG) return { ok: false, issue: "platform_forbidden" };
+      if (a.enabled === false && (a.pack !== undefined || (a.limits !== undefined && Object.keys(a.limits as object).length > 0))) {
+        return { ok: false, issue: "args" };
+      }
       break;
   }
   return { ok: true, value: { type, slug, env, dryRun, args: parsed.data } as JobRequest };
@@ -757,7 +787,7 @@ export function emailHash(email: string): string {
  * (plan 05) dan job dry-run → null (tidak di-dedupe; tipe lama memakai provision_jobs_one_active_uq).
  */
 export function idempotencyKey(req: Pick<JobRequest, "type" | "slug" | "env" | "dryRun" | "args">): string | null {
-  if (req.dryRun || !isSaasP1JobType(req.type)) return null;
+  if (req.dryRun || !(isSaasP1JobType(req.type) || isBctoneJobType(req.type))) return null;
   const a = req.args as Record<string, unknown>;
   let target: string;
   switch (req.type) {
@@ -770,6 +800,7 @@ export function idempotencyKey(req: Pick<JobRequest, "type" | "slug" | "env" | "
     case "odoo_tenant_config":
     case "tenant_suspend":
     case "tenant_resume":
+    case "bctone_tenant_config":
       target = "tenant";
       break;
     default:

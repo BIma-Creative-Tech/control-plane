@@ -10,6 +10,10 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne — job `bctone_tenant_config` (ADR 0019 #4, dispatcher ≥ 1.4.0):** tipe job baru (migrasi `0008`, enum aditif),
+  kontrak = fixture dispatcher `dc1ba4d`. Otomatis diantrekan: (a) onboarding dengan paket `bctone-*` (langkah tepat setelah
+  `odoo_db_provision`, pilihan pack F&B/Retail), (b) langganan `bctone-*` pada tenant ber-DB, (c) ubah kuota paket →
+  setiap tenant self-serve aktif. Hanya bila tipe ada di `INFRA_JOBS_TYPES` instance (prod belum).
 - **BCTOne Admin (D-1, owner 2026-11-01: Keycloak tetap sebagai IdP di belakang, pengelolaan lewat form CP):**
   form paket `bctone-*` di /subscriptions (harga, aktif, 6 kuota; kosong = tanpa batas), form pajak klien (memotong
   PPh 23), dan langganan paket `bctone-*` otomatis `self_serve` — langsung aktif, invoice pertama + PPN terbit saat

@@ -47,7 +47,18 @@ function OnboardingForm({ instance, plans }: { instance: Instance; plans: { id: 
               ))}
             </select>
           </label>
-          <span className="text-xs text-slate-500">Bila dipilih: langganan berstatus implementasi dibuat di transaksi yang sama.</span>
+          <label>
+            Pack BCTOne{" "}
+            <select name="pack" defaultValue="" className={input}>
+              <option value="">— tanpa pack —</option>
+              <option value="fnb">F&amp;B (POS restoran, stok)</option>
+              <option value="retail">Retail (POS, stok, penjualan, pembelian)</option>
+            </select>
+          </label>
+          <span className="text-xs text-slate-500">
+            Plan biasa: langganan implementasi. Paket bctone-*: langganan self-serve aktif + konfigurasi tenant (agen kuota, pack modul)
+            otomatis setelah DB dibuat.
+          </span>
         </div>
       ) : null}
       {instance === "prod" ? (

@@ -57,6 +57,13 @@
       "when": 1793527091233,
       "tag": "0007_bctone_quota_tax",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793540891264,
+      "tag": "0008_bctone_job_type",
+      "breakpoints": true
     }
   ]
 }

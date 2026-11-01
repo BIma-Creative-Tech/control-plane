@@ -102,6 +102,8 @@ export const jobType = pgEnum("job_type", [
   "odoo_tenant_config",
   "tenant_suspend",
   "tenant_resume",
+  // ADR 0019 (migrasi 0008) — konfigurasi tenant BCTOne (agen kuota + pack modul).
+  "bctone_tenant_config",
 ]);
 
 /** `dispatched` = file job sudah ditulis ke spool, hasil belum ada (plan 05 §4.3). */

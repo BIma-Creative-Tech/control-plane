@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
-import { auditLogs, clients, environments, provisionJobs, users } from "../db/schema";
+import { auditLogs, clients, environments, plans, provisionJobs, users } from "../db/schema";
 import {
   emailHash,
   envAllowedForInstance,
@@ -48,6 +48,9 @@ import {
 } from "../lib/tenant-register";
 import { emailBindingConflict, orderChain, type EmailBindingConflict, type TenantRef } from "../lib/user-admin";
 import { BillingAbort, createSubscriptionTx } from "../billing/service";
+import { isBctonePlanCode } from "../lib/bctone-plans";
+import { BCTONE_PLAN_ARGS } from "../lib/job-contract";
+import { bctoneLimits } from "./bctone-config";
 import { ChainAbort, enqueueChain, type ChainFailure, type ChainInput } from "./chain";
 import type { Actor, RequestMeta, SendFn, Tx } from "./service";
 
@@ -119,6 +122,18 @@ async function usersByEmail(db: Db, email: string) {
     .from(users)
     .where(sql`lower(${users.email}) = ${email.toLowerCase()}`)
     .limit(20);
+}
+
+/**
+ * ADR 0019: plan onboarding = paket BCTOne dan tipe job diizinkan instance → langkah `bctone_tenant_config` (batas dari
+ * plan_quotas). Selain itu undefined (rantai onboarding lama tidak berubah).
+ */
+async function bctoneOnboarding(db: Db, allowed: readonly BridgeJobType[], planId: string | null, pack: "fnb" | "retail" | null) {
+  if (!planId || !allowed.includes("bctone_tenant_config")) return undefined;
+  const plan = (await db.select({ id: plans.id, code: plans.code }).from(plans).where(eq(plans.id, planId)).limit(1))[0];
+  if (!plan || !isBctonePlanCode(plan.code) || !(BCTONE_PLAN_ARGS as readonly string[]).includes(plan.code)) return undefined;
+  const limits = await db.transaction((tx) => bctoneLimits(tx, plan.id));
+  return { plan: plan.code as (typeof BCTONE_PLAN_ARGS)[number], limits, pack };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +218,14 @@ export async function onboardTenant(db: Db, send: SendFn, input: TenantServiceIn
     instance: input.instance,
     allowedTypes: input.allowedTypes,
     client: { id: tenantId, slug: f.slug, isNew: true },
-    steps: buildOnboardingSteps({ tenantId, realmEnv: realmEnvForInstance(input.instance), envs: f.envs, adminEmail: f.adminEmail, adminName: f.adminName }),
+    steps: buildOnboardingSteps({
+      tenantId,
+      realmEnv: realmEnvForInstance(input.instance),
+      envs: f.envs,
+      adminEmail: f.adminEmail,
+      adminName: f.adminName,
+      bctone: await bctoneOnboarding(db, input.allowedTypes, f.planId, f.pack ?? null),
+    }),
     actor: input.actor,
     meta: input.meta,
     audit: { action: "tenant.onboard", targetType: "client", targetId: tenantId, metadata: { ...md, tenant_check: "compat" } },

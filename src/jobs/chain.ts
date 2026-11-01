@@ -33,6 +33,7 @@ import { auditLogs, environments, provisionJobs, users } from "../db/schema";
 import {
   BRIDGE_JOB_TYPES,
   blockedForManualRoute,
+  isBctoneJobType,
   isSaasP1JobType,
   checkSsoHosts,
   defaultHost,
@@ -143,7 +144,7 @@ export function validateChain(
   for (const [i, s] of steps.entries()) {
     if (!allowedTypes.includes(s.type)) return { ok: false, issue: "type_not_allowed", step: i };
     // Tipe lama di luar CHAIN_ENV_TYPES tidak pernah lewat rantai (bookkeeping tenant_user_access ada di service.ts).
-    if (!isSaasP1JobType(s.type) && !isChainEnvType(s.type)) return { ok: false, issue: "type_not_allowed", step: i };
+    if (!isSaasP1JobType(s.type) && !isChainEnvType(s.type) && !isBctoneJobType(s.type)) return { ok: false, issue: "type_not_allowed", step: i };
     const v = validateJobRequest(instance, { type: s.type, slug, env: s.env, dryRun: s.dryRun ?? false, args: s.args });
     if (!v.ok) return { ok: false, issue: v.issue, step: i };
     reqs.push(v.value);

@@ -79,6 +79,8 @@ export interface OnboardingInput {
    * (billing/service.ts createSubscriptionTx; plan harus aktif dan layanan `odoo`, diverifikasi ulang di server).
    */
   planId: string | null;
+  /** ADR 0019: paket modul industri untuk paket BCTOne (diabaikan untuk plan non-`bctone-*`). */
+  pack?: "fnb" | "retail" | null | undefined;
 }
 
 export type OnboardingFormIssue = "invalid" | "slug_reserved" | "slug_invalid" | "email_invalid" | "name_invalid" | "host_invalid";
@@ -111,6 +113,12 @@ const common = {
     .trim()
     .transform((v) => (v === "" ? undefined : v))
     .pipe(z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/).optional())
+    .optional(),
+  pack: z
+    .string()
+    .trim()
+    .transform((v) => (v === "" ? undefined : v))
+    .pipe(z.enum(["fnb", "retail"]).optional())
     .optional(),
 };
 
@@ -159,7 +167,7 @@ export function parseOnboardingForm(
 
   return {
     success: true,
-    data: { slug: d.slug, name: d.name, brand: d.brand ?? null, adminEmail: d.admin_email, adminName, envs, planId: d.plan_id ?? null },
+    data: { slug: d.slug, name: d.name, brand: d.brand ?? null, adminEmail: d.admin_email, adminName, envs, planId: d.plan_id ?? null, ...(d.pack ? { pack: d.pack } : {}) },
   };
 }
 
@@ -209,11 +217,22 @@ export function buildOnboardingSteps(p: {
   envs: readonly OnboardingEnv[];
   adminEmail: string;
   adminName: string | null;
+  /** ADR 0019: paket BCTOne → `bctone_tenant_config` per env tepat setelah DB dibuat (sebelum route/SSO). */
+  bctone?: { plan: "bctone-free" | "bctone-umkm" | "bctone-bisnis"; limits: Record<string, number>; pack: "fnb" | "retail" | null } | undefined;
 }): ChainStep[] {
   const steps: ChainStep[] = [{ type: "kc_org_ensure", env: p.realmEnv, args: { tenant_id: p.tenantId } }];
   for (const e of p.envs) {
     steps.push(
       { type: "odoo_db_provision", env: e.kind, args: { host: e.host } },
+      ...(p.bctone
+        ? [
+            {
+              type: "bctone_tenant_config" as const,
+              env: e.kind,
+              args: { plan: p.bctone.plan, enabled: true, limits: p.bctone.limits, ...(p.bctone.pack ? { pack: p.bctone.pack } : {}) },
+            },
+          ]
+        : []),
       { type: "odoo_route", env: e.kind, args: { host: e.host, remove: false } },
       { type: "odoo_sso_provision", env: e.kind, args: { hosts: [e.host], rotate_secret: false, skip_smoke: false } },
       { type: "odoo_tenant_config", env: e.kind, args: { tenant_check: "compat" } },
