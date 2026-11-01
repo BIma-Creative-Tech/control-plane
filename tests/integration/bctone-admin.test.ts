@@ -10,7 +10,7 @@ import { runSubscriptionTick } from "@/billing/tick";
 import { createDb, type Db } from "@/db/client";
 import { ensureBctonePlans, ensureInitialPlans } from "@/db/plans";
 import { ensurePlatformTenant } from "@/db/platform";
-import { auditLogs, clients, invoices, planQuotas, plans, subscriptions, users } from "@/db/schema";
+import { auditLogs, clients, environments, invoices, planQuotas, plans, provisionJobs, subscriptions, users } from "@/db/schema";
 import type { Actor, SendFn } from "@/jobs/service";
 import { dateToTimestamp, timestampToDate } from "@/lib/billing";
 import { BRIDGE_JOB_TYPES } from "@/lib/job-contract";
@@ -136,6 +136,53 @@ describe.skipIf(!URL_)("BCTOne admin (D-1)", () => {
     const ls = (await db.select().from(subscriptions).where(eq(subscriptions.id, (legacy as { id: string }).id)))[0]!;
     expect(ls.status).toBe("implementation");
     expect(ls.lifecycle).toBe("implementation");
+  });
+
+  it("ADR 0019: DB ter-provision → langganan bctone + ubah kuota memicu bctone_tenant_config (dedupe args sama)", async () => {
+    const cid = (await db.insert(clients).values({ slug: "kopi-c", name: "Kopi C" }).returning())[0]!.id;
+    await db.insert(environments).values({
+      clientId: cid,
+      kind: "prod",
+      odooInstance: "pool-a",
+      dbName: "kopi_c_prod",
+      url: "https://kopi-c.erp.bimacreative.tech",
+      host: "kopi-c.erp.bimacreative.tech",
+      dbStatus: "provisioned",
+      routeStatus: "active",
+    });
+    const free = await plan("bctone-free");
+    const jobsOf = () => db.select().from(provisionJobs).where(and(eq(provisionJobs.clientId, cid), eq(provisionJobs.type, "bctone_tenant_config")));
+    // allowlist tanpa tipe baru → tidak ada job (perilaku instance prod saat ini)
+    const noType: BillingServiceInput = { ...svc(SUPER), allowedTypes: BRIDGE_JOB_TYPES.filter((t) => t !== "bctone_tenant_config") };
+    const r0 = await createSubscription(db, noType, { clientId: cid, planId: free.id });
+    expect(r0.ok && r0.jobIds).toEqual([]);
+    expect(await jobsOf()).toHaveLength(0);
+    await db.delete(subscriptions).where(eq(subscriptions.clientId, cid));
+
+    const r = await createSubscription(db, svc(SUPER), { clientId: cid, planId: free.id });
+    expect(r.ok).toBe(true);
+    const j = await jobsOf();
+    expect(j).toHaveLength(1);
+    expect(j[0]!.env).toBe("prod");
+    expect((j[0]!.payload as { args: unknown }).args).toEqual({
+      plan: "bctone-free",
+      enabled: true,
+      limits: { users: 1, devices: 1, outlets: 1, trx_per_month: 300, omzet_per_month: 25000000, ai_prompts_per_day: 3 },
+    });
+    expect(j[0]!.idempotencyKey).toBe("bctone_tenant_config:kopi-c:prod:tenant");
+
+    // ubah kuota paket → job aktif lama dengan args berbeda = busy (tidak dobel); setelah final → job baru
+    const u1 = await updatePlan(db, svc(SUPER), { planId: free.id, priceAmount: null, isActive: true, limits: { trx_per_month: 400 } });
+    expect(u1.ok && u1.jobIds).toEqual([]);
+    await db.update(provisionJobs).set({ status: "succeeded" }).where(eq(provisionJobs.id, j[0]!.id));
+    const u2 = await updatePlan(db, svc(SUPER), { planId: free.id, priceAmount: null, isActive: true, limits: { trx_per_month: 450 } });
+    expect(u2.ok && u2.jobIds.length).toBe(1);
+    const j2 = await jobsOf();
+    expect(j2).toHaveLength(2);
+    const latest = j2.find((x) => x.status === "queued")!;
+    expect((latest.payload as { args: { limits: Record<string, number> } }).args.limits.trx_per_month).toBe(450);
+    const a = (await db.select().from(auditLogs).where(eq(auditLogs.action, "plan.update")).orderBy(auditLogs.id)).at(-1)!;
+    expect((a.metadata as { reconfig: Record<string, string> }).reconfig["kopi-c"]).toBe("jobs=1");
   });
 
   it("tick tanpa perubahan untuk langganan self-serve yang baru dibuat", async () => {

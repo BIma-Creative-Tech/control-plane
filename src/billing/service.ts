@@ -5,7 +5,7 @@
  * `result=rejected` di luar transaksi (yang di-rollback). Tidak ada aksi infra langsung: suspend/resume hanya
  * enqueue job (jobs/tenant-state.ts, outbox di transaksi yang sama).
  */
-import { and, eq, like, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { isUniqueViolation, safeErrorMessage } from "../db/errors";
 import { auditLogs, clients, invoices, planQuotas, plans, subscriptions, users } from "../db/schema";
@@ -29,6 +29,7 @@ import type { BridgeJobType, Instance } from "../lib/job-contract";
 import type { ActionResultCode } from "../lib/job-list-params";
 import { computeInvoiceTax, type TaxScheme } from "../lib/bctone-tax";
 import { isBctonePlanCode, selfServeStart } from "../lib/bctone-plans";
+import { enqueueBctoneConfigTx, type BctoneConfigOutcome } from "../jobs/bctone-config";
 import { QUOTA_METRICS, type QuotaMetric } from "../lib/bctone-quota";
 import { can, type Permission } from "../lib/roles";
 import type { Actor, RequestMeta, SendFn, Tx } from "../jobs/service";
@@ -444,9 +445,28 @@ async function createSelfServeSubscriptionTx(
 }
 
 export async function createSubscription(db: Db, input: BillingServiceInput, p: CreateSubscriptionParams): Promise<BillingOutcome> {
-  return run(db, input, "billing:manage", { action: "subscription.create", targetType: "subscription", targetId: null, clientId: p.clientId }, (tx) =>
-    createSubscriptionTx(tx, input, p),
-  );
+  return run(db, input, "billing:manage", { action: "subscription.create", targetType: "subscription", targetId: null, clientId: p.clientId }, async (tx) => {
+    const r = await createSubscriptionTx(tx, input, p);
+    // ADR 0019: paket BCTOne pada tenant yang DB-nya sudah ada → konfigurasi tenant (agen + kuota) di transaksi yang sama.
+    const plan = (await tx.select({ id: plans.id, code: plans.code }).from(plans).where(eq(plans.id, p.planId)).limit(1))[0];
+    if (plan && isBctonePlanCode(plan.code)) {
+      const c = (await tx.select({ id: clients.id, slug: clients.slug }).from(clients).where(eq(clients.id, p.clientId)).limit(1))[0]!;
+      const o = await enqueueBctoneConfigTx(tx, input.send, {
+        instance: input.instance,
+        allowedTypes: input.allowedTypes,
+        client: c,
+        plan,
+        enabled: true,
+        actorLabel: actorLabel(input.actor),
+        actorUserId: input.actor.userId,
+        meta: input.meta,
+        context: { reason: "subscription_create", subscription_id: r.id },
+        now: input.now ?? new Date(),
+      });
+      return { id: r.id, jobIds: o.kind === "enqueued" ? o.jobIds : [] };
+    }
+    return r;
+  });
 }
 
 /**
@@ -720,12 +740,39 @@ export async function updatePlan(
           .onConflictDoUpdate({ target: [planQuotas.planId, planQuotas.metric], set: { limitValue: want, updatedAt: sql`now()` } });
       }
     }
+    // ADR 0019: kuota berubah → konfigurasi ulang setiap tenant self-serve aktif di paket ini (job per tenant).
+    const jobIds: string[] = [];
+    const reconfig: Record<string, string> = {};
+    if (isBctonePlanCode(plan.code) && Object.keys(changes).some((k) => k.startsWith("limit."))) {
+      const subs = await tx
+        .select({ clientId: clients.id, slug: clients.slug })
+        .from(subscriptions)
+        .innerJoin(clients, eq(clients.id, subscriptions.clientId))
+        .where(and(eq(subscriptions.planId, plan.id), eq(subscriptions.lifecycle, "self_serve"), inArray(subscriptions.status, ["active", "past_due"])));
+      for (const s of subs) {
+        const o: BctoneConfigOutcome = await enqueueBctoneConfigTx(tx, input.send, {
+          instance: input.instance,
+          allowedTypes: input.allowedTypes,
+          client: { id: s.clientId, slug: s.slug },
+          plan: { id: plan.id, code: plan.code },
+          enabled: true,
+          actorLabel: actorLabel(input.actor),
+          actorUserId: input.actor.userId,
+          meta: input.meta,
+          context: { reason: "plan_update" },
+          now: input.now ?? new Date(),
+        });
+        reconfig[s.slug] = o.kind === "enqueued" ? `jobs=${o.jobIds.length}${o.busy ? ",busy" : ""}` : `skipped:${o.reason}`;
+        if (o.kind === "enqueued") jobIds.push(...o.jobIds);
+      }
+    }
     await auditOk(tx, input, { action: "plan.update", targetType: "subscription", targetId: null, clientId: null }, {
       plan_id: plan.id,
       plan_code: plan.code,
       changes,
+      ...(Object.keys(reconfig).length > 0 ? { reconfig } : {}),
     });
-    return { id: plan.id };
+    return { id: plan.id, jobIds };
   });
 }
 
