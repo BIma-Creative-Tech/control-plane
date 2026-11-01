@@ -10,6 +10,12 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne registrasi self-serve `/daftar` (publik, migrasi `0010`):** wizard 7 langkah (akun → OTP email → bisnis →
+  modul + badge tier → paket & harga + PPN dari `plans` → consent AI tanpa default → ringkasan). Paket minimum dihitung
+  dari modul & outlet. Free/UMKM langsung diprovision (rantai onboarding + `bctone_tenant_config` pack + consent
+  hash-chain); Bisnis / kebutuhan di luar katalog → review; kapasitas `BCTONE_CAPACITY` → waitlist. OTP dibuat & dikirim
+  worker (hash bergaram, 5 percobaan, 10 menit), batas IP/email/global, cookie HMAC. Admin `/registrations`: setujui/tolak.
+  Kill switch `BCTONE_REGISTER_ENABLED` (default 0 = 404).
 - **BCTOne Console `/portal/bctone`:** Beranda kuota (pemakaian terakhir agen vs batas paket, status aman/hampir
   penuh/tenggang/penuh, prompt AI hari ini) dan Privasi (US-13: tenant-admin memilih consent AI tanpa default, tercatat
   hash-chain + audit kanal portal). AI gateway: batas konkurensi upstream (Ollama 1 slot global, Claude 2 per tenant;

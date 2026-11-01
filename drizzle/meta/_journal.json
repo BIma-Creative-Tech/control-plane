@@ -71,6 +71,13 @@
       "when": 1793542162368,
       "tag": "0009_bctone_ai_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793562139780,
+      "tag": "0010_bctone_registration",
+      "breakpoints": true
     }
   ]
 }

@@ -131,7 +131,9 @@ describe("inventaris gerbang halaman & Server Action (URL langsung / POST action
     });
   const files = walk(appDir);
   const route = (f: string) => "/" + path.relative(appDir, path.dirname(f)).split(path.sep).join("/");
-  const PUBLIC_PAGES = new Set(["/", "/login", "/forbidden", "/suspended", "/suspended/[slug]"]);
+  // `/daftar` = wizard registrasi BCTOne PUBLIK (kill switch BCTONE_REGISTER_ENABLED + cookie HMAC + OTP; diuji di
+  // tests/unit/bctone-register.test.ts).
+  const PUBLIC_PAGES = new Set(["/", "/login", "/forbidden", "/suspended", "/suspended/[slug]", "/daftar"]);
 
   it("/portal menampilkan tautan ke /dashboard (keputusan Lead)", () => {
     expect(readFileSync(path.join(appDir, "portal", "page.tsx"), "utf8")).toMatch(/href="\/dashboard"/);
@@ -170,6 +172,13 @@ describe("inventaris gerbang halaman & Server Action (URL langsung / POST action
         ...[...src.matchAll(/handleBillingAction\("\w+", "([a-z_]+:[a-z_]+)"/g)].map((m) => m[1]!),
       ] as Permission[];
       if (r === "/") continue; // login/logout — tanpa input, tanpa izin
+      if (r === "/daftar") {
+        // publik: wajib kill switch + Origin + cookie registrasi; tidak boleh memanggil requirePermission/role
+        expect(src).toMatch(/BCTONE_REGISTER_ENABLED !== "1"/);
+        expect(src).toMatch(/assertSameOrigin\(\)/);
+        expect(src).toMatch(/verifyRegCookie\(/);
+        continue;
+      }
       expect(perms.length, `${r}: tanpa gerbang izin literal`).toBeGreaterThan(0);
       for (const p of perms) {
         if (r === "/portal/users" || r === "/portal/bctone") {

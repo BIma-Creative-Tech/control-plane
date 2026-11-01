@@ -738,3 +738,59 @@ export const tenantAiDaily = pgTable(
   },
   (t) => [uniqueIndex("tenant_ai_daily_uq").on(t.clientId, t.usageDate), check("tenant_ai_daily_nonneg", sql`${t.prompts} >= 0 AND ${t.denied} >= 0`)],
 );
+
+/** BCTOne registrasi self-serve (migrasi 0010). */
+export const registrationStatus = pgEnum("bctone_registration_status", [
+  "draft",
+  "verified",
+  "review",
+  "waitlist",
+  "provisioning",
+  "done",
+  "rejected",
+  "failed",
+]);
+
+/**
+ * Wizard registrasi BCTOne (US-01..04). Satu baris per percobaan daftar; cookie HMAC (lib/bctone-register.ts) memegang id.
+ * OTP hanya disimpan sebagai hash bergaram. Data kebutuhan (modul/outlet/paket/consent) menjadi bahan provisioning &
+ * kalkulasi harga (BR-03: harga dari plans, bukan LLM).
+ */
+export const bctoneRegistrations = pgTable(
+  "bctone_registrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    status: registrationStatus("status").notNull().default("draft"),
+    email: text("email").notNull(),
+    ownerName: text("owner_name").notNull(),
+    businessName: text("business_name").notNull(),
+    slug: text("slug").notNull(),
+    industry: text("industry"),
+    outlets: integer("outlets"),
+    modules: jsonb("modules").$type<string[]>(),
+    extraNeeds: text("extra_needs"),
+    tier: text("tier"),
+    aiConsent: aiConsent("ai_consent"),
+    otpHash: text("otp_hash"),
+    otpSalt: text("otp_salt"),
+    otpExpiresAt: timestamp("otp_expires_at", { withTimezone: true }),
+    otpAttempts: integer("otp_attempts").notNull().default(0),
+    otpSends: integer("otp_sends").notNull().default(0),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    ip: inet("ip"),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    chainId: uuid("chain_id"),
+    reviewNote: text("review_note"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("bctone_reg_email_idx").on(t.email, t.createdAt),
+    index("bctone_reg_ip_idx").on(t.ip, t.createdAt),
+    index("bctone_reg_status_idx").on(t.status, t.createdAt),
+    check("bctone_reg_slug_format", sql`${t.slug} ~ '^[a-z0-9-]{3,30}$'`),
+    check("bctone_reg_tier", sql`${t.tier} IS NULL OR ${t.tier} IN ('free','umkm','bisnis')`),
+    check("bctone_reg_industry", sql`${t.industry} IS NULL OR ${t.industry} IN ('fnb','retail')`),
+  ],
+);

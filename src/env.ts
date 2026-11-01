@@ -174,6 +174,12 @@ export const webEnvSchema = baseEnvSchema
     AI_UPSTREAM_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().startsWith("https://").optional()),
     AI_KEY_ALLOW: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(16).optional()),
     AI_KEY_DENY: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(16).optional()),
+    /**
+     * BCTOne registrasi self-serve `/daftar` (publik). `1` = aktif; selain itu 404 (kill switch, default mati).
+     * BCTONE_CAPACITY = batas tenant self-serve aktif sebelum waitlist (D-2, pool-a 10–15).
+     */
+    BCTONE_REGISTER_ENABLED: z.enum(["0", "1"]).default("0"),
+    BCTONE_CAPACITY: z.coerce.number().int().min(0).max(1000).default(15),
     DASHBOARD_ODOO_URLS: z
       .string()
       .regex(/^[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+(,[a-z0-9_]{3,30}=https:\/\/[a-z0-9.-]+)*$/, "format slug=https://host[,…]")
