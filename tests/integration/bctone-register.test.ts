@@ -10,8 +10,10 @@ import {
   activeBctoneTenants,
   loadRegistration,
   provisionRegistration,
+  registrationProgress,
   rejectRegistration,
   saveStep,
+  settleRegistrations,
   startRegistration,
   submitRegistration,
   verifyOtp,
@@ -132,6 +134,21 @@ describe.skipIf(!URL_)("BCTOne registrasi self-serve", () => {
     const audit = await db.select({ a: auditLogs.action, actor: auditLogs.actor, md: auditLogs.metadata }).from(auditLogs).where(eq(auditLogs.targetId, id));
     expect(audit.map((x) => x.a)).toEqual(expect.arrayContaining(["registration.start", "registration.verify", "registration.submit", "registration.provision"]));
     expect(JSON.stringify(audit)).not.toContain("kopi-senja@example.co.id");
+  });
+
+  it("settle: provisioning → done hanya bila langkah TERBARU per tipe semuanya sukses (ulangi = rantai baru)", async () => {
+    const r = (await db.select().from(bctoneRegistrations).where(eq(bctoneRegistrations.slug, "kopi-senja")))[0]!;
+    expect(await settleRegistrations(db)).toBe(0);
+    await db.update(provisionJobs).set({ status: "succeeded" }).where(eq(provisionJobs.clientId, r.clientId!));
+    const last = (await db.select().from(provisionJobs).where(eq(provisionJobs.clientId, r.clientId!)).orderBy(asc(provisionJobs.createdAt))).at(-1)!;
+    await db.update(provisionJobs).set({ status: "failed" }).where(eq(provisionJobs.id, last.id));
+    expect(await settleRegistrations(db)).toBe(0);
+    expect((await registrationProgress(db, r)).failed).toBe(1);
+    // "ulangi" → job baru tipe sama sukses
+    await db.insert(provisionJobs).values({ ...last, id: undefined, status: "succeeded", idempotencyKey: null, afterJobId: null, createdAt: new Date(Date.now() + 1000) } as typeof provisionJobs.$inferInsert);
+    expect(await registrationProgress(db, r)).toMatchObject({ failed: 0, active: 0 });
+    expect(await settleRegistrations(db)).toBe(1);
+    expect((await loadRegistration(db, r.id))!.status).toBe("done");
   });
 
   it("paket di bawah minimum ditolak (incomplete); Bisnis/kebutuhan lain → review; owner approve → provisioning", async () => {

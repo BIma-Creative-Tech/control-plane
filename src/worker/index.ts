@@ -18,6 +18,7 @@ import { INFRA_JOB_QUEUE_OPTIONS, QUEUE_INFRA_JOB } from "../jobs/queue";
 import { logger } from "../lib/logger";
 import { QUEUE_SUBSCRIPTION_TICK, mailerFromEnv, registerSubscriptionTick } from "./billing";
 import { QUEUE_BCTONE_OTP, registerOtpWorker } from "./bctone-otp";
+import { settleRegistrations } from "../bctone/registration";
 import { createBridge } from "./bridge";
 import { registerInfraJobWorker } from "./register";
 import { QUEUE_NOOP, handleNoop, parseNoopPayload } from "./jobs";
@@ -66,6 +67,11 @@ async function main(): Promise<void> {
   await registerSubscriptionTick(boss, { db, env, logger });
   // BCTOne registrasi self-serve: kirim OTP (kode dibuat di worker, hanya hash di DB).
   await registerOtpWorker(boss, { db, mailer: mailerFromEnv(env), logger });
+  const settleTimer = setInterval(() => {
+    void settleRegistrations(db)
+      .then((n) => (n > 0 ? logger.info({ closed: n }, "registrasi BCTOne selesai") : undefined))
+      .catch((err: unknown) => logger.warn({ err: err instanceof Error ? err.name : "error" }, "settle registrasi gagal"));
+  }, 30_000);
 
   const queues = [QUEUE_NOOP, QUEUE_SUBSCRIPTION_TICK, QUEUE_BCTONE_OTP];
   let bridgeTimer: NodeJS.Timeout | undefined;
@@ -112,6 +118,7 @@ async function main(): Promise<void> {
     stopping = true;
     logger.info({ signal }, "worker berhenti");
     clearInterval(timer);
+    clearInterval(settleTimer);
     if (bridgeTimer) clearInterval(bridgeTimer);
     await boss.stop({ graceful: true, timeout: 20_000 });
     await pool.end();
