@@ -2,6 +2,7 @@ import { getDb } from "@/db";
 import { portalInvoices } from "@/db/portal-queries";
 import { getWebEnv } from "@/env";
 import { jakartaDate } from "@/lib/billing";
+import { paymentAccountLine } from "@/lib/company";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { can } from "@/lib/roles";
 import { requirePortal } from "@/server/portal";
@@ -36,7 +37,7 @@ export default async function PortalBillingPage(props: { searchParams: Promise<R
   }
   const r = parseActionResult((await props.searchParams).r);
   const { invoices, withholdsPph23 } = await portalInvoices(getDb(), scope.tenant.id);
-  const instructions = getWebEnv().PAYMENT_INSTRUCTIONS;
+  const instructions = getWebEnv().PAYMENT_INSTRUCTIONS ?? `Transfer ke ${paymentAccountLine()}`;
   const today = jakartaDate(new Date());
   const canReport = can(session.roles, "users:manage_own");
   const input = "rounded border px-2 py-1 text-sm";

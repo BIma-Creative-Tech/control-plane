@@ -307,6 +307,7 @@ describe("email & laporan", () => {
     expect(m.text).toContain("INV/2027/01/0003");
     expect(m.text).toContain("IDR 1.500.000");
     expect(m.text).toContain("2027-03-03");
+    expect(m.text).toContain("Bank Mandiri 157-00-1393580-5 a.n. PT. Bima Creative Technolgy");
     expect(composeReminder({ kind: "due_h45", period: "2027-01-03" }, ctx).subject).toMatch(/^Peringatan akhir/);
     expect(composeReminder({ kind: "warranty_h14", period: "2026-12-03" }, ctx).subject).toBe("Masa garansi Acme Bcc: evil@example.com (Odoo Shared S) berakhir 2026-12-03");
     expect(composeReminder({ kind: "due_h0", period: "2027-01-03" }, { ...ctx, invoice: null }).text).toContain("akan dikirim terpisah");

@@ -32,6 +32,8 @@ describe("notifikasi registrasi", () => {
     expect([d.to, d.key]).toEqual([["budi@kopi.id"], `bctone-reg:${base.id}:welcome`]);
     expect(d.text).toContain("https://kopi-senja.erp.example");
     expect(d.text).not.toMatch(/\n\n\n/);
+    expect(d.text).toContain("Bank Mandiri 157-00-1393580-5");
+    expect(composeRegistrationNotice({ ...base, status: "done", tier: "free" }, opts)!.text).not.toContain("Bank Mandiri");
     const r = composeRegistrationNotice({ ...base, status: "rejected", reviewNote: "kapasitas penuh" }, opts)!;
     expect(r.text).toContain("Catatan: kapasitas penuh");
     expect(composeRegistrationNotice({ ...base, status: "draft" }, opts)).toBeNull();

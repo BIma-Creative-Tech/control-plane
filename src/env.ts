@@ -182,7 +182,7 @@ export const webEnvSchema = baseEnvSchema
      */
     BCTONE_REGISTER_ENABLED: z.enum(["0", "1"]).default("0"),
     BCTONE_CAPACITY: z.coerce.number().int().min(0).max(1000).default(15),
-    /** Instruksi transfer di Console › Tagihan (bukan secret; mis. "BCA 123… a.n. PT Bima Creative Tech"). Kosong = tidak tampil. */
+    /** Override instruksi transfer di Console › Tagihan (bukan secret). Kosong = rekening default lib/company.ts. */
     PAYMENT_INSTRUCTIONS: z.preprocess((v) => (v === "" ? undefined : v), z.string().max(300).optional()),
     DASHBOARD_ODOO_URLS: z
       .string()

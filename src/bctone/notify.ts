@@ -12,6 +12,7 @@ import { bctoneRegistrations, environments } from "../db/schema";
 import { sendOnce } from "../billing/tick";
 import type { Mailer } from "../billing/mailer";
 import { envRouteHost } from "../lib/job-contract";
+import { paymentAccountLine } from "../lib/company";
 import { INDUSTRY_LABEL, TIER_LABEL, moduleName, type BctoneTier, type Industry } from "../lib/bctone-register";
 
 export interface RegistrationNotice {
@@ -66,6 +67,9 @@ export function composeRegistrationNotice(r: Row, opts: { ownerEmail: string; ad
           "",
           "Anda juga menerima email undangan terpisah untuk membuat kata sandi. Setelah itu masuk lewat tombol SSO di",
           "halaman login. Kuota paket dan pilihan privasi AI dapat dilihat di Console.",
+          ...(r.tier && r.tier !== "free"
+            ? ["", "Tagihan terbit di Console › Tagihan. Pembayaran lewat transfer ke", paymentAccountLine() + ", lalu laporkan di Console."]
+            : []),
           ...sign,
         ]
           .filter((l, i, a) => !(l === "" && a[i - 1] === ""))

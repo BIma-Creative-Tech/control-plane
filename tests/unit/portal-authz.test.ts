@@ -133,7 +133,7 @@ describe("inventaris gerbang halaman & Server Action (URL langsung / POST action
   const route = (f: string) => "/" + path.relative(appDir, path.dirname(f)).split(path.sep).join("/");
   // `/daftar` = wizard registrasi BCTOne PUBLIK (kill switch BCTONE_REGISTER_ENABLED + cookie HMAC + OTP; diuji di
   // tests/unit/bctone-register.test.ts).
-  const PUBLIC_PAGES = new Set(["/", "/login", "/forbidden", "/suspended", "/suspended/[slug]", "/daftar"]);
+  const PUBLIC_PAGES = new Set(["/", "/login", "/forbidden", "/suspended", "/suspended/[slug]", "/daftar", "/syarat", "/privasi"]);
 
   it("/portal menampilkan tautan ke /dashboard (keputusan Lead)", () => {
     expect(readFileSync(path.join(appDir, "portal", "page.tsx"), "utf8")).toMatch(/href="\/dashboard"/);
