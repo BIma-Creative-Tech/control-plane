@@ -18,6 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { paymentAccountLine } from "./company";
 
 // ---------------------------------------------------------------------------
 // Status
@@ -554,7 +555,7 @@ export function composeReminder(r: DueReminder, c: ReminderContext): { subject: 
     : "Invoice: akan dikirim terpisah oleh tim billing.";
   const footer = [
     "",
-    "Pembayaran melalui transfer bank; kirim bukti transfer ke " + c.billingEmail + ".",
+    "Pembayaran melalui transfer ke " + paymentAccountLine() + "; kirim bukti transfer ke " + c.billingEmail + ".",
     "Email ini dikirim otomatis oleh control plane — mohon tidak membalas ke alamat pengirim.",
   ];
   switch (r.kind) {

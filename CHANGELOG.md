@@ -10,6 +10,12 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- **BCTOne halaman legal publik `/syarat` dan `/privasi` + rekening pembayaran:** halaman statis (tanpa DB/sesi)
+  dengan identitas `PT. Bima Creative Technolgy` (ejaan sesuai buku rekening) dari `src/lib/company.ts`; angka masa
+  tenggang/retensi/OTP diambil dari konstanta kode. Checkbox konfirmasi `/daftar` menautkan keduanya. Instruksi transfer
+  Bank Mandiri 157-00-1393580-5 tampil di `/daftar` (ringkasan + selesai, paket berbayar), Console › Tagihan (default
+  bila `PAYMENT_INSTRUCTIONS` kosong), email pengingat tagihan, dan email sambutan registrasi berbayar. Teks legal =
+  DRAF operasional, menunggu tinjauan hukum pemilik.
 - **BCTOne email registrasi + Console › Tagihan `/portal/billing`:** worker mengirim email (sekali per key
   `notification_log`): owner saat registrasi review/waitlist, sambutan + alamat login saat `done`, pemberitahuan saat
   ditolak. Tenant-admin melihat invoice (DPP, PPN, potongan PPh 23, jumlah transfer) dan melaporkan pembayaran manual →

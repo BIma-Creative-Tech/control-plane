@@ -6,6 +6,7 @@ import { getDb } from "@/db";
 import { plans, planQuotas } from "@/db/schema";
 import { getWebEnv } from "@/env";
 import { computeInvoiceTax } from "@/lib/bctone-tax";
+import { paymentAccountLine } from "@/lib/company";
 import {
   INDUSTRIES,
   INDUSTRY_LABEL,
@@ -342,7 +343,7 @@ async function SummaryStep(reg: Registration, suffix: string) {
         {review
           ? "Pendaftaran Anda akan ditinjau tim kami (paket Bisnis atau ada kebutuhan di luar katalog). Kami menghubungi Anda lewat email."
           : "ERP Anda disiapkan otomatis setelah dikirim (beberapa menit). Undangan login dikirim ke email Anda."}
-        {tier !== "free" && !review ? " Tagihan pertama terbit di Console; pembayaran manual (transfer)." : ""}
+        {tier !== "free" && !review ? ` Tagihan pertama terbit di Console; pembayaran manual lewat transfer ke ${paymentAccountLine()}.` : ""}
       </p>
       <p className="text-xs text-slate-500">
         Ubah: <a href="/daftar?s=bisnis" className="underline">bisnis</a> · <a href="/daftar?s=modul" className="underline">modul</a> ·{" "}
@@ -350,7 +351,17 @@ async function SummaryStep(reg: Registration, suffix: string) {
       </p>
       <label className="flex gap-2">
         <input type="checkbox" name="confirm" required />
-        Data di atas benar dan saya berwenang mendaftarkan bisnis ini.
+        <span>
+          Data di atas benar, saya berwenang mendaftarkan bisnis ini, dan saya menyetujui{" "}
+          <a href="/syarat" target="_blank" rel="noopener" className="underline">
+            Syarat &amp; Ketentuan
+          </a>{" "}
+          serta{" "}
+          <a href="/privasi" target="_blank" rel="noopener" className="underline">
+            Kebijakan Privasi
+          </a>
+          .
+        </span>
       </label>
       <SubmitButton className={btn} pendingText="Mengirim…">
         Kirim pendaftaran
@@ -388,6 +399,11 @@ async function DoneStep(reg: Registration) {
         </p>
       ) : null}
       {pr.failed > 0 && pr.active === 0 ? <p className="text-red-700">Sebagian langkah gagal; tim kami menindaklanjuti.</p> : null}
+      {reg.tier && reg.tier !== "free" && (reg.status === "provisioning" || reg.status === "done") ? (
+        <p className="text-slate-600">
+          Tagihan terbit di Console › Tagihan. Pembayaran lewat transfer ke <strong>{paymentAccountLine()}</strong>, lalu laporkan di Console.
+        </p>
+      ) : null}
     </section>
   );
 }
