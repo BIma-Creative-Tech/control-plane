@@ -7,6 +7,7 @@
 import { z } from "zod";
 import {
   APPROVE_ENVS,
+  BCTONE_PACK_ARGS,
   EMAIL_MAX,
   EMAIL_REGEX,
   FQDN_REGEX,
@@ -18,6 +19,7 @@ import {
   dbNameFor,
   defaultHost,
   isValidHostForEnv,
+  type BctonePack,
   type BridgeJobType,
   type Instance,
   type TenantEnv,
@@ -80,7 +82,7 @@ export interface OnboardingInput {
    */
   planId: string | null;
   /** ADR 0019: paket modul industri untuk paket BCTOne (diabaikan untuk plan non-`bctone-*`). */
-  pack?: "fnb" | "retail" | null | undefined;
+  pack?: BctonePack | null | undefined;
 }
 
 export type OnboardingFormIssue = "invalid" | "slug_reserved" | "slug_invalid" | "email_invalid" | "name_invalid" | "host_invalid";
@@ -118,7 +120,7 @@ const common = {
     .string()
     .trim()
     .transform((v) => (v === "" ? undefined : v))
-    .pipe(z.enum(["fnb", "retail"]).optional())
+    .pipe(z.enum(BCTONE_PACK_ARGS).optional())
     .optional(),
 };
 
@@ -218,7 +220,7 @@ export function buildOnboardingSteps(p: {
   adminEmail: string;
   adminName: string | null;
   /** ADR 0019: paket BCTOne → `bctone_tenant_config` per env tepat setelah DB dibuat (sebelum route/SSO). */
-  bctone?: { plan: "bctone-free" | "bctone-umkm" | "bctone-bisnis"; limits: Record<string, number>; pack: "fnb" | "retail" | null } | undefined;
+  bctone?: { plan: "bctone-free" | "bctone-umkm" | "bctone-bisnis"; limits: Record<string, number>; pack: BctonePack | null } | undefined;
 }): ChainStep[] {
   const steps: ChainStep[] = [{ type: "kc_org_ensure", env: p.realmEnv, args: { tenant_id: p.tenantId } }];
   for (const e of p.envs) {

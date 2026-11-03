@@ -35,7 +35,9 @@ describe("bctone_tenant_config", () => {
     expect(req({ plan: "bctone-free", enabled: true, limits: { users: 1.5 } }).ok).toBe(false);
     expect(req({ plan: "bctone-free", enabled: false, pack: "fnb" }).ok).toBe(false);
     expect(req({ plan: "bctone-free", enabled: false, limits: { users: 1 } }).ok).toBe(false);
-    expect(req({ plan: "bctone-free", enabled: true, pack: "manufaktur" }).ok).toBe(false);
+    expect(req({ plan: "bctone-free", enabled: true, pack: "tambang" }).ok).toBe(false);
+    expect(req({ plan: "bctone-free", enabled: true, pack: "Jasa" }).ok).toBe(false);
+    expect(req({ plan: "bctone-free", enabled: true, pack: "jasa" }).ok).toBe(true);
     expect(req({ plan: "bctone-free", enabled: false }).ok).toBe(true);
   });
 });

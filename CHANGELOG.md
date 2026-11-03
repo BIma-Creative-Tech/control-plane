@@ -9,6 +9,14 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 
 ## [Unreleased]
 
+### Added
+- BCTOne `/daftar`: jenis usaha baru selain F&B/Retail — **Jasa**, **Bengkel & servis**, **Distribusi & grosir**,
+  **Manufaktur & produksi**, **Salon/barbershop & kecantikan**, **Lainnya/usaha umum** (permintaan owner 2026-11-03).
+  `INDUSTRIES` = `BCTONE_PACK_ARGS` (pack dispatcher infra 1.5.0). Katalog modul + `project`, `repair`, `crm`,
+  `timesheet`, `manufacturing`; modul umum (faktur, akuntansi, karyawan, web) untuk semua jenis. Form onboarding admin
+  memakai daftar yang sama. Migrasi `0011_bctone_more_industries` (CHECK `bctone_reg_industry` diperluas; aditif).
+  Fixture kontrak dispatcher disalin dari infra `95cdfe3`. **Deploy setelah dispatcher 1.5.0 terpasang.**
+
 ### Fixed
 - `/daftar` langkah akun: teks persetujuan kini menautkan `/syarat` dan `/privasi` (temuan E2E staging 2026-11-03).
 

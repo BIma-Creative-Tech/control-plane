@@ -5,7 +5,7 @@
  */
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { EMAIL_MAX, EMAIL_REGEX, PLATFORM_SLUG, asciiName } from "./job-contract";
+import { BCTONE_PACK_ARGS, EMAIL_MAX, EMAIL_REGEX, PLATFORM_SLUG, asciiName } from "./job-contract";
 import { SLUG_REGEX } from "./slug";
 
 export const BCTONE_TIERS = ["free", "umkm", "bisnis", "enterprise"] as const;
@@ -14,9 +14,20 @@ export const TIER_LABEL: Record<BctoneTier, string> = { free: "Gratis", umkm: "U
 export const TIER_PLAN: Record<BctoneTier, string | null> = { free: "bctone-free", umkm: "bctone-umkm", bisnis: "bctone-bisnis", enterprise: null };
 export const tierRank = (t: BctoneTier): number => BCTONE_TIERS.indexOf(t);
 
-export const INDUSTRIES = ["fnb", "retail"] as const;
+/** Jenis usaha = pack modul Odoo dispatcher (BCTONE_PACKS infra; modul per pack di scripts/bctone-tenant-config.sh). */
+export const INDUSTRIES = BCTONE_PACK_ARGS;
 export type Industry = (typeof INDUSTRIES)[number];
-export const INDUSTRY_LABEL: Record<Industry, string> = { fnb: "F&B (kafe, resto, bakery)", retail: "Retail (toko, minimarket, butik)" };
+export const INDUSTRY_LABEL: Record<Industry, string> = {
+  fnb: "F&B (kafe, resto, bakery)",
+  retail: "Retail (toko, minimarket, butik)",
+  jasa: "Jasa (konsultan, agensi, IT, kreatif, profesional)",
+  bengkel: "Bengkel & servis (otomotif, elektronik, gadget)",
+  distribusi: "Distribusi & grosir",
+  manufaktur: "Manufaktur & produksi",
+  kecantikan: "Salon, barbershop & kecantikan",
+  lainnya: "Lainnya / usaha umum",
+};
+const ALL: readonly Industry[] = INDUSTRIES;
 
 export interface ModuleDef {
   code: string;
@@ -28,18 +39,23 @@ export interface ModuleDef {
 
 /** Katalog modul (BR-04: hanya modul ini yang diprovision; kebutuhan di luar katalog = "Butuh Konsultan"). */
 export const MODULES: readonly ModuleDef[] = [
-  { code: "pos", name: "Kasir (POS)", desc: "Penjualan di outlet, struk, metode bayar", tier: "free", industries: ["fnb", "retail"] },
-  { code: "inventory", name: "Stok", desc: "Stok barang/bahan, mutasi, stock opname", tier: "free", industries: ["fnb", "retail"] },
-  { code: "invoicing", name: "Faktur & piutang", desc: "Faktur pelanggan, pembayaran, piutang", tier: "free", industries: ["fnb", "retail"] },
+  { code: "pos", name: "Kasir (POS)", desc: "Penjualan di outlet, struk, metode bayar", tier: "free", industries: ["fnb", "retail", "bengkel", "kecantikan"] },
+  { code: "inventory", name: "Stok", desc: "Stok barang/bahan, mutasi, stock opname", tier: "free", industries: ["fnb", "retail", "bengkel", "distribusi", "manufaktur", "kecantikan", "lainnya"] },
+  { code: "invoicing", name: "Faktur & piutang", desc: "Faktur pelanggan, pembayaran, piutang", tier: "free", industries: ALL },
+  { code: "project", name: "Proyek & tugas", desc: "Proyek klien, tugas, tahapan, tenggat", tier: "free", industries: ["jasa", "lainnya"] },
+  { code: "repair", name: "Order servis", desc: "Penerimaan unit, perbaikan, suku cadang", tier: "free", industries: ["bengkel"] },
   { code: "restaurant", name: "Meja & dapur", desc: "Denah meja, pesanan ke dapur, split bill", tier: "umkm", industries: ["fnb"] },
-  { code: "purchase", name: "Pembelian", desc: "PO ke pemasok, penerimaan barang", tier: "umkm", industries: ["fnb", "retail"] },
-  { code: "loyalty", name: "Member & poin", desc: "Kartu member, poin, promo", tier: "umkm", industries: ["fnb", "retail"] },
-  { code: "sales", name: "Penjualan B2B", desc: "Penawaran, sales order, pengiriman", tier: "umkm", industries: ["retail"] },
-  { code: "web_profile", name: "Web profil", desc: "Situs profil bisnis dari template", tier: "umkm", industries: ["fnb", "retail"] },
-  { code: "accounting", name: "Akuntansi lengkap", desc: "Jurnal, laporan keuangan, pajak", tier: "bisnis", industries: ["fnb", "retail"] },
-  { code: "hr", name: "Karyawan & absensi", desc: "Data karyawan, shift, absensi", tier: "bisnis", industries: ["fnb", "retail"] },
+  { code: "purchase", name: "Pembelian", desc: "PO ke pemasok, penerimaan barang", tier: "umkm", industries: ["fnb", "retail", "bengkel", "distribusi", "manufaktur", "lainnya"] },
+  { code: "loyalty", name: "Member & poin", desc: "Kartu member, poin, promo", tier: "umkm", industries: ["fnb", "retail", "kecantikan"] },
+  { code: "sales", name: "Penjualan B2B", desc: "Penawaran, sales order, pengiriman", tier: "umkm", industries: ["retail", "jasa", "bengkel", "distribusi", "manufaktur", "lainnya"] },
+  { code: "crm", name: "CRM & prospek", desc: "Pipeline prospek, aktivitas, peluang penjualan", tier: "umkm", industries: ["jasa", "distribusi", "manufaktur", "lainnya"] },
+  { code: "timesheet", name: "Timesheet & tagih per jam", desc: "Catat jam kerja tim, tagih klien per jam/milestone", tier: "umkm", industries: ["jasa"] },
+  { code: "manufacturing", name: "Produksi (BoM)", desc: "Bill of materials, perintah produksi, bahan baku", tier: "umkm", industries: ["manufaktur"] },
+  { code: "web_profile", name: "Web profil", desc: "Situs profil bisnis dari template", tier: "umkm", industries: ALL },
+  { code: "accounting", name: "Akuntansi lengkap", desc: "Jurnal, laporan keuangan, pajak", tier: "bisnis", industries: ALL },
+  { code: "hr", name: "Karyawan & absensi", desc: "Data karyawan, shift, absensi", tier: "bisnis", industries: ALL },
   { code: "recipe", name: "Resep & produksi", desc: "Bill of materials, produksi dapur pusat", tier: "bisnis", industries: ["fnb"] },
-  { code: "customer_app", name: "Aplikasi pelanggan", desc: "APK pelanggan dengan brand Anda", tier: "bisnis", industries: ["fnb", "retail"] },
+  { code: "customer_app", name: "Aplikasi pelanggan", desc: "APK pelanggan dengan brand Anda", tier: "bisnis", industries: ["fnb", "retail", "kecantikan"] },
 ];
 const MODULE_BY_CODE = new Map(MODULES.map((m) => [m.code, m]));
 

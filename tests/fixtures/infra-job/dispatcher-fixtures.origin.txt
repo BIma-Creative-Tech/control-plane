@@ -1,9 +1,9 @@
 dispatcher-fixtures.json — salinan APA ADANYA (jangan diedit di sini) dari:
   repo     : infra (github BIma-Creative-Tech/infra)
-  branch   : main (ADR 0019, dispatcher 1.4.0)
-  commit   : 16bcefb (merge main; isi file = feat/bctone-pack dc1ba4d)
+  branch   : feat/bctone-packs-more (ADR 0019, dispatcher 1.5.0 — 6 pack industri baru)
+  commit   : 95cdfe3
   path     : scripts/infra-job/contract/fixtures.json
-  sha256   : e96f851290c04dfd97966120fb0c027af09485ee70cd0d5944d4c25121855995
+  sha256   : 4a4e964a9e776e745001599f0558cd6f4b47d74921cb51dce860d850ee6c7845
 Riwayat: plan 05 = feat/infra-job-dispatcher 1bcfe0a (sha256 ee4e6db1…); SaaS Fase 1 (dispatcher 1.1.0, 10 tipe baru)
-= f175457 (8651a117…); kontrak v1.2 QA (arg adopt) = commit di atas. Dipakai tests/unit/dispatcher-contract.test.ts (hash diverifikasi di test). Bila dispatcher mengubah
+= f175457 (8651a117…); 1.4.0 pack fnb|retail = 16bcefb (e96f8512…); kontrak v1.2 QA (arg adopt) = commit di atas. Dipakai tests/unit/dispatcher-contract.test.ts (hash diverifikasi di test). Bila dispatcher mengubah
 kontrak: salin ulang file, perbarui commit + sha256 di sini, jalankan npm test.

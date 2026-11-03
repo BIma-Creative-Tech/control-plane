@@ -10,7 +10,15 @@
  */
 import { and, eq, inArray } from "drizzle-orm";
 import { auditLogs, environments, planQuotas, provisionJobs } from "../db/schema";
-import { BCTONE_METRIC_ARGS, INSTANCE_ENVS, idempotencyKey, validateJobRequest, type BridgeJobType, type Instance } from "../lib/job-contract";
+import {
+  BCTONE_METRIC_ARGS,
+  INSTANCE_ENVS,
+  idempotencyKey,
+  validateJobRequest,
+  type BctonePack,
+  type BridgeJobType,
+  type Instance,
+} from "../lib/job-contract";
 import { canonicalJson } from "./chain";
 import type { RequestMeta, SendFn, Tx } from "./service";
 
@@ -22,7 +30,7 @@ export interface BctoneConfigInput {
   client: { id: string; slug: string };
   plan: { id: string; code: string };
   enabled: boolean;
-  pack?: "fnb" | "retail" | undefined;
+  pack?: BctonePack | undefined;
   actorLabel: string;
   actorUserId: string | null;
   meta: RequestMeta;

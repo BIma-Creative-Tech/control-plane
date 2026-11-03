@@ -791,6 +791,9 @@ export const bctoneRegistrations = pgTable(
     index("bctone_reg_status_idx").on(t.status, t.createdAt),
     check("bctone_reg_slug_format", sql`${t.slug} ~ '^[a-z0-9-]{3,30}$'`),
     check("bctone_reg_tier", sql`${t.tier} IS NULL OR ${t.tier} IN ('free','umkm','bisnis')`),
-    check("bctone_reg_industry", sql`${t.industry} IS NULL OR ${t.industry} IN ('fnb','retail')`),
+    check(
+      "bctone_reg_industry",
+      sql`${t.industry} IS NULL OR ${t.industry} IN ('fnb','retail','jasa','bengkel','distribusi','manufaktur','kecantikan','lainnya')`,
+    ),
   ],
 );
