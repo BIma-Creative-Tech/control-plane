@@ -10,6 +10,11 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 ## [Unreleased]
 
 ### Added
+- Klien **bebas tagihan permanen** (`clients.billing_exempt`, `bctone_registrations.billing_exempt`; migrasi
+  `0012_billing_exempt`, default false = perilaku lama). Owner menandai di BCT Admin › Registrasi sebelum "Setujui",
+  atau di Subscriptions untuk klien yang sudah ada. Efek: tanpa invoice pertama/berikutnya (juga saat tandai lunas),
+  tanpa email pengingat, tick menggulir periode (tidak pernah past_due/suspend/purge); saat diaktifkan invoice terbuka
+  di-void + past_due dipulihkan. Email sambutan tanpa instruksi bayar. Kebutuhan pertama: Bima Creative (`bct`).
 - BCTOne `/daftar`: jenis usaha baru selain F&B/Retail — **Jasa**, **Bengkel & servis**, **Distribusi & grosir**,
   **Manufaktur & produksi**, **Salon/barbershop & kecantikan**, **Lainnya/usaha umum** (permintaan owner 2026-11-03).
   `INDUSTRIES` = `BCTONE_PACK_ARGS` (pack dispatcher infra 1.5.0). Katalog modul + `project`, `repair`, `crm`,

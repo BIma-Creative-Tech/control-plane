@@ -34,6 +34,9 @@ describe("notifikasi registrasi", () => {
     expect(d.text).not.toMatch(/\n\n\n/);
     expect(d.text).toContain("Bank Mandiri 157-00-1393580-5");
     expect(composeRegistrationNotice({ ...base, status: "done", tier: "free" }, opts)!.text).not.toContain("Bank Mandiri");
+    const ex = composeRegistrationNotice({ ...base, status: "done", tier: "bisnis", billingExempt: true } as never, opts)!.text;
+    expect(ex).not.toContain("Bank Mandiri");
+    expect(ex).toContain("dibebaskan dari tagihan");
     const r = composeRegistrationNotice({ ...base, status: "rejected", reviewNote: "kapasitas penuh" }, opts)!;
     expect(r.text).toContain("Catatan: kapasitas penuh");
     expect(composeRegistrationNotice({ ...base, status: "draft" }, opts)).toBeNull();

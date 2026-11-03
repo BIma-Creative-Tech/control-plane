@@ -4,7 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { provisionRegistration, rejectRegistration } from "@/bctone/registration";
+import { provisionRegistration, rejectRegistration, setRegistrationBillingExempt } from "@/bctone/registration";
 import { getDb } from "@/db";
 import { getWebEnv } from "@/env";
 import { requirePermission } from "@/lib/authz";
@@ -47,6 +47,20 @@ export async function approveRegistrationAction(formData: FormData): Promise<voi
   }
   revalidatePath("/registrations");
   back(code);
+}
+
+/** Tandai/lepaskan bebas tagihan sebelum approve (mis. tenant internal BCT). */
+export async function setRegistrationExemptAction(formData: FormData): Promise<void> {
+  await requirePermission("clients:manage");
+  if (!(await assertSameOrigin())) back("origin");
+  const p = z
+    .object({ id: uuid, exempt: z.enum(["true", "false"]) })
+    .strict()
+    .safeParse(formToObject(formData.entries()) ?? {});
+  if (!p.success) back("invalid");
+  const ok = await setRegistrationBillingExempt(getDb(), p.data.id, p.data.exempt === "true", await requestMeta());
+  revalidatePath("/registrations");
+  back(ok ? "updated" : "precondition");
 }
 
 export async function rejectRegistrationAction(formData: FormData): Promise<void> {

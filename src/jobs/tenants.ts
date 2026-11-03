@@ -177,7 +177,7 @@ export async function onboardTenant(db: Db, send: SendFn, input: TenantServiceIn
     if (taken.length > 0) throw new ChainAbort({ reason: "precondition", detail: "host_taken" });
     const ins = await tx
       .insert(clients)
-      .values({ id: tenantId, slug: f.slug, name: f.name, brand: f.brand })
+      .values({ id: tenantId, slug: f.slug, name: f.name, brand: f.brand, ...(f.billingExempt ? { billingExempt: true } : {}) })
       .onConflictDoNothing()
       .returning({ id: clients.id });
     if (ins.length === 0) throw new ChainAbort({ reason: "exists" });

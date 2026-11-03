@@ -83,6 +83,7 @@ export const billingFormSchemas = {
     .strict(),
   setClientWithholding: z.object({ clientId: uuid, withholds_pph23: z.enum(["true", "false"]) }).strict(),
   setClientAiConsent: z.object({ clientId: uuid, consent: z.enum(["allow", "deny"]) }).strict(),
+  setClientBillingExempt: z.object({ clientId: uuid, billing_exempt: z.enum(["true", "false"]) }).strict(),
   markInvoicePaid: z
     .object({
       invoiceId: uuid,

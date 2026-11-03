@@ -340,6 +340,27 @@ function planSelfServeTransitions(s: SubscriptionSnapshot, today: IsoDate): Tick
   return { transitions, final: cur, anomaly: null };
 }
 
+/**
+ * Klien bebas tagihan (clients.billing_exempt): periode aktif yang sudah lewat digulir maju per `periodMonths` sampai
+ * mencakup `today` — tanpa invoice, tanpa past_due. Juga memulihkan past_due → active (belum disuspend). null = tidak
+ * ada perubahan (masih dalam periode, status lain, atau data periode tidak lengkap).
+ */
+export function planExemptRenewal(
+  s: Pick<SubscriptionSnapshot, "status" | "endsAt" | "periodMonths">,
+  today: IsoDate,
+): { from: "active" | "past_due"; startsAt: IsoDate; endsAt: IsoDate } | null {
+  if (s.status !== "active" && s.status !== "past_due") return null;
+  if (!s.endsAt || !Number.isInteger(s.periodMonths) || s.periodMonths < 1 || s.periodMonths > 36) return null;
+  if (s.status === "active" && !isAfter(today, s.endsAt)) return null;
+  let startsAt = s.endsAt;
+  let endsAt = addMonths(startsAt, s.periodMonths);
+  for (let i = 0; i < 1200 && isAfter(today, endsAt); i++) {
+    startsAt = endsAt;
+    endsAt = addMonths(startsAt, s.periodMonths);
+  }
+  return { from: s.status, startsAt, endsAt };
+}
+
 // ---------------------------------------------------------------------------
 // Go-live & pembayaran
 // ---------------------------------------------------------------------------

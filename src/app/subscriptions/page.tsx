@@ -14,6 +14,7 @@ import {
   createSubscriptionAction,
   goLiveAction,
   setClientAiConsentAction,
+  setClientBillingExemptAction,
   setClientWithholdingAction,
   setSubscriptionPriceAction,
   terminateSubscriptionAction,
@@ -247,6 +248,26 @@ export default async function SubscriptionsPage(props: PageProps<"/subscriptions
               Simpan
             </button>
             <p className="w-full text-xs text-slate-500">Berlaku untuk invoice BCTOne berikutnya; invoice yang sudah terbit tidak berubah.</p>
+          </form>
+        ) : null}
+
+        {canManage && selected && selectedActive ? (
+          <form action={setClientBillingExemptAction} className="flex flex-wrap items-center gap-2 rounded border bg-white p-4 text-sm">
+            <span className="font-semibold">
+              Tagihan klien <span className="font-mono">{selected.slug}</span>
+            </span>
+            <input type="hidden" name="back" value={tenantParam} />
+            <input type="hidden" name="clientId" value={selected.id} />
+            <select name="billing_exempt" defaultValue={selected.billingExempt ? "true" : "false"} className={input}>
+              <option value="false">Ditagih normal</option>
+              <option value="true">Bebas tagihan permanen</option>
+            </select>
+            <button type="submit" className={btn}>
+              Simpan
+            </button>
+            <p className="w-full text-xs text-slate-500">
+              Bebas tagihan: invoice terbuka di-void, tidak ada invoice/pengingat baru, periode diperpanjang otomatis (tidak pernah ditangguhkan).
+            </p>
           </form>
         ) : null}
 

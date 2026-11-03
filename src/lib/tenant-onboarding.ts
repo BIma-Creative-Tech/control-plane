@@ -83,6 +83,8 @@ export interface OnboardingInput {
   planId: string | null;
   /** ADR 0019: paket modul industri untuk paket BCTOne (diabaikan untuk plan non-`bctone-*`). */
   pack?: BctonePack | null | undefined;
+  /** Klien bebas tagihan (registrasi BCTOne disetujui owner sebagai internal) — diset sebelum langganan dibuat. */
+  billingExempt?: boolean | undefined;
 }
 
 export type OnboardingFormIssue = "invalid" | "slug_reserved" | "slug_invalid" | "email_invalid" | "name_invalid" | "host_invalid";
