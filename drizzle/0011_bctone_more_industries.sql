@@ -1,0 +1,2 @@
+ALTER TABLE "bctone_registrations" DROP CONSTRAINT "bctone_reg_industry";--> statement-breakpoint
+ALTER TABLE "bctone_registrations" ADD CONSTRAINT "bctone_reg_industry" CHECK ("bctone_registrations"."industry" IS NULL OR "bctone_registrations"."industry" IN ('fnb','retail','jasa','bengkel','distribusi','manufaktur','kecantikan','lainnya'));

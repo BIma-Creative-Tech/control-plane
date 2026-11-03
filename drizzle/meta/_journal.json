@@ -78,6 +78,13 @@
       "when": 1793562139780,
       "tag": "0010_bctone_registration",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793702260467,
+      "tag": "0011_bctone_more_industries",
+      "breakpoints": true
     }
   ]
 }

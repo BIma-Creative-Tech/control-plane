@@ -49,7 +49,7 @@ import {
 import { emailBindingConflict, orderChain, type EmailBindingConflict, type TenantRef } from "../lib/user-admin";
 import { BillingAbort, createSubscriptionTx } from "../billing/service";
 import { isBctonePlanCode } from "../lib/bctone-plans";
-import { BCTONE_PLAN_ARGS } from "../lib/job-contract";
+import { BCTONE_PLAN_ARGS, type BctonePack } from "../lib/job-contract";
 import { bctoneLimits } from "./bctone-config";
 import { ChainAbort, enqueueChain, type ChainFailure, type ChainInput } from "./chain";
 import type { Actor, RequestMeta, SendFn, Tx } from "./service";
@@ -128,7 +128,7 @@ async function usersByEmail(db: Db, email: string) {
  * ADR 0019: plan onboarding = paket BCTOne dan tipe job diizinkan instance → langkah `bctone_tenant_config` (batas dari
  * plan_quotas). Selain itu undefined (rantai onboarding lama tidak berubah).
  */
-async function bctoneOnboarding(db: Db, allowed: readonly BridgeJobType[], planId: string | null, pack: "fnb" | "retail" | null) {
+async function bctoneOnboarding(db: Db, allowed: readonly BridgeJobType[], planId: string | null, pack: BctonePack | null) {
   if (!planId || !allowed.includes("bctone_tenant_config")) return undefined;
   const plan = (await db.select({ id: plans.id, code: plans.code }).from(plans).where(eq(plans.id, planId)).limit(1))[0];
   if (!plan || !isBctonePlanCode(plan.code) || !(BCTONE_PLAN_ARGS as readonly string[]).includes(plan.code)) return undefined;

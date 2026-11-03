@@ -24,7 +24,16 @@ import {
   type BctoneTier,
   type Industry,
 } from "../lib/bctone-register";
-import { defaultHost, envAllowedForInstance, envRouteHost, realmEnvForInstance, type BridgeJobType, type Instance } from "../lib/job-contract";
+import {
+  BCTONE_PACK_ARGS,
+  defaultHost,
+  envAllowedForInstance,
+  envRouteHost,
+  realmEnvForInstance,
+  type BctonePack,
+  type BridgeJobType,
+  type Instance,
+} from "../lib/job-contract";
 import type { AiConsent } from "../lib/ai-gateway";
 import { onboardTenant, type TenantActionOutcome } from "../jobs/tenants";
 import type { Actor, RequestMeta, SendFn } from "../jobs/service";
@@ -211,7 +220,7 @@ export async function provisionRegistration(
       adminName: r.ownerName,
       envs: [{ kind: env, host }],
       planId: plan.id,
-      pack: r.industry === "fnb" || r.industry === "retail" ? r.industry : null,
+      pack: (BCTONE_PACK_ARGS as readonly string[]).includes(r.industry ?? "") ? (r.industry as BctonePack) : null,
     },
   });
   if (!out.ok) return fail(`onboard:${out.reason}${"detail" in out && out.detail ? `:${String(out.detail)}` : ""}`);

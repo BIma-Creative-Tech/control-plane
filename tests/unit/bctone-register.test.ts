@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { BCTONE_PACK_ARGS } from "@/lib/job-contract";
 import {
+  INDUSTRIES,
+  INDUSTRY_LABEL,
   MODULES,
   businessSchema,
   emailDigest,
@@ -64,6 +67,23 @@ describe("form", () => {
     expect(parseModules({ extra_needs: "x" }, "fnb")).toEqual({ ok: false });
     expect(parseModules({ m_pos: "on", extra_needs: "x".repeat(501) }, "fnb")).toEqual({ ok: false });
     expect(MODULES.every((m) => m.industries.length > 0)).toBe(true);
+  });
+  it("jenis usaha = pack dispatcher; tiap jenis punya label dan modul gratis", () => {
+    expect(INDUSTRIES).toEqual(BCTONE_PACK_ARGS);
+    for (const i of INDUSTRIES) {
+      expect(INDUSTRY_LABEL[i]).toBeTruthy();
+      expect(MODULES.some((m) => m.tier === "free" && m.industries.includes(i))).toBe(true);
+      expect(businessSchema.parse({ industry: i, outlets: "1" }).industry).toBe(i);
+    }
+    expect(parseModules({ m_project: "on", m_timesheet: "on", m_invoicing: "on" }, "jasa")).toEqual({
+      ok: true,
+      modules: ["invoicing", "project", "timesheet"],
+      extra: null,
+    });
+    expect(minimumTier(["invoicing", "project"], 1)).toBe("free");
+    expect(minimumTier(["project", "timesheet"], 1)).toBe("umkm");
+    expect(parseModules({ m_pos: "on" }, "jasa")).toEqual({ ok: false }); // POS bukan untuk jasa
+    expect(parseModules({ m_repair: "on" }, "bengkel")).toEqual({ ok: true, modules: ["repair"], extra: null });
   });
 });
 

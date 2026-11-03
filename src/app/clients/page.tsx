@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/authz";
 import { parseClientListParams } from "@/lib/client-list-params";
 import { INSTANCE_ENVS, dbNameFor, instanceJobTypes, type BridgeJobType, type Instance } from "@/lib/job-contract";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
+import { INDUSTRIES, INDUSTRY_LABEL } from "@/lib/bctone-register";
 import { can } from "@/lib/roles";
 import { ONBOARDING_TYPES, typesEnabled } from "@/lib/tenant-onboarding";
 import { MANUAL_ROUTE_NOTE, REGISTER_EXISTING_TYPES } from "@/lib/tenant-register";
@@ -51,8 +52,11 @@ function OnboardingForm({ instance, plans }: { instance: Instance; plans: { id: 
             Pack BCTOne{" "}
             <select name="pack" defaultValue="" className={input}>
               <option value="">— tanpa pack —</option>
-              <option value="fnb">F&amp;B (POS restoran, stok)</option>
-              <option value="retail">Retail (POS, stok, penjualan, pembelian)</option>
+              {INDUSTRIES.map((p) => (
+                <option key={p} value={p}>
+                  {INDUSTRY_LABEL[p]}
+                </option>
+              ))}
             </select>
           </label>
           <span className="text-xs text-slate-500">

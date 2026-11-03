@@ -133,7 +133,7 @@ export default async function DaftarPage(props: { searchParams: Promise<Record<s
     <main className="mx-auto max-w-3xl space-y-6 p-6">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Daftar BCTOne</h1>
-        <p className="text-sm text-slate-600">ERP & kasir untuk F&amp;B dan retail. Mulai gratis, naik paket kapan saja.</p>
+        <p className="text-sm text-slate-600">ERP & kasir untuk F&amp;B, retail, jasa, bengkel, distribusi, manufaktur, dan usaha lainnya. Mulai gratis, naik paket kapan saja.</p>
         <Steps current={step} />
       </header>
       {e ? (
@@ -213,7 +213,7 @@ export default async function DaftarPage(props: { searchParams: Promise<Record<s
             ))}
           </fieldset>
           <label className="block text-sm">
-            Jumlah outlet
+            Jumlah outlet / lokasi usaha
             <input name="outlets" type="number" min={1} max={500} required defaultValue={reg.outlets ?? 1} className={`${input} max-w-32`} />
           </label>
           <SubmitButton className={btn}>Lanjut</SubmitButton>

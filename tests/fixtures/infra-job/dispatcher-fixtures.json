@@ -1375,6 +1375,39 @@
     "--limit",
     "users=5"
    ]
+  },
+  {
+   "name": "bctone_tenant_config_pack_jasa",
+   "instance": "staging",
+   "job": {
+    "v": 1,
+    "job_id": "3f2c7a9e-1b4d-4e8a-9c3f-5a6b7c8d9e0f",
+    "type": "bctone_tenant_config",
+    "slug": "acme-co",
+    "env": "staging",
+    "dry_run": false,
+    "actor": "user:6b1f0e2a-4c3d-4e5f-8a9b-0c1d2e3f4a5b",
+    "requested_at": "2026-09-25T10:00:00Z",
+    "args": {
+     "plan": "bctone-free",
+     "enabled": true,
+     "pack": "jasa",
+     "limits": {
+      "users": 1
+     }
+    }
+   },
+   "argv": [
+    "bctone-tenant-config.sh",
+    "acme-co",
+    "staging",
+    "--plan",
+    "bctone-free",
+    "--pack",
+    "jasa",
+    "--limit",
+    "users=1"
+   ]
   }
  ],
  "invalid": [
@@ -4895,7 +4928,7 @@
     "args": {
      "plan": "bctone-umkm",
      "enabled": true,
-     "pack": "manufaktur"
+     "pack": "tambang"
     }
    },
    "error_code": "rejected_validation"
