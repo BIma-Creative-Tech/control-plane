@@ -9,6 +9,9 @@ Image dibangun lokal di VPS dengan tag short SHA commit (`control-plane:<sha7>`)
 
 ## [Unreleased]
 
+### Fixed
+- `/daftar` langkah akun: teks persetujuan kini menautkan `/syarat` dan `/privasi` (temuan E2E staging 2026-11-03).
+
 ### Added
 - **BCTOne halaman legal publik `/syarat` dan `/privasi` + rekening pembayaran:** halaman statis (tanpa DB/sesi)
   dengan identitas `PT. Bima Creative Technolgy` (ejaan sesuai buku rekening) dari `src/lib/company.ts`; angka masa
