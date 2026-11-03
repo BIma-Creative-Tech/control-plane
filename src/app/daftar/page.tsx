@@ -165,7 +165,17 @@ export default async function DaftarPage(props: { searchParams: Promise<Record<s
           </label>
           <label className="flex gap-2 text-sm">
             <input type="checkbox" name="terms" required />
-            Saya menyetujui Syarat &amp; Ketentuan dan Kebijakan Privasi BCTOne.
+            <span>
+              Saya menyetujui{" "}
+              <a href="/syarat" target="_blank" rel="noopener" className="underline">
+                Syarat &amp; Ketentuan
+              </a>{" "}
+              dan{" "}
+              <a href="/privasi" target="_blank" rel="noopener" className="underline">
+                Kebijakan Privasi
+              </a>{" "}
+              BCTOne.
+            </span>
           </label>
           <SubmitButton className={btn}>Kirim kode verifikasi</SubmitButton>
         </form>
