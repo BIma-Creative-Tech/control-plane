@@ -180,6 +180,11 @@ export const clients = pgTable(
     withholdsPph23: boolean("withholds_pph23").notNull().default(false),
     /** BCTOne consent AI terakhir (cache dari ai_consent_log; null = belum memilih → AI ditolak, BR-05). Migrasi 0009. */
     aiConsent: aiConsent("ai_consent"),
+    /**
+     * Klien bebas tagihan permanen (mis. tenant internal BCT): tanpa invoice otomatis, tanpa pengingat, periode
+     * diperpanjang otomatis oleh tick (tidak pernah past_due/suspend). Migrasi 0012, default false = perilaku lama.
+     */
+    billingExempt: boolean("billing_exempt").notNull().default(false),
   },
   (t) => [
     uniqueIndex("clients_slug_uq").on(t.slug),
@@ -782,6 +787,8 @@ export const bctoneRegistrations = pgTable(
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     chainId: uuid("chain_id"),
     reviewNote: text("review_note"),
+    /** Owner menyetujui sebagai klien bebas tagihan (disalin ke clients.billing_exempt saat provisioning). Migrasi 0012. */
+    billingExempt: boolean("billing_exempt").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

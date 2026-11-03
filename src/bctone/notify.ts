@@ -67,7 +67,9 @@ export function composeRegistrationNotice(r: Row, opts: { ownerEmail: string; ad
           "",
           "Anda juga menerima email undangan terpisah untuk membuat kata sandi. Setelah itu masuk lewat tombol SSO di",
           "halaman login. Kuota paket dan pilihan privasi AI dapat dilihat di Console.",
-          ...(r.tier && r.tier !== "free"
+          ...(r.billingExempt
+            ? ["", "Akun ini dibebaskan dari tagihan BCTOne."]
+            : r.tier && r.tier !== "free"
             ? ["", "Tagihan terbit di Console › Tagihan. Pembayaran lewat transfer ke", paymentAccountLine() + ", lalu laporkan di Console."]
             : []),
           ...sign,

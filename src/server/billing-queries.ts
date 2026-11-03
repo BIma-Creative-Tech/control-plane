@@ -13,7 +13,7 @@ import { timestampToDate } from "@/lib/billing";
 
 export async function listBillingTenants() {
   return getDb()
-    .select({ id: clients.id, slug: clients.slug, name: clients.name, status: clients.status, terminatedAt: clients.terminatedAt, withholdsPph23: clients.withholdsPph23, aiConsent: clients.aiConsent })
+    .select({ id: clients.id, slug: clients.slug, name: clients.name, status: clients.status, terminatedAt: clients.terminatedAt, withholdsPph23: clients.withholdsPph23, aiConsent: clients.aiConsent, billingExempt: clients.billingExempt })
     .from(clients)
     .where(eq(clients.isPlatform, false))
     .orderBy(asc(clients.slug));

@@ -8,7 +8,7 @@ import { requirePermission } from "@/lib/authz";
 import { ACTION_RESULT_TEXT, parseActionResult } from "@/lib/job-list-params";
 import { ResultBanner, StatusBadge } from "../jobs/components";
 import { Nav } from "../nav";
-import { approveRegistrationAction, rejectRegistrationAction } from "./actions";
+import { approveRegistrationAction, rejectRegistrationAction, setRegistrationExemptAction } from "./actions";
 
 /** BCT Admin › Registrasi BCTOne (BR-02 review, D-2 waitlist). superadmin. Email ditampilkan (data kontak calon klien). */
 export const dynamic = "force-dynamic";
@@ -67,6 +67,7 @@ export default async function RegistrationsPage(props: { searchParams: Promise<R
                   </td>
                   <td className="p-2 text-xs">
                     {x.tier ? TIER_LABEL[x.tier as BctoneTier] : "—"} / {x.aiConsent ?? "—"}
+                    {x.billingExempt ? <span className="block font-semibold text-emerald-700">Bebas tagihan</span> : null}
                   </td>
                   <td className="p-2">
                     <StatusBadge value={x.status} />
@@ -75,6 +76,13 @@ export default async function RegistrationsPage(props: { searchParams: Promise<R
                   <td className="p-2">
                     {x.status === "review" || x.status === "waitlist" ? (
                       <div className="space-y-1">
+                        <form action={setRegistrationExemptAction}>
+                          <input type="hidden" name="id" value={x.id} />
+                          <input type="hidden" name="exempt" value={x.billingExempt ? "false" : "true"} />
+                          <button type="submit" className={btn}>
+                            {x.billingExempt ? "Batalkan bebas tagihan" : "Tandai bebas tagihan"}
+                          </button>
+                        </form>
                         <form action={approveRegistrationAction}>
                           <input type="hidden" name="id" value={x.id} />
                           <button type="submit" className={btn}>

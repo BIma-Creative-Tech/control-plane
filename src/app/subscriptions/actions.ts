@@ -8,6 +8,7 @@ import {
   createSubscription,
   goLiveSubscription,
   setClientAiConsent,
+  setClientBillingExempt,
   setClientWithholding,
   setSubscriptionPrice,
   terminateSubscription,
@@ -61,6 +62,13 @@ export async function updatePlanAction(formData: FormData): Promise<void> {
 export async function setClientWithholdingAction(formData: FormData): Promise<void> {
   await handleBillingAction("setClientWithholding", "billing:manage", "/subscriptions", formData, (svc, d) =>
     setClientWithholding(getDb(), svc, { clientId: d.clientId, withholdsPph23: d.withholds_pph23 === "true" }),
+  );
+}
+
+/** Klien bebas tagihan permanen (void invoice terbuka, tanpa invoice/pengingat berikutnya). */
+export async function setClientBillingExemptAction(formData: FormData): Promise<void> {
+  await handleBillingAction("setClientBillingExempt", "billing:manage", "/subscriptions", formData, (svc, d) =>
+    setClientBillingExempt(getDb(), svc, { clientId: d.clientId, exempt: d.billing_exempt === "true" }),
   );
 }
 

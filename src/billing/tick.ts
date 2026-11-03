@@ -24,6 +24,7 @@ import {
   dateToTimestamp,
   dueReminder,
   fingerprintFromAdminKey,
+  planExemptRenewal,
   planTransitions,
   reminderKey,
   tenantsWithoutAdmin,
@@ -94,7 +95,9 @@ async function applyTransition(d: TickDeps, tx: Tx, s: LockedSubscription, t: Tr
         .where(eq(subscriptions.id, s.id));
       md.starts_at = t.startsAt;
       md.ends_at = t.endsAt;
-      if (s.price === null) {
+      if (s.billingExempt) {
+        md.invoice = "exempt";
+      } else if (s.price === null) {
         // Harga langganan (override) DAN harga plan belum ditetapkan (ADR 0018 D7) — dilewati, dicatat di audit
         // transisi; billing menerbitkan manual di /invoices.
         md.invoice = "price_missing";
@@ -162,6 +165,38 @@ async function applyTransition(d: TickDeps, tx: Tx, s: LockedSubscription, t: Tr
   report.transitions++;
 }
 
+/**
+ * Klien bebas tagihan: periode aktif digulir maju tanpa invoice (juga past_due → active); garansi → aktif tetap lewat
+ * tabel transisi biasa (tanpa invoice, lihat applyTransition). Tidak pernah past_due/suspend/purge.
+ */
+async function applyExempt(d: TickDeps, tx: Tx, s: LockedSubscription, report: TickReport): Promise<void> {
+  if (s.status === "warranty") {
+    for (const t of planTransitions(s.snapshot, d.today).transitions) if (t.to === "active") await applyTransition(d, tx, s, t, report);
+    return;
+  }
+  const r = planExemptRenewal(s.snapshot, d.today);
+  if (!r) return;
+  await tx
+    .update(subscriptions)
+    .set({
+      status: "active",
+      currentPeriodStart: dateToTimestamp(r.startsAt),
+      currentPeriodEnd: dateToTimestamp(r.endsAt),
+      graceUntil: null,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(subscriptions.id, s.id));
+  await audit(tx, {
+    action: "subscription.transition",
+    targetType: "subscription",
+    targetId: s.id,
+    clientId: s.clientId,
+    result: "success",
+    metadata: { from: r.from, to: "active", today: d.today, starts_at: r.startsAt, ends_at: r.endsAt, invoice: "exempt" },
+  });
+  report.transitions++;
+}
+
 async function processTransitions(d: TickDeps, report: TickReport): Promise<void> {
   // QA N8: tenant terminated dilewati (arsip = fase lain; tidak ada transisi/suspend untuknya).
   const candidates = await d.db
@@ -185,6 +220,10 @@ async function processTransitions(d: TickDeps, report: TickReport): Promise<void
       await d.db.transaction(async (tx) => {
         const s = await lockSubscription(tx, c.id);
         if (!s) return;
+        if (s.billingExempt) {
+          await applyExempt(d, tx, s, report);
+          return;
+        }
         const plan = planTransitions(s.snapshot, d.today);
         if (plan.anomaly) {
           report.anomalies++;
@@ -311,6 +350,7 @@ async function processReminders(d: TickDeps, report: TickReport): Promise<void> 
       and(
         inArray(subscriptions.status, ["warranty", "active", "past_due", "suspended"]),
         eq(clients.isPlatform, false),
+        eq(clients.billingExempt, false),
         ne(clients.status, "terminated"),
         isNull(clients.terminatedAt),
       ),

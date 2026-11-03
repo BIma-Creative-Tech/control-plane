@@ -269,6 +269,7 @@ export async function lockSubscription(tx: Tx, subscriptionId: string) {
         slug: clients.slug,
         isPlatform: clients.isPlatform,
         withholdsPph23: clients.withholdsPph23,
+        billingExempt: clients.billingExempt,
       })
       .from(subscriptions)
       .innerJoin(plans, eq(plans.id, subscriptions.planId))
@@ -414,9 +415,10 @@ async function createSelfServeSubscriptionTx(
     planPrice: plan.priceAmount,
     planCurrency: plan.currency,
   });
-  let invoice: string = "free";
-  if (price) {
-    const withhold = (await tx.select({ w: clients.withholdsPph23 }).from(clients).where(eq(clients.id, client.id)).limit(1))[0]?.w === true;
+  const c = (await tx.select({ w: clients.withholdsPph23, exempt: clients.billingExempt }).from(clients).where(eq(clients.id, client.id)).limit(1))[0];
+  let invoice: string = c?.exempt ? "exempt" : "free";
+  if (price && !c?.exempt) {
+    const withhold = c?.w === true;
     const r = await issueInvoiceTx(
       tx,
       {
@@ -662,7 +664,9 @@ export async function markInvoicePaid(
         .where(eq(subscriptions.id, s.id));
       md.subscription_id = s.id;
       md.transition = { from: plan.from, to: "active", starts_at: plan.startsAt, ends_at: plan.endsAt };
-      if (s.price !== null) {
+      if (s.billingExempt) {
+        md.next_invoice = "exempt";
+      } else if (s.price !== null) {
         const next = await issueInvoiceTx(
           tx,
           {
@@ -792,6 +796,43 @@ export async function setClientWithholding(
       await tx.update(clients).set({ withholdsPph23: p.withholdsPph23, updatedAt: sql`now()` }).where(eq(clients.id, c.id));
     }
     await auditOk(tx, input, t, { withholds_pph23: { from: c.w, to: p.withholdsPph23 } });
+    return { id: c.id };
+  });
+}
+
+/**
+ * Bebas tagihan permanen (keputusan owner, mis. tenant internal BCT). Saat diaktifkan: invoice terbuka (unpaid /
+ * awaiting_confirmation) di-void dengan alasan tercatat, langganan past_due dipulihkan ke active; tick berikutnya
+ * menggulir periode tanpa invoice. Invoice lunas tidak disentuh. Saat dinonaktifkan: penagihan normal mulai periode
+ * berikutnya.
+ */
+export async function setClientBillingExempt(db: Db, input: BillingServiceInput, p: { clientId: string; exempt: boolean }): Promise<BillingOutcome> {
+  return run(db, input, "billing:manage", { action: "client.billing_exempt", targetType: "subscription", targetId: null, clientId: p.clientId }, async (tx, t) => {
+    const c = (await tx.select({ id: clients.id, cur: clients.billingExempt, isPlatform: clients.isPlatform }).from(clients).where(eq(clients.id, p.clientId)).for("update").limit(1))[0];
+    if (!c) throw new Abort({ reason: "not_found" });
+    if (c.isPlatform) throw new Abort({ reason: "invalid" });
+    if (c.cur !== p.exempt) {
+      await tx.update(clients).set({ billingExempt: p.exempt, updatedAt: sql`now()` }).where(eq(clients.id, c.id));
+    }
+    let voided: string[] = [];
+    let restored = 0;
+    if (p.exempt) {
+      voided = (
+        await tx
+          .update(invoices)
+          .set({ status: "void", voidReason: "klien bebas tagihan (keputusan owner)", updatedAt: sql`now()` })
+          .where(and(eq(invoices.clientId, c.id), inArray(invoices.status, [...OPEN_INVOICE])))
+          .returning({ number: invoices.number })
+      ).map((r) => r.number);
+      restored = (
+        await tx
+          .update(subscriptions)
+          .set({ status: "active", graceUntil: null, updatedAt: sql`now()` })
+          .where(and(eq(subscriptions.clientId, c.id), eq(subscriptions.status, "past_due")))
+          .returning({ id: subscriptions.id })
+      ).length;
+    }
+    await auditOk(tx, input, t, { billing_exempt: { from: c.cur, to: p.exempt }, voided_invoices: voided, restored_past_due: restored });
     return { id: c.id };
   });
 }

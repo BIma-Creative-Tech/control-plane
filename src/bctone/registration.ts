@@ -221,6 +221,7 @@ export async function provisionRegistration(
       envs: [{ kind: env, host }],
       planId: plan.id,
       pack: (BCTONE_PACK_ARGS as readonly string[]).includes(r.industry ?? "") ? (r.industry as BctonePack) : null,
+      billingExempt: r.billingExempt,
     },
   });
   if (!out.ok) return fail(`onboard:${out.reason}${"detail" in out && out.detail ? `:${String(out.detail)}` : ""}`);
@@ -231,7 +232,14 @@ export async function provisionRegistration(
       .set({ status: "provisioning", clientId: out.clientId, chainId: out.chainId, updatedAt: new Date() })
       .where(eq(bctoneRegistrations.id, id));
   });
-  await audit(db, { ...r, clientId: out.clientId }, "registration.provision", "success", { chain_id: out.chainId, jobs: out.jobIds.length }, ctx.meta);
+  await audit(
+    db,
+    { ...r, clientId: out.clientId },
+    "registration.provision",
+    "success",
+    { chain_id: out.chainId, jobs: out.jobIds.length, ...(r.billingExempt ? { billing_exempt: true } : {}) },
+    ctx.meta,
+  );
   return { ok: true, chainId: out.chainId, clientId: out.clientId };
 }
 
@@ -281,6 +289,17 @@ export async function settleRegistrations(db: Db): Promise<number> {
     }
   }
   return n;
+}
+
+/** Owner menandai registrasi review/waitlist sebagai bebas tagihan (sebelum disetujui). */
+export async function setRegistrationBillingExempt(db: Db, id: string, exempt: boolean, meta: RequestMeta): Promise<boolean> {
+  const r = await loadRegistration(db, id);
+  if (!r || !["review", "waitlist"].includes(r.status)) return false;
+  if (r.billingExempt !== exempt) {
+    await db.update(bctoneRegistrations).set({ billingExempt: exempt, updatedAt: new Date() }).where(eq(bctoneRegistrations.id, id));
+  }
+  await audit(db, r, "registration.billing_exempt", "success", { from: r.billingExempt, to: exempt }, meta);
+  return true;
 }
 
 /** Owner menolak registrasi review/waitlist. */

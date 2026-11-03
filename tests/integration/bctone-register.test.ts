@@ -29,7 +29,9 @@ import type { Mailer, MailMessage } from "@/billing/mailer";
 import { sendRegistrationOtp } from "@/worker/bctone-otp";
 import { notifyRegistrations } from "@/bctone/notify";
 import { portalReportPayment } from "@/billing/portal-payment";
-import { createSubscription, type BillingServiceInput } from "@/billing/service";
+import { createSubscription, setClientBillingExempt, type BillingServiceInput } from "@/billing/service";
+import { runSubscriptionTick } from "@/billing/tick";
+import { setRegistrationBillingExempt } from "@/bctone/registration";
 import { invoices, notificationLog, plans, users } from "@/db/schema";
 
 const URL_ = process.env.TEST_DATABASE_URL;
@@ -240,5 +242,40 @@ describe.skipIf(!URL_)("BCTOne registrasi self-serve", () => {
     // invoice tenant lain dari admin ini → not_found
     const [adm2] = await db.insert(users).values({ keycloakSub: "adm-ra", role: "client_admin", clientId: other.id, status: "active" }).returning();
     expect(await portalReportPayment(db, { clientId: other.id, userId: adm2!.id, actor: { ...A, sub: "adm-ra", userId: adm2!.id }, meta: META, form, now })).toEqual({ ok: false, reason: "not_found" });
+  });
+
+  it("bebas tagihan: registrasi Bisnis ditandai owner → approve tanpa invoice; tick bertahun-tahun tetap active; toggle klien lama me-void invoice terbuka", async () => {
+    const quiet = { info: () => undefined, warn: () => undefined, error: () => undefined };
+    const id = await startVerified("bct-int", "owner@bct.example", "192.0.2.20");
+    await fill(id, "bisnis", null, ["pos", "accounting"]);
+    expect(await submitRegistration(db, id, ctx())).toEqual({ ok: true, status: "review" });
+    expect(await setRegistrationBillingExempt(db, id, true, META)).toBe(true);
+    const owner: Actor = { sub: "owner-sub", userId: null, roles: ["superadmin"] };
+    const p = await provisionRegistration(db, id, ctx(), owner);
+    expect(p.ok).toBe(true);
+    expect(await setRegistrationBillingExempt(db, id, false, META)).toBe(false); // sudah bukan review
+    const c = (await db.select().from(clients).where(eq(clients.slug, "bct-int")))[0]!;
+    expect(c.billingExempt).toBe(true);
+    const sub = (await db.select().from(subscriptions).where(eq(subscriptions.clientId, c.id)))[0]!;
+    expect(sub.status).toBe("active");
+    expect(await db.select().from(invoices).where(eq(invoices.clientId, c.id))).toHaveLength(0);
+    const tick = (today: string) =>
+      runSubscriptionTick({ db, send, instance: "staging", allowedTypes: [...BRIDGE_JOB_TYPES], logger: quiet, mailer, billingEmail: "billing@bimacreative.tech", now: new Date(`${today}T03:00:00Z`), today });
+    await tick("2029-06-15");
+    const after = (await db.select().from(subscriptions).where(eq(subscriptions.id, sub.id)))[0]!;
+    expect(after.status).toBe("active");
+    expect(after.currentPeriodEnd!.getTime()).toBeGreaterThan(new Date("2029-06-15T00:00:00Z").getTime());
+    expect(await db.select().from(invoices).where(eq(invoices.clientId, c.id))).toHaveLength(0);
+    expect((await db.select().from(notificationLog).where(eq(notificationLog.clientId, c.id))).filter((n) => n.kind !== "bctone_registration_welcome")).toHaveLength(0);
+
+    // klien berbayar lama (kopi-senja: invoice UMKM awaiting_confirmation) → bebas tagihan: invoice terbuka di-void
+    const ks = (await db.select().from(clients).where(eq(clients.slug, "kopi-senja")))[0]!;
+    const [sa] = await db.insert(users).values({ keycloakSub: "sa-exempt", role: "superadmin" }).returning();
+    const svc: BillingServiceInput = { actor: { sub: "sa-exempt", userId: sa!.id, roles: ["superadmin"] }, meta: META, instance: "staging", allowedTypes: [...BRIDGE_JOB_TYPES], send };
+    expect(await setClientBillingExempt(db, svc, { clientId: ks.id, exempt: true })).toMatchObject({ ok: true });
+    const open = (await db.select().from(invoices).where(eq(invoices.clientId, ks.id))).filter((i) => i.status !== "void");
+    expect(open).toHaveLength(0);
+    const plat = (await db.select().from(clients).where(eq(clients.isPlatform, true)))[0]!;
+    expect(await setClientBillingExempt(db, svc, { clientId: plat.id, exempt: true })).toMatchObject({ ok: false, reason: "invalid" });
   });
 });
